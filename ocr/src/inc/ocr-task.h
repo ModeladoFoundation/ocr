@@ -18,6 +18,10 @@
 #include "ocr-statistics.h"
 #endif
 
+#ifdef ENABLE_EXTENSION_PERF
+#include "ocr-perfmon.h"
+#endif
+
 #ifdef OCR_ENABLE_EDT_NAMING
 #ifndef OCR_EDT_NAME_SIZE
 #define OCR_EDT_NAME_SIZE 32
@@ -115,6 +119,9 @@ typedef struct _ocrTaskTemplate_t {
     ocrEdt_t executePtr;    /**< Function pointer to execute */
 #ifdef OCR_ENABLE_EDT_NAMING
     const char name[OCR_EDT_NAME_SIZE];       /**< Name of the EDT */
+#endif
+#ifdef ENABLE_EXTENSION_PERF
+    ocrPerfCounters_t *taskPerfsEntry;   /**< Entry to the PD's taskPerfs queue */
 #endif
     u32 fctId;              /**< Functions to manage this template */
 } ocrTaskTemplate_t;
@@ -342,6 +349,10 @@ typedef struct _ocrTask_t {
     u32 paramc, depc;       /**< Number of parameters and dependences */
     u32 flags;              /**< Bit flags for the task */
     u32 fctId;
+#ifdef ENABLE_EXTENSION_PERF
+    ocrPerfCounters_t *taskPerfsEntry;
+    u32 swPerfCtrs[PERF_MAX-PERF_HW_MAX];
+#endif
 } ocrTask_t;
 
 #define OCR_TASK_FLAG_USES_HINTS            0x1 /* Identifies if the task has user hints set */
@@ -350,6 +361,9 @@ typedef struct _ocrTask_t {
 #define OCR_TASK_FLAG_USES_AFFINITY         0x8 /* BUG #921: This should go away once affinity is folded into hints */
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
 #define OCR_TASK_FLAG_LONG                  0x10
+#endif
+#ifdef ENABLE_EXTENSION_PERF
+#define OCR_TASK_FLAG_PERFMON_ME            0x20 /* Identifies if perfmon needs to be carried out for this task */
 #endif
 
 /****************************************************/

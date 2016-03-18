@@ -178,6 +178,11 @@ u8 regularFree(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, u32
     bool reqRelease = ((properties & DB_PROP_NO_RELEASE) == 0);
     ocrDataBlockRegular_t *rself = (ocrDataBlockRegular_t*)self;
 
+#ifdef ENABLE_EXTENSION_PERF
+    ocrTask_t * curEdt = (ocrTask_t *)edt.metaDataPtr;
+    if(curEdt) curEdt->swPerfCtrs[PERF_DB_DESTROYS - PERF_HW_MAX] += self->size;
+#endif
+
     DPRINTF(DEBUG_LVL_VERB, "Requesting a free for DB @ 0x%"PRIx64" (GUID: "GUIDF")\n",
             (u64)self->ptr, GUIDA(rself->base.guid));
     // Begin critical section

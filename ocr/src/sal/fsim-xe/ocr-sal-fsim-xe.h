@@ -49,4 +49,17 @@ extern void salResume(u32 flag);
           "L" (XE_CONOUT_ALARM)                                     \
         : "r" XE_CONOUT_MSG_REG_STR)
 
+#ifdef ENABLE_EXTENSION_PERF
+
+typedef struct _salPerfCounter {
+    u64 perfVal;
+} salPerfCounter;
+
+u64 salPerfInit(salPerfCounter* perfCtr);
+u64 salPerfStart(salPerfCounter* perfCtr);
+u64 salPerfStop(salPerfCounter* perfCtr);
+u64 salPerfShutdown(salPerfCounter *perfCtr);
+
+#endif
+
 #endif /* __OCR_SAL_FSIM_XE_H__ */

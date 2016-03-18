@@ -149,5 +149,8 @@
 // Runtime extension support
 #define ENABLE_EXTENSION_RTITF
 
+// Performance monitoring
+//#define ENABLE_EXTENSION_PERF
+
 #endif /* __OCR_CONFIG_H__ */
 

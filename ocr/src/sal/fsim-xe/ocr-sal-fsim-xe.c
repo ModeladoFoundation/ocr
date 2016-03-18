@@ -73,4 +73,51 @@ u64 salGetTime(void){
     return cycles;
 }
 
+#ifdef ENABLE_EXTENSION_PERF
+
+u64 pmuCounters[] = {
+    78, //CORE_STALL_CYCLES,
+    64, //INSTRUCTIONS_EXECUTED,
+     6, //LOCAL_READ_COUNT,
+    14, //LOCAL_WRITE_COUNT,
+    8,  //REMOTE_READ_COUNT,
+    16, //REMOTE_WRITE_COUNT,
+    0
+};
+
+u64 salPerfInit(salPerfCounter* perfCtr) {
+    // Does nothing, added for compatibility
+    return 0;
+}
+
+u64 salPerfStart(salPerfCounter* perfCtr) {
+    u32 i = 0;
+
+    for(i = 0; pmuCounters[i]; i++)
+        // reset & enable the PMU counters
+        *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[i]) = 0;
+
+    return 0;
+}
+
+u64 salPerfStop(salPerfCounter* perfCtr) {
+
+    // Doesn't really stop, just reads the counter values
+    perfCtr[PERF_HW_CYCLES].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[0]) +
+                              *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[1]);
+    perfCtr[PERF_L1_HITS].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[2]) +
+                              *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[3]);
+    perfCtr[PERF_L1_MISSES].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[4]) +
+                              *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[5]);
+    perfCtr[PERF_FLOAT_OPS].perfVal = 0xdeaddead;
+
+    return 0;
+}
+
+u64 salPerfShutdown(salPerfCounter *perfCtr) {
+    // Does nothing, added for compatibility
+    return 0;
+}
+
+#endif
 #endif /* ENABLE_POLICY_DOMAIN_XE */

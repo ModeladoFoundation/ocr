@@ -134,5 +134,8 @@
 // GUID labeling extension
 #define ENABLE_EXTENSION_LABELING
 
+// Performance monitoring
+//#define ENABLE_EXTENSION_PERF
+
 #endif /* __OCR_CONFIG_H__ */
 

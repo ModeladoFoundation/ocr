@@ -8,9 +8,17 @@
 #define __OCR_SAL_LINUX_H__
 
 #include "ocr-hal.h"
+#include "ocr-perfmon.h"
 
 #include <assert.h>
 #include <stdio.h>
+
+#ifdef ENABLE_EXTENSION_PERF
+#include <unistd.h>
+#include <asm/unistd.h>
+#include <sys/ioctl.h>
+#include <linux/perf_event.h>
+#endif
 
 void sig_handler(u32 sigNum);
 
@@ -29,5 +37,21 @@ extern void registerSignalHandler();
 #define sal_assert(x, f, l)  assert(x)
 
 #define sal_print(msg, len)   printf("%s", msg)
+
+#ifdef ENABLE_EXTENSION_PERF
+
+typedef struct _salPerfCounter {
+    u64 perfVal;
+    u32 perfFd;
+    u32 perfType;
+    u64 perfConfig;
+    struct perf_event_attr perfAttr;
+} salPerfCounter;
+
+u64 salPerfInit(salPerfCounter* perfCtr);
+u64 salPerfStart(salPerfCounter* perfCtr);
+u64 salPerfStop(salPerfCounter* perfCtr);
+u64 salPerfShutdown(salPerfCounter *perfCtr);
+#endif
 
 #endif /* __OCR_SAL_LINUX_H__ */

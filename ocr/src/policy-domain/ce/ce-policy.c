@@ -464,7 +464,6 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
     masterWorkerProperties = properties;
     properties &= ~RL_NODE_MASTER;
 
-
     switch (runlevel) {
     case RL_CONFIG_PARSE:
     {
@@ -783,6 +782,12 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
     case RL_COMPUTE_OK:
     {
         if(properties & RL_BRING_UP) {
+
+#ifdef ENABLE_EXTENSION_PERF
+#define MAX_EDT_TEMPLATES 64
+                policy->taskPerfs = newBoundedQueue(policy, MAX_EDT_TEMPLATES);
+#endif
+
             phaseCount = RL_GET_PHASE_COUNT_UP(policy, RL_COMPUTE_OK);
             for(i = 0; i < phaseCount; ++i) {
                 if(toReturn) break;
@@ -805,6 +810,20 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 }
             }
         } else {
+
+#ifdef ENABLE_EXTENSION_PERF
+                ocrPerfCounters_t *counters;
+                PRINTF("EDT\tCount\tHW_CYCLES\tL1_HITS\tL1_MISS\tFLOAT_OPS\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
+                while(!queueIsEmpty(policy->taskPerfs)) {
+                    u32 i;
+                    counters = queueRemoveLast(policy->taskPerfs);
+                    PRINTF("%p\t%d\t", counters->edt, counters->count);
+                    for(i = 0; i < PERF_MAX; i++) PRINTF("%"PRId64"\t", counters->stats[i].average);
+                    PRINTF("%x\n", counters->steadyStateMask);
+                    policy->fcts.pdFree(policy, counters);
+                }
+                queueDestroy(policy->taskPerfs);
+#endif
             // Tear down
             phaseCount = RL_GET_PHASE_COUNT_DOWN(policy, RL_COMPUTE_OK);
             maxCount = policy->workerCount;
@@ -1530,6 +1549,10 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         localDeguidify(self, &(PD_MSG_FIELD_I(templateGuid)), NULL);
         localDeguidify(self, &(PD_MSG_FIELD_I(currentEdt)), NULL);
         localDeguidify(self, &(PD_MSG_FIELD_I(parentLatch)), NULL);
+#ifdef ENABLE_EXTENSION_PERF
+        ocrTask_t *curEdt = PD_MSG_FIELD_I(currentEdt).metaDataPtr;
+        if(curEdt) curEdt->swPerfCtrs[PERF_EDT_CREATES - PERF_HW_MAX]++;
+#endif
         ASSERT((PD_MSG_FIELD_I(workType) == EDT_USER_WORKTYPE) || (PD_MSG_FIELD_I(workType) == EDT_RT_WORKTYPE));
         DPRINTF(DEBUG_LVL_VERB, "Processing WORK_CREATE request\n");
         PD_MSG_FIELD_O(returnDetail) = ceCreateEdt(
@@ -2521,6 +2544,10 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrGuidKind dstKind;
         localDeguidify(self, &(PD_MSG_FIELD_I(guid)), &dstKind);
 
+#ifdef ENABLE_EXTENSION_PERF
+        ocrTask_t *curEdt = PD_MSG_FIELD_I(satisfierGuid).metaDataPtr;
+        if(curEdt) curEdt->swPerfCtrs[PERF_EVT_SATISFIES - PERF_HW_MAX]++;
+#endif
         ocrFatGuid_t dst = PD_MSG_FIELD_I(guid);
         if(dstKind & OCR_GUID_EVENT) {
             DPRINTF(DEBUG_LVL_VVERB, "Destination is an event\n");

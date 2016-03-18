@@ -352,6 +352,10 @@ typedef enum {
     OCR_HINT_EDT_DISPERSE,                  /* [xxx] : Tells scheduler to schedule EDT away from current location */
     OCR_HINT_EDT_SPACE,                     /* [u64] : Used internally by the runtime for spatial locality of EDTs */
     OCR_HINT_EDT_TIME,                      /* [u64] : Used internally by the runtime for temporal locality of EDTs */
+    OCR_HINT_EDT_STATS_HW_CYCLES,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_STATS_L1_HITS,             /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_STATS_L1_MISSES,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_STATS_FLOAT_OPS,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
     OCR_HINT_EDT_PROP_END,                  /* This is NOT a hint. Its use is reserved for the runtime */
 
     //DB Hint Properties                    (OCR_HINT_DB_T)

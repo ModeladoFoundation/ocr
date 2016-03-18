@@ -183,6 +183,6 @@ u8 arrayDequePeekFromHead(arrayDeque_t* deque, void** entry);
  * @return a deque
  */
 struct _ocrDeque_t;
-struct _ocrDeque_t* newArrayQueue(ocrPolicyDomain_t *pd, void * initValue);
+struct _ocrDeque_t* newArrayQueue(struct _ocrPolicyDomain_t *pd, void * initValue);
 #endif /* __ARRAYDEQUE_H__ */
 
