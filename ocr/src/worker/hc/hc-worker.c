@@ -37,6 +37,10 @@
 #include "ocr-policy-domain-tasks.h"
 #endif
 
+#ifdef ENABLE_EXTENSION_PERF
+#include "ocr-sal.h"
+#endif
+
 /******************************************************/
 /* OCR-HC WORKER                                      */
 /******************************************************/
@@ -91,7 +95,60 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 worker->curTask = curTask;
                 DPRINTF(DEBUG_LVL_VERB, "Worker shifting to execute EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
-                ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(curTask);
+#ifdef ENABLE_EXTENSION_PERF
+                u32 i;
+                if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME)
+                    salPerfStart(hcWorker->perfCtrs);
+                else DPRINTF(DEBUG_LVL_VERB, "Steady state reached\n");
+#endif
+                ((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask);
+#ifdef ENABLE_EXTENSION_PERF
+                if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
+                    salPerfStop(hcWorker->perfCtrs);
+                }
+
+                ocrPerfCounters_t* ctrs = worker->curTask->taskPerfsEntry;
+
+                if(curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
+                    ctrs->count++;
+                    // Update this value - atomic update is not necessary,
+                    // we sacrifice accuracy for performance
+                    for(i = 0; i < PERF_MAX; i++) {
+                        u64 perfval = (i<PERF_HW_MAX) ? (hcWorker->perfCtrs[i].perfVal)
+                                                      : (curTask->swPerfCtrs[i-PERF_HW_MAX]);
+                        u64 oldaverage = ctrs->stats[i].average;
+                        ctrs->stats[i].average = (oldaverage + perfval)>>1;
+                        // Check for steady state
+                        if(ctrs->count > STEADY_STATE_COUNT) {
+                            s64 diff = ctrs->stats[i].average - oldaverage;
+                            diff = (diff < 0)?(-diff):(diff);
+                            if(diff <= ctrs->stats[i].average >> STEADY_STATE_SHIFT)
+                                ctrs->steadyStateMask &= ~(1<<i);  // Steady state reached for this counter
+                        }
+                    }
+                } else {
+                    // If hints are specified, simply read them
+                    u64 hintValue;
+                    ocrHint_t hint = {0};
+                    u8 hintValid = 0;
+
+                    hint.type = OCR_HINT_EDT_T;
+                    ((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.getHint(curTask, &hint);
+                    for (i = OCR_HINT_EDT_STATS_HW_CYCLES; i <= OCR_HINT_EDT_STATS_FLOAT_OPS; i++) {
+                        hintValue = 0;
+                        ocrGetHintValue(&hint, i, &hintValue);
+                        if(hintValue) {
+                            ctrs->stats[i-OCR_HINT_EDT_STATS_HW_CYCLES].average = hintValue;
+                            hintValid = 1;
+                        }
+                    }
+                    if(hintValid) {
+                        ctrs->count++;
+                        ctrs->steadyStateMask = 0;
+                    }
+                }
+#endif
+                //Store state at worker level to report most recent state on pause.
                 hcWorker->edtGuid = curTask->guid;
 #ifdef OCR_ENABLE_EDT_NAMING
                 hcWorker->name = curTask->name;
@@ -137,6 +194,10 @@ static void hcWorkShift(ocrWorker_t * worker) {
 
 static void workerLoop(ocrWorker_t * worker) {
     u8 continueLoop = true;
+#ifdef ENABLE_EXTENSION_PERF
+    ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *)worker;
+#endif
+
     // At this stage, we are in the USER_OK runlevel
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
@@ -206,6 +267,11 @@ static void workerLoop(ocrWorker_t * worker) {
         // Once mainEdt is created, its template is no longer needed
         ocrEdtTemplateDestroy(edtTemplateGuid);
     }
+
+#ifdef ENABLE_EXTENSION_PERF
+    salPerfInit(hcWorker->perfCtrs);
+#endif
+
     // Actual loop
     do {
         while(worker->curState == worker->desiredState) {
@@ -252,6 +318,11 @@ static void workerLoop(ocrWorker_t * worker) {
             ASSERT(0);
         }
     } while(continueLoop);
+
+#ifdef ENABLE_EXTENSION_PERF
+    salPerfShutdown(hcWorker->perfCtrs);
+#endif
+
     DPRINTF(DEBUG_LVL_VERB, "Finished worker loop ... waiting to be reapped\n");
 }
 
@@ -263,6 +334,9 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                           phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t *, u64), u64 val) {
 
     u8 toReturn = 0;
+#ifdef ENABLE_EXTENSION_PERF
+    ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *)self;
+#endif
 
     // Verify properties
     ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
@@ -313,14 +387,24 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             self->pd = PD;
         break;
     case RL_MEMORY_OK:
-        //Check that OCR has been configured to utilize system worker.
-        //worker[n-1] by convention. If so initialize deques
-        if(PD->workers[(PD->workerCount)-1]->type == SYSTEM_WORKERTYPE){
-            if(self->type == MASTER_WORKERTYPE || self->type == SLAVE_WORKERTYPE) {
-                if(((ocrWorkerHc_t *)self)->sysDeque == NULL){
-                    ((ocrWorkerHc_t*)self)->sysDeque = newDeque(self->pd, NULL, NON_CONCURRENT_DEQUE);
+        if((properties & RL_BRING_UP) && (RL_IS_FIRST_PHASE_UP(PD, RL_MEMORY_OK, phase))) {
+            //Check that OCR has been configured to utilize system worker.
+            //worker[n-1] by convention. If so initialize deques
+            //TODO: this check can be dropped without too much consequence (just some unused memory)
+            if(PD->workers[(PD->workerCount)-1]->type == SYSTEM_WORKERTYPE){
+                if(self->type == MASTER_WORKERTYPE || self->type == SLAVE_WORKERTYPE) {
+                    if(((ocrWorkerHc_t *)self)->sysDeque == NULL){
+                        ((ocrWorkerHc_t*)self)->sysDeque = newDeque(self->pd, NULL, NON_CONCURRENT_DEQUE);
+                    }
                 }
             }
+#ifdef ENABLE_EXTENSION_PERF
+            hcWorker->perfCtrs = PD->fcts.pdMalloc(PD, PERF_HW_MAX*sizeof(salPerfCounter));
+#endif
+        } else if((properties & RL_TEAR_DOWN) && (RL_IS_FIRST_PHASE_DOWN(PD, RL_MEMORY_OK, phase))) {
+#ifdef ENABLE_EXTENSION_PERF
+            PD->fcts.pdFree(PD, hcWorker->perfCtrs);
+#endif
         }
         break;
     case RL_GUID_OK:

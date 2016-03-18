@@ -2,7 +2,7 @@
 #define __TG_BIN_FILES_H__
 
 #define PD_SWITCH_RL_OFFSET              (0x08)  // Offset of switchRunlevel in ocrPolicyDomainFcts_t
-#define XE_PDARGS_OFFSET                 (0x178) // sizeof(ocrPolicyDomain_t)
+#define XE_PDARGS_OFFSET                 (0x180) // sizeof(ocrPolicyDomain_t)
 
 // HACK FIXME TG
 #define MAX_NUM_BLOCK 8

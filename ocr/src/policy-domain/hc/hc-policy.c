@@ -26,6 +26,7 @@
 #endif
 
 #include "utils/profiler/profiler.h"
+#include "utils/ocr-utils.h"
 
 #include "policy-domain/hc/hc-policy.h"
 #include "allocator/allocator-all.h"
@@ -377,6 +378,12 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
         // At this stage, we have a memory to use so we can create the placer
         // This phase is the first one creating capable modules (workers) apart from myself
         if(properties & RL_BRING_UP) {
+
+#ifdef ENABLE_EXTENSION_PERF
+#define MAX_EDT_TEMPLATES 64
+                policy->taskPerfs = newBoundedQueue(policy, MAX_EDT_TEMPLATES);
+#endif
+
             phaseCount = policy->phasesPerRunlevel[RL_COMPUTE_OK][0] & 0xF;
             maxCount = policy->workerCount;
             for(i = rself->rlSwitch.nextPhase; i < phaseCount; ++i) {
@@ -451,6 +458,19 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                         policy->workers[j], policy, runlevel, rself->rlSwitch.nextPhase, properties, NULL, 0);
                 }
 
+#ifdef ENABLE_EXTENSION_PERF
+                ocrPerfCounters_t *counters;
+                PRINTF("EDT\tCount\tHW_CYCLES\tL1_HITS\tL1_MISS\tFLOAT_OPS\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
+                while(!queueIsEmpty(policy->taskPerfs)) {
+                    u32 i;
+                    counters = queueRemoveLast(policy->taskPerfs);
+                    PRINTF("%p\t%"PRId32"\t", counters->edt, counters->count);
+                    for(i = 0; i < PERF_MAX; i++) PRINTF("%"PRId64"\t", counters->stats[i].average);
+                    PRINTF("%"PRIx32"\n", counters->steadyStateMask);
+                    policy->fcts.pdFree(policy, counters);
+                }
+                queueDestroy(policy->taskPerfs);
+#endif
                 //to be deprecated
                 destroyLocationPlacer(policy);
                 destroyPlatformModelAffinity(policy);
@@ -1579,6 +1599,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         localDeguidify(self, &(PD_MSG_FIELD_I(currentEdt)));
         localDeguidify(self, &(PD_MSG_FIELD_I(parentLatch)));
 
+#ifdef ENABLE_EXTENSION_PERF
+        ocrTask_t *curEdt = PD_MSG_FIELD_I(currentEdt).metaDataPtr;
+        if(curEdt) curEdt->swPerfCtrs[PERF_EDT_CREATES - PERF_HW_MAX]++;
+#endif
         ocrFatGuid_t *outputEvent = &(PD_MSG_FIELD_IO(outputEvent));
         if((PD_MSG_FIELD_I(workType) != EDT_USER_WORKTYPE) && (PD_MSG_FIELD_I(workType) != EDT_RT_WORKTYPE)) {
             // This is a runtime error and should be reported as such
@@ -2460,6 +2484,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrGuidKind dstKind;
 #ifdef ENABLE_EXTENSION_PAUSE
         ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+#endif
+#ifdef ENABLE_EXTENSION_PERF
+        ocrTask_t * curEdt = PD_MSG_FIELD_I(satisfierGuid).metaDataPtr;
+        if(curEdt) curEdt->swPerfCtrs[PERF_EVT_SATISFIES - PERF_HW_MAX]++;
 #endif
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(guid.guid),

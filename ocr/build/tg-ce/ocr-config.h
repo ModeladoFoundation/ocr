@@ -115,6 +115,9 @@
 //Channel Events support
 #define ENABLE_EXTENSION_CHANNEL_EVT
 
+// Performance monitoring
+#define ENABLE_EXTENSION_PERF
+
 #endif /* __OCR_CONFIG_H__ */
 
 

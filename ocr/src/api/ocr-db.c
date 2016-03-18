@@ -77,6 +77,11 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
 #undef PD_MSG
 #undef PD_TYPE
 
+#ifdef ENABLE_EXTENSION_PERF
+    if(*addr && task)
+        task->swPerfCtrs[PERF_DB_CREATES - PERF_HW_MAX] += len;
+#endif
+
     if((!(flags & DB_PROP_NO_ACQUIRE)) &&  task && (returnCode == 0)) {
         // Here we inform the task that we created a DB
         // This is most likely ALWAYS a local message but let's leave the

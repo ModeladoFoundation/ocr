@@ -523,6 +523,12 @@ u8 lockableFree(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, u3
     DPRINTF(DEBUG_LVL_VERB, "Requesting a free for DB @ 0x%"PRIx64" (GUID: "GUIDF"); props: 0x%"PRIx32"\n",
             (u64)self->ptr, GUIDA(rself->base.guid), properties);
 
+#ifdef ENABLE_EXTENSION_PERF
+    ocrTask_t * curEdt = NULL;
+    getCurrentEnv(NULL, NULL, &curEdt, NULL);
+    if(curEdt) curEdt->swPerfCtrs[PERF_DB_DESTROYS - PERF_HW_MAX] += self->size;
+#endif
+
     hal_lock(&(rself->lock));
     if(rself->attributes.freeRequested) {
         hal_unlock(&(rself->lock));

@@ -24,6 +24,8 @@
 #include "experimental/ocr-platform-model.h"
 #include "experimental/ocr-placer.h"
 
+#include "utils/queue.h"
+
 struct _pdEvent_t;
 
 /****************************************************/
@@ -1473,6 +1475,8 @@ typedef struct _ocrPolicyDomain_t {
     ocrPlatformModel_t * platformModel;         /**< Platform model (WIP) */
 
     struct _pdStrandTable_t* strandTables[2];
+
+    Queue_t* taskPerfs;                        /**< Table maintaining performance statistics of each EDT */
 
     /**
      * @brief Two dimensional array:

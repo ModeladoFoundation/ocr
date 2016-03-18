@@ -20,6 +20,8 @@
 #include "xstg-arch.h"
 #include "xstg-map.h"
 
+#include "extensions/ocr-hints.h"
+
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
 #include "ocr-statistics-callbacks.h"
@@ -47,6 +49,12 @@ static void workerLoop(ocrWorker_t * worker) {
     ocrPolicyDomain_t *pd = worker->pd;
     PD_MSG_STACK(msg);
     getCurrentEnv(NULL, NULL, NULL, &msg);
+
+#ifdef ENABLE_EXTENSION_PERF
+    ocrWorkerXe_t *xeWorker = (ocrWorkerXe_t *)worker;
+    salPerfInit(xeWorker->perfCtrs);
+#endif
+
     while(worker->fcts.isRunning(worker)) {
     DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" REQUESTING WORK\n", pd->myLocation);
 #if 1 //This is disabled until we move TAKE heuristic in CE policy domain to inside scheduler
@@ -66,7 +74,63 @@ static void workerLoop(ocrWorker_t * worker) {
                 ASSERT(taskGuid.metaDataPtr != NULL);
                 worker->curTask = (ocrTask_t*)taskGuid.metaDataPtr;
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
+#ifdef ENABLE_EXTENSION_PERF
+                u32 i;
+                if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME)
+                    salPerfStart(xeWorker->perfCtrs);
+                else DPRINTF(DEBUG_LVL_VVERB, "Steady state reached\n");
+#endif
+
                 ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(worker->curTask);
+
+#ifdef ENABLE_EXTENSION_PERF
+                if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
+                    salPerfStop(xeWorker->perfCtrs);
+                }
+
+                ocrPerfCounters_t* ctrs = worker->curTask->taskPerfsEntry;
+
+                if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
+                    ctrs->count++;
+                    // Update this value - atomic update is not necessary,
+                    // we sacrifice accuracy for performance
+                    for(i = 0; i < PERF_MAX; i++) {
+                        u64 perfval = (i<PERF_HW_MAX) ? (xeWorker->perfCtrs[i].perfVal)
+                                                      : (worker->curTask->swPerfCtrs[i-PERF_HW_MAX]);
+                        u64 oldaverage = ctrs->stats[i].average;
+                        ctrs->stats[i].average = (oldaverage + perfval)>>1;
+                        // Check for steady state
+                        if(ctrs->count > STEADY_STATE_COUNT) {
+                            s64 diff = ctrs->stats[i].average - oldaverage;
+                            diff = (diff < 0)?(-diff):(diff);
+                            if(diff <= ctrs->stats[i].average >> STEADY_STATE_SHIFT)
+                                ctrs->steadyStateMask &= ~(1<<i);  // Steady state reached for this counter
+                        }
+                    }
+                }
+                else {
+                    // If hints are specified, simply read them
+                    u64 hintValue;
+                    ocrHint_t hint;
+                    u8 hintValid = 0;
+
+                    hint.type = OCR_HINT_EDT_T;
+                    ((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.getHint(worker->curTask, &hint);
+                    for (i = OCR_HINT_EDT_STATS_HW_CYCLES; i <= OCR_HINT_EDT_STATS_FLOAT_OPS; i++) {
+                        hintValue = 0;
+                        ocrGetHintValue(&hint, i, &hintValue);
+                        if(hintValue) {
+                            ctrs->stats[i-OCR_HINT_EDT_STATS_HW_CYCLES].average = hintValue;
+                            hintValid = 1;
+                        }
+                    }
+                    if(hintValid) {
+                        ctrs->count++;
+                        ctrs->steadyStateMask = 0;
+                    }
+                }
+#endif
+
 #undef PD_TYPE
 #define PD_TYPE PD_MSG_SCHED_NOTIFY
                 getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -126,6 +190,11 @@ static void workerLoop(ocrWorker_t * worker) {
         }
 #endif
     } /* End of while loop */
+
+#ifdef ENABLE_EXTENSION_PERF
+    salPerfShutdown(xeWorker->perfCtrs);
+#endif
+
 }
 
 void destructWorkerXe(ocrWorker_t * base) {
@@ -165,6 +234,16 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
         }
         break;
     case RL_MEMORY_OK:
+#ifdef ENABLE_EXTENSION_PERF
+        {
+            ocrWorkerXe_t *xeWorker = (ocrWorkerXe_t *)self;
+            if((properties & RL_BRING_UP)) {
+                xeWorker->perfCtrs = PD->fcts.pdMalloc(PD, PERF_HW_MAX*sizeof(salPerfCounter));
+            } else {
+                PD->fcts.pdFree(PD, xeWorker->perfCtrs);
+            }
+        }
+#endif
         break;
     case RL_GUID_OK:
         break;

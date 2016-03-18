@@ -5,10 +5,14 @@
  */
 
 #include "ocr-config.h"
-#include "ocr-std.h"
+#include "debug.h"
 #ifdef SAL_LINUX
 
 #include "ocr-types.h"
+#include "ocr-errors.h"
+
+#define DEBUG_TYPE SAL
+
 #ifdef __MACH__
 
 #include <mach/mach_time.h>
@@ -38,6 +42,85 @@ u64 salGetTime(){
 }
 #endif /*__MACH__*/
 
+#ifdef ENABLE_EXTENSION_PERF
+
+static u64 perfEventOpen(struct perf_event_attr *hw_event)
+{
+   u64 ret;
+
+   ret = syscall(__NR_perf_event_open, hw_event, 0, -1, -1, 0);
+                                               // pid, cpu, group_perfFd, flags
+   return ret;
+}
+
+// FIXME: The following should come from config file
+s32 counter_type[PERF_HW_MAX] = { PERF_TYPE_HARDWARE, PERF_TYPE_HARDWARE, PERF_TYPE_HARDWARE, PERF_TYPE_RAW };
+s32 counter_cfg [PERF_HW_MAX] = { PERF_COUNT_HW_BUS_CYCLES, PERF_COUNT_HW_CACHE_REFERENCES, PERF_COUNT_HW_CACHE_MISSES, 0xf110 };
+
+u64 salPerfInit(salPerfCounter* perfCtr) {
+    u32 i;
+    u32 retval = 0;
+
+    for(i = 0; i < PERF_HW_MAX; i++) {
+        memset(&perfCtr[i].perfAttr, 0, sizeof(perfCtr[i].perfAttr));
+        perfCtr[i].perfAttr.type = counter_type[i];
+        perfCtr[i].perfAttr.size = sizeof(struct perf_event_attr);
+        perfCtr[i].perfAttr.config = counter_cfg[i];
+        perfCtr[i].perfAttr.disabled = 1;
+        perfCtr[i].perfAttr.exclude_kernel = 1;
+        perfCtr[i].perfAttr.exclude_hv = 1;
+
+        perfCtr[i].perfFd = perfEventOpen(&perfCtr[i].perfAttr);
+        if (perfCtr[i].perfFd == -1) {
+            DPRINTF(DEBUG_LVL_WARN, "Error opening counter 0x%"PRIx64"\n", (u64)perfCtr[i].perfAttr.config);
+            retval = OCR_EFAULT;
+        }
+    }
+
+    return retval;
+}
+
+u64 salPerfStart(salPerfCounter* perfCtr) {
+    u32 i;
+    u32 retval = 0;
+
+    for(i = 0; i < PERF_HW_MAX; i++) {
+        retval = ioctl(perfCtr[i].perfFd, PERF_EVENT_IOC_RESET, 0);
+        if(retval) DPRINTF(DEBUG_LVL_WARN, "Unable to reset counter %"PRId32"\n", i);
+        retval = ioctl(perfCtr[i].perfFd, PERF_EVENT_IOC_ENABLE, 0);
+        if(retval) DPRINTF(DEBUG_LVL_WARN, "Unable to enable counter %"PRId32"\n", i);
+    }
+
+    return retval;
+}
+
+u64 salPerfStop(salPerfCounter* perfCtr) {
+    u32 i;
+    u32 retval = 0;
+
+    for(i = 0; i < PERF_HW_MAX; i++) {
+        retval = ioctl(perfCtr[i].perfFd, PERF_EVENT_IOC_DISABLE, 0);
+        if(retval) DPRINTF(DEBUG_LVL_WARN, "Unable to disable counter %"PRId32"\n", i);
+        retval = read(perfCtr[i].perfFd, &perfCtr[i].perfVal, sizeof(u64));
+        if(retval < 0) DPRINTF(DEBUG_LVL_WARN, "Unable to read counter %"PRId32"\n", i);
+    }
+    // Convert L1_REFERENCES to L1_HITS by subtracting misses
+    perfCtr[PERF_L1_HITS].perfVal -= perfCtr[PERF_L1_MISSES].perfVal;
+
+    return retval;
+}
+
+u64 salPerfShutdown(salPerfCounter *perfCtr) {
+    u32 i;
+    u32 retval = 0;
+
+    for(i = 0; i < PERF_HW_MAX; i++) {
+        close(perfCtr[i].perfFd);
+    }
+    return retval;
+}
+
+#endif
 
 #ifdef ENABLE_EXTENSION_PAUSE
 

@@ -42,6 +42,7 @@ typedef struct {
     hcWorkerType_t hcType;
     u8 legacySecondStart;
     deque_t *sysDeque;
+    salPerfCounter *perfCtrs;
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     u32 isHelping;
     bool stealFirst;

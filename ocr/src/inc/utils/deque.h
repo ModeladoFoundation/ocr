@@ -26,17 +26,17 @@
  */
 typedef enum {
     // Virtual implementations
-    NO_LOCK_BASE_DEQUE       = 0x1,
-    SINGLE_LOCK_BASE_DEQUE   = 0x2,
-    DUAL_LOCK_BASE_DEQUE     = 0x3,
+    NO_LOCK_BASE_DEQUE              = 0x1,
+    SINGLE_LOCK_BASE_DEQUE          = 0x2,
+    DUAL_LOCK_BASE_DEQUE            = 0x3,
     // Concrete implementations
-    WORK_STEALING_DEQUE      = 0x4,
-    NON_CONCURRENT_DEQUE     = 0x5,
-    SEMI_CONCURRENT_DEQUE    = 0x6,
-    LOCKED_DEQUE             = 0x7,
-    // Other implementations (not based on virtual impl)
-    ARRAY_DEQUE              = 0x8,
-    MAX_DEQUETYPE            = 0x9
+    WORK_STEALING_DEQUE             = 0x4,
+    NON_CONCURRENT_DEQUE            = 0x5,
+    SEMI_CONCURRENT_DEQUE           = 0x6,
+    LOCKED_DEQUE                    = 0x7,
+    ARRAY_DEQUE                     = 0x8,
+    NON_CONCURRENT_OVERWRITE_DEQUE  = 0x9,
+    MAX_DEQUETYPE                   = 0xa
 } ocrDequeType_t;
 
 /****************************************************/

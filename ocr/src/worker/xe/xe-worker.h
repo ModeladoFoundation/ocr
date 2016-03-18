@@ -14,6 +14,10 @@
 #include "utils/ocr-utils.h"
 #include "ocr-worker.h"
 
+#ifdef ENABLE_EXTENSION_PERF
+#include "ocr-sal.h"
+#endif
+
 typedef struct {
     ocrWorkerFactory_t base;
 } ocrWorkerFactoryXe_t;
@@ -27,6 +31,7 @@ typedef struct {
     // The HC implementation relies on integer ids to
     // map workers, schedulers and workpiles together
     u64 id;
+    salPerfCounter* perfCtrs;
 } ocrWorkerXe_t;
 
 ocrWorkerFactory_t* newOcrWorkerFactoryXe(ocrParamList_t *perType);

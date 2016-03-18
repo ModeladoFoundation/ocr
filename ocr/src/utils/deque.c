@@ -131,6 +131,21 @@ static deque_t * newBaseDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeT
 /*
  * push an entry onto the tail of the deque
  */
+void nonConcDequePushTailOverwrite(deque_t* self, void* entry, u8 doTry) {
+    u32 head = self->head;
+    u32 tail = self->tail;
+    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
+        ++(self->head); // Make room
+        hal_fence();
+    }
+    u32 n = (self->tail) % INIT_DEQUE_CAPACITY;
+    self->data[n] = entry;
+    ++(self->tail);
+}
+
+/*
+ * push an entry onto the tail of the deque
+ */
 void nonConcDequePushTail(deque_t* self, void* entry, u8 doTry) {
     u32 head = self->head;
     u32 tail = self->tail;
@@ -413,6 +428,14 @@ deque_t * newDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeType_t type)
         self->pushAtHead = NULL;
         self->popFromHead = nonConcDequePopHead;
         break;
+    case NON_CONCURRENT_OVERWRITE_DEQUE:
+        self = newBaseDeque(pd, initValue, NO_LOCK_BASE_DEQUE);
+        // Specialize push/pop implementations
+        self->pushAtTail = nonConcDequePushTailOverwrite;
+        self->popFromTail = NULL;
+        self->pushAtHead = NULL;
+        self->popFromHead = nonConcDequePopHead;
+        break;
     case SEMI_CONCURRENT_DEQUE:
         self = newBaseDeque(pd, initValue, SINGLE_LOCK_BASE_DEQUE);
         self->size = nonSyncCircularDequeSize;
@@ -464,6 +487,17 @@ deque_t* newNonConcurrentQueue(ocrPolicyDomain_t *pd, void * initValue) {
  */
 deque_t* newSemiConcurrentQueue(ocrPolicyDomain_t *pd, void * initValue) {
     deque_t* self = newDeque(pd, initValue, SEMI_CONCURRENT_DEQUE);
+    return self;
+}
+
+/**
+ * @brief Allows multiple concurrent push at the tail (a single succeed
+ at a time, others fail and need to retry). Pop from head are not synchronized.
+ * If full, overwrites oldest value. Useful for perfmon where inaccuracy
+ * is acceptable.
+ */
+deque_t* newNonConcurrentOverwriteQueue(ocrPolicyDomain_t *pd, void * initValue) {
+    deque_t* self = newDeque(pd, initValue, NON_CONCURRENT_OVERWRITE_DEQUE);
     return self;
 }
 
