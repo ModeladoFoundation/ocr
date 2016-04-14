@@ -39,6 +39,7 @@ typedef union {
         u64 internalUsers : 15;
         u64 freeRequested: 1;
         u64 modeLock : 2;
+        u64 singleAssign : 1;
         u64 _padding : 1;
     };
     u64 data;

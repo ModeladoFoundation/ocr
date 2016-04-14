@@ -32,6 +32,7 @@
 #define DB_LOCKED_NONE 0
 #define DB_LOCKED_EW 1
 #define DB_LOCKED_ITW 2
+#define IS_WRITABLE_MODE(m) (m == DB_MODE_RW || m == DB_MODE_EW)
 
 /***********************************************************/
 /* OCR-Lockable Datablock Hint Properties                  */
@@ -141,6 +142,16 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
         // users with someone else trying to acquire the DB
         ASSERT(false && "OCR_EACCES");
         return OCR_EACCES;
+    }
+
+    // Registers first intent to acquire a SA block in writable mode
+    if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && (rself->attributes.singleAssign == 0) && IS_WRITABLE_MODE(mode)) {
+        rself->attributes.singleAssign = 1;
+#ifdef ENABLE_RESILIENCY
+        ASSERT(self->bkPtr == NULL);
+        self->singleAssigner = edt.guid;
+        DPRINTF(DEBUG_LVL_VERB, "DB (GUID "GUIDF") single assign from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
+#endif
     }
 
     // Allows the runtime to directly access the data pointer.
@@ -290,6 +301,15 @@ u8 lockableAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocati
                   ocrDbAccessMode_t mode, bool isInternal, u32 properties) {
     ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
     bool unlock = lockButSelf(rself);
+    if ((rself->attributes.singleAssign == 1) && IS_WRITABLE_MODE(mode)) {
+        DPRINTF(DEBUG_LVL_WARN, "Cannot re-acquire SA DB (GUID "GUIDF") for EDT "GUIDF" in writable mode %u\n", GUIDA(self->guid), GUIDA(edt.guid), (u32)mode);
+        ASSERT(false && "OCR_EACCES");
+        if (unlock) {
+            rself->worker = NULL;
+            hal_unlock(&rself->lock);
+        }
+        return OCR_EACCES;
+    }
     u8 res = lockableAcquireInternal(self, ptr, edt, destLoc, edtSlot, mode, isInternal, properties);
     if (unlock) {
         rself->worker = NULL;
@@ -304,6 +324,7 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
     dbWaiter_t * waiter = NULL;
     DPRINTF(DEBUG_LVL_VERB, "Releasing DB @ 0x%"PRIx64" (GUID "GUIDF") from EDT "GUIDF" (runtime release: %"PRId32")\n",
             (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal);
+
     // Start critical section
     hal_lock(&(rself->lock));
     ocrWorker_t * worker;
@@ -317,6 +338,19 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
 
     // catch errors when release is called one too many time
     ASSERT(rself->attributes.numUsers != (u32)-1);
+
+#ifdef ENABLE_RESILIENCY
+    // Take backup for resiliency. Handle only single assignment DBs for now.
+    if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && ocrGuidIsEq(self->singleAssigner, edt.guid)) {
+        ASSERT(rself->attributes.singleAssign == 1 && self->bkPtr == NULL);
+        ocrPolicyDomain_t * pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        self->bkPtr = pd->fcts.pdMalloc(pd, self->size);
+        hal_memCopy(self->bkPtr, self->ptr, self->size, 0);
+        self->singleAssigner = NULL_GUID;
+        DPRINTF(DEBUG_LVL_VERB, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
+    }
+#endif
 
     //IMPL: this is probably not very fair
     if (rself->attributes.numUsers == 0) {
@@ -481,6 +515,13 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
     ASSERT(rself->itwWaiterList == NULL);
 #endif
 
+#ifdef ENABLE_RESILIENCY
+    if(self->bkPtr) {
+        pd->fcts.pdFree(pd, self->bkPtr);
+        self->bkPtr = NULL;
+    }
+#endif
+
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_MEM_UNALLOC
     msg.type = PD_MSG_MEM_UNALLOC | PD_MSG_REQUEST;
@@ -627,11 +668,16 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     result->attributes.internalUsers = 0;
     result->attributes.freeRequested = 0;
     result->attributes.modeLock = DB_LOCKED_NONE;
+    result->attributes.singleAssign = 0;
     result->ewWaiterList = NULL;
     result->roWaiterList = NULL;
     result->itwWaiterList = NULL;
     result->itwLocation = INVALID_LOCATION;
     result->worker = NULL;
+#ifdef ENABLE_RESILIENCY
+    result->base.bkPtr = NULL;
+    result->base.singleAssigner = NULL_GUID;
+#endif
 
     if (hintc == 0) {
         result->hint.hintMask = 0;

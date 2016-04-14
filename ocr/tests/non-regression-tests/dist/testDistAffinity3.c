@@ -60,8 +60,9 @@ ocrGuid_t finishEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     while(i < COUNT_EDT) {
         // Create EDTs
         ocrGuid_t edtGuid;
-        ocrEdtCreate(&edtGuid, edtTemplateGuid, 0, NULL, EDT_PARAM_DEF, &dbsGuid[i],
+        ocrEdtCreate(&edtGuid, edtTemplateGuid, 0, NULL, EDT_PARAM_DEF, NULL,
             EDT_PROP_NONE, &edtHint, NULL);
+        ocrAddDependence(dbsGuid[i], edtGuid, 0, DB_MODE_CONST);
         i++;
     }
     return NULL_GUID;

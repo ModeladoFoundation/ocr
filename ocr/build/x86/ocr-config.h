@@ -72,6 +72,9 @@
 // Policy domain
 #define ENABLE_POLICY_DOMAIN_HC
 
+// Resiliency
+//#define ENABLE_RESILIENCY
+
 // Scheduler
 #define ENABLE_SCHEDULER_COMMON
 #define ENABLE_SCHEDULER_HC

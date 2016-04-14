@@ -59,8 +59,9 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrHintInit( &edtHint, OCR_HINT_EDT_T );
     ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue( queriedDbAffinityGuid) );
     ocrGuid_t edtGuid;
-    ocrEdtCreate(&edtGuid, remoteEdtTemplateGuid, EDT_PARAM_DEF, NULL, EDT_PARAM_DEF, &dbGuid,
+    ocrEdtCreate(&edtGuid, remoteEdtTemplateGuid, EDT_PARAM_DEF, NULL, EDT_PARAM_DEF, NULL,
         EDT_PROP_NONE, &edtHint, NULL);
+    ocrAddDependence(dbGuid, edtGuid, 0, DB_MODE_CONST);
 
     return NULL_GUID;
 }

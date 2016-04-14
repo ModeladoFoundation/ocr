@@ -206,6 +206,10 @@ typedef struct _ocrDataBlock_t {
     u32 flags;              /**< flags for the data-block, lower 16 bits are info
                                  from user, upper 16 bits is for internal bookeeping */
     u32 fctId;              /**< ID determining which functions to use */
+#ifdef ENABLE_RESILIENCY
+    void* bkPtr;
+    ocrGuid_t singleAssigner;
+#endif
 } ocrDataBlock_t;
 
 // User DB properties

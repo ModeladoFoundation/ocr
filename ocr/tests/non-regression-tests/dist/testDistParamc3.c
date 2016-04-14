@@ -67,12 +67,14 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue( edtAffinity) );
     ocrGuid_t edt1Guid;
     u64 edtParamv1[2] = {555,666};
-    ocrEdtCreate(&edt1Guid, remoteEdtTemplateGuid, 2, (u64*) &edtParamv1, 1, &dbGuid,
+    ocrEdtCreate(&edt1Guid, remoteEdtTemplateGuid, 2, (u64*) &edtParamv1, 1, NULL,
         EDT_PROP_NONE, &edtHint, NULL);
+    ocrAddDependence(dbGuid, edt1Guid, 0, DB_MODE_CONST);
     ocrGuid_t edt2Guid;
     u64 edtParamv2[4] = {111,222,333,444};
-    ocrEdtCreate(&edt2Guid, remoteEdtTemplateGuid, 4, (u64*) &edtParamv2, 1, &dbGuid,
+    ocrEdtCreate(&edt2Guid, remoteEdtTemplateGuid, 4, (u64*) &edtParamv2, 1, NULL,
         EDT_PROP_NONE, &edtHint, NULL);
+    ocrAddDependence(dbGuid, edt2Guid, 0, DB_MODE_CONST);
 
     return NULL_GUID;
 }
