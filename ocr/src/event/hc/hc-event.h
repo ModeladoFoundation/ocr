@@ -25,7 +25,7 @@
 
 // Size for the static waiter array
 #ifndef HCEVT_WAITER_STATIC_COUNT
-#define HCEVT_WAITER_STATIC_COUNT 4
+#define HCEVT_WAITER_STATIC_COUNT 64
 #endif
 
 // Size for the dynamically allocated waiter array

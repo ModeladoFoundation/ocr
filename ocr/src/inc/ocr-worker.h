@@ -13,6 +13,7 @@
 #include "ocr-scheduler.h"
 #include "ocr-types.h"
 #include "ocr-hal.h"
+#include "utils/queue.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -119,6 +120,10 @@ typedef struct _ocrWorker_t {
 
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
+#endif
+#ifdef ENABLE_DEFERRED_MSGS
+    Queue_t *deferredMsgs;
+    bool userContext;
 #endif
 
     ocrCompTarget_t **computes; /**< Compute node(s) associated with this worker */

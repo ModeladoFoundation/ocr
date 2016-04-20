@@ -316,6 +316,7 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_IGNORE_PRE_PROCESS_SCHEDULER 0x10000000 /* Bit used to turn off default pre-process of msgs */
 #define PD_MSG_REQ_POST_PROCESS_SCHEDULER   0x20000000 /* Bit to indicate if msg requires post processing */
 #define PD_MSG_LOCAL_PROCESS                0x40000000 /* Bit to indicate that the msg should be locally processed by the PD */
+#define PD_MSG_IS_DEFERRABLE                0x80000000 /* Bit to indicate if msg execution can be deferred until end of EDT */
 
 // This is mainly used as a mean to tag a message comes from the user/rt interface
 // The runtime may or may not allow the deferrability

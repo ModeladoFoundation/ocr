@@ -87,5 +87,9 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
     self->activeDepv = NULL;
     self->notifyLock = INIT_LOCK;
 #endif
+#ifdef ENABLE_DEFERRED_MSGS
+    self->deferredMsgs = NULL;
+    self->userContext = false;
+#endif
 }
 

@@ -78,6 +78,9 @@ typedef struct {
     Queue_t * evts;
 #endif
 #endif
+#ifdef ENABLE_DEFERRED_MSGS
+    ocrGuid_t completionEvt;
+#endif
 } ocrTaskHc_t;
 
 #define HC_TASK_PARAMV_PTR(edt)     ((u64*)(((u64)edt) + sizeof(ocrTaskHc_t)))

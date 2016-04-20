@@ -9,6 +9,7 @@
 #include "ocr-policy-domain.h"
 #include "ocr-sal.h"
 #include "ocr-types.h"
+#include "ocr-errors.h"
 
 #define DEBUG_TYPE API
 
@@ -27,10 +28,14 @@ static void ocrShutdownInternal(u8 errorCode) {
         tagDeferredMsg(msgPtr, curTask);
     }
 #endif
+#ifdef ENABLE_DEFERRED_MSGS
+    msgPtr->type |= PD_MSG_IS_DEFERRABLE;
+#endif
     PD_MSG_FIELD_I(runlevel) = RL_COMPUTE_OK;
     PD_MSG_FIELD_I(properties) = RL_REQUEST | RL_BARRIER | RL_TEAR_DOWN;
     PD_MSG_FIELD_I(errorCode) = errorCode;
     u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, msgPtr, true);
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
     ASSERT((returnCode == 0));
 #undef PD_MSG
 #undef PD_TYPE

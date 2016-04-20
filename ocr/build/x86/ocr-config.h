@@ -45,6 +45,9 @@
 // Event
 #define ENABLE_EVENT_HC
 
+// Execution Model
+//#define ENABLE_DEFERRED_MSGS
+
 // External things (mostly needed by the INI parser)
 #define ENABLE_EXTERNAL_DICTIONARY
 #define ENABLE_EXTERNAL_INIPARSER
@@ -113,8 +116,11 @@
 // Workpile
 #define ENABLE_WORKPILE_HC
 
-// Legacy support
+// Legacy support - but doesn't work with
+// deferred messages
+#ifndef ENABLE_DEFERRED_MSGS
 #define ENABLE_EXTENSION_LEGACY
+#endif
 
 // Affinity support
 #define ENABLE_EXTENSION_AFFINITY

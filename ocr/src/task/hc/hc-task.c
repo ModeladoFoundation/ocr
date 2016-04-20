@@ -22,6 +22,7 @@
 #include "utils/ocr-utils.h"
 #include "extensions/ocr-hints.h"
 #include "ocr-policy-domain-tasks.h"
+#include "utils/queue.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -214,6 +215,7 @@ ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32
 // satisfies the incr slot of a finish latch event
 static u8 finishLatchCheckin(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
                              ocrFatGuid_t edtCheckin, ocrFatGuid_t sourceEvent, ocrFatGuid_t latchEvent) {
+    u8 returnCode;
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
     //BUG #207 This is a long shot but if the latchEvent is not local (which it shouldn't)
@@ -223,6 +225,9 @@ static u8 finishLatchCheckin(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
 
     // Account for this EDT as being part of its parent finish scope
     msg->type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+    msg->type |= PD_MSG_IS_DEFERRABLE;
+#endif
     PD_MSG_FIELD_I(satisfierGuid) = edtCheckin;
     PD_MSG_FIELD_I(guid) = latchEvent;
     PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
@@ -234,20 +239,27 @@ static u8 finishLatchCheckin(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
     PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
 #endif
     PD_MSG_FIELD_I(properties) = 0;
-    RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, false));
+    returnCode = pd->fcts.processMessage(pd, msg, false);
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
+    RESULT_PROPAGATE(returnCode);
 #undef PD_TYPE
     // Tie the local latch event for this EDT's finish scope to its parent finish scope.
     // All of the current EDT children will report to the local finish scope and when the
     // local finish scope completes, it will notify the parent finish scope.
 #define PD_TYPE PD_MSG_DEP_ADD
     msg->type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+    msg->type |= PD_MSG_IS_DEFERRABLE;
+#endif
     PD_MSG_FIELD_IO(properties) = DB_MODE_CONST; // not called from add-dependence
     PD_MSG_FIELD_I(source) = sourceEvent;
     PD_MSG_FIELD_I(dest) = latchEvent;
     PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_DECR_SLOT;
     PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-    RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, false));
+    returnCode = pd->fcts.processMessage(pd, msg, false);
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
+    RESULT_PROPAGATE(returnCode);
 #undef PD_MSG
 #undef PD_TYPE
     return 0;
@@ -303,6 +315,9 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
 #else
     task->evts = NULL;
 #endif
+#endif
+#ifdef ENABLE_DEFERRED_MSGS
+    task->completionEvt = NULL_GUID;
 #endif
 
     u32 i;
@@ -694,10 +709,45 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
                       ocrParamList_t *perInstance) {
 
     // Get the current environment
-    ocrPolicyDomain_t *pd = NULL;
-    ocrTask_t *curTask = NULL;
     u32 i;
-    getCurrentEnv(&pd, NULL, &curTask, NULL);
+    ocrPolicyDomain_t *pd = NULL;
+    ocrWorker_t *curWorker = NULL;
+    ocrTask_t *curTask = NULL;
+    getCurrentEnv(&pd, &curWorker, &curTask, NULL);
+
+#ifdef ENABLE_DEFERRED_MSGS
+    bool deferredExecution = false;
+    if (curTask != NULL && perInstance != NULL) {
+        paramListTask_t *taskparams = (paramListTask_t*)perInstance;
+        if (taskparams->workType == EDT_USER_WORKTYPE) {
+            deferredExecution = true;
+            depc += 1; //Add an extra dependence during EDT creation for resiliency
+            ocrTaskHc_t *curTaskHc = (ocrTaskHc_t*) curTask;
+            if (ocrGuidIsNull(curTaskHc->completionEvt)) {
+                PD_MSG_STACK(msg);
+                getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_EVT_CREATE
+                msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                PD_MSG_FIELD_IO(guid.guid) = NULL_GUID;
+                PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(currentEdt.guid) = curTask!=NULL?curTask->guid:NULL_GUID;
+                PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curTask;
+#ifdef ENABLE_EXTENSION_PARAMS_EVT
+                PD_MSG_FIELD_I(params) = NULL;
+#endif
+                PD_MSG_FIELD_I(properties) = 0;
+                PD_MSG_FIELD_I(type) = OCR_EVENT_ONCE_T;
+                RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
+                curTaskHc->completionEvt = PD_MSG_FIELD_IO(guid.guid);
+                DPRINTF(DEBUG_LVL_VERB, "Created completion event "GUIDF"\n", GUIDA(curTaskHc->completionEvt));
+#undef PD_MSG
+#undef PD_TYPE
+            }
+        }
+    }
+#endif
+
     ASSERT(outputEventPtr != NULL);
     ocrFatGuid_t outputEvent = {.guid = NULL_GUID, .metaDataPtr = NULL};
 #ifdef ENABLE_OCR_API_DEFERRABLE
@@ -726,8 +776,9 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     //    the output event to the latch event)
     //  - the EDT is within a finish scope (and we need to link to
     //    that latch event)
-    if (!ocrGuidIsNull(outputEventPtr->guid) || hasProperty(properties, EDT_PROP_FINISH) ||
-            !(ocrGuidIsNull(parentLatch.guid))) {
+    bool outputEventRequired = (!ocrGuidIsNull(outputEventPtr->guid) || hasProperty(properties, EDT_PROP_FINISH) ||
+            !(ocrGuidIsNull(parentLatch.guid)));
+    if (outputEventRequired) {
         PD_MSG_STACK(msg);
         getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_MSG (&msg)
@@ -916,6 +967,31 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     edtGuid->guid = base->guid;
     edtGuid->metaDataPtr = base;
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid);
+
+#ifdef ENABLE_DEFERRED_MSGS
+    if (deferredExecution) {
+        // Make this EDT dependent on the output event of parent EDT
+        ocrTaskHc_t *curTaskHc = (ocrTaskHc_t*) curTask;
+        DPRINTF(DEBUG_LVL_VERB, "Adding dep from completion event "GUIDF" to EDT "GUIDF" slot %u\n", GUIDA(curTaskHc->completionEvt), GUIDA(base->guid), (depc-1));
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_ADD
+        msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(source.guid) = curTaskHc->completionEvt;
+        PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(dest.guid) = base->guid;
+        PD_MSG_FIELD_I(dest.metaDataPtr) = base;
+        PD_MSG_FIELD_I(slot) = (depc-1); //Reserved last slot for resiliency
+        PD_MSG_FIELD_IO(properties) = DB_MODE_CONST;
+        PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+#endif
+
     // Check to see if the EDT can be run
     if(base->depc == edt->slotSatisfiedCount) {
         DPRINTF(DEBUG_LVL_INFO,
@@ -1376,6 +1452,9 @@ static void taskReset(ocrTask_t* base) {
             derived->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
         }
     }
+#ifdef ENABLE_DEFERRED_MSGS
+    curWorker->deferredMsgs = NULL;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
     derived->evtHead = NULL;
@@ -1621,7 +1700,6 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
 }
 
 u8 taskExecute(ocrTask_t* base) {
-    START_PROFILE(ta_hc_execute);
     ocrTaskHc_t* derived = (ocrTaskHc_t*)base;
     // In this implementation each time a signaler has been satisfied, its guid
     // has been replaced by the db guid it has been satisfied with.
@@ -1696,9 +1774,23 @@ u8 taskExecute(ocrTask_t* base) {
             EXIT_PROFILE;
         }
 #else
+#ifdef ENABLE_DEFERRED_MSGS
+        if((base->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0) {
+            curWorker->userContext = true;
+        } else {
+            curWorker->userContext = false;
+        }
+        START_PROFILE(userCode);
+        retGuid = base->funcPtr(paramc, paramv, depc-1, depv);
+        EXIT_PROFILE;
+#else
         START_PROFILE(userCode);
         retGuid = base->funcPtr(paramc, paramv, depc, depv);
         EXIT_PROFILE;
+#endif
+#ifdef ENABLE_DEFERRED_MSGS
+        curWorker->userContext = false;
+#endif
 #endif /* ENABLE_POLICY_DOMAIN_HC_DIST */
 #ifdef OCR_ENABLE_EDT_NAMING
         TPRINTF("EDT End: %s 0x%"PRIx64" in %s\n",
@@ -1733,6 +1825,43 @@ u8 taskExecute(ocrTask_t* base) {
 #endif
 
     } while(err);
+
+#ifdef ENABLE_DEFERRED_MSGS
+    if (curWorker->deferredMsgs != NULL) {
+        u32 qSize = queueGetSize(curWorker->deferredMsgs);
+        u32 i;
+        for (i = 0; i < qSize; i++) {
+            ocrPolicyMsg_t *pendingMsg = (ocrPolicyMsg_t*)queueGet(curWorker->deferredMsgs, i);
+            pd->fcts.processMessage(pd, pendingMsg, true); //TODO: We ignore the return code for now
+            pd->fcts.pdFree(pd, pendingMsg);
+        }
+        curWorker->deferredMsgs->tail = 0;
+    }
+
+    // Satisfy the completion event, if any
+    if ((!ocrGuidIsNull(derived->completionEvt)) && (true)) {
+        DPRINTF(DEBUG_LVL_VERB, "Satisfying completion event "GUIDF"\n", GUIDA(derived->completionEvt));
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(satisfierGuid.guid) = base->guid;
+        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = base;
+        PD_MSG_FIELD_I(guid.guid) = derived->completionEvt;
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = base->guid;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = base;
+        PD_MSG_FIELD_I(slot) = 0;
+        PD_MSG_FIELD_I(properties) = 0;
+        pd->fcts.processMessage(pd, &msg, false);
+#undef PD_MSG
+#undef PD_TYPE
+        derived->completionEvt = NULL_GUID;
+    }
+#endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT

@@ -29,6 +29,7 @@
 
 #include "policy-domain/hc/hc-policy.h"
 #include "allocator/allocator-all.h"
+#include "utils/queue.h"
 
 //BUG #204: cloning: hack to support edt templates, and pause\resume
 #include "task/hc/hc-task.h"
@@ -878,6 +879,33 @@ static ocrStats_t* hcGetStats(ocrPolicyDomain_t *self) {
 }
 #endif
 
+
+#ifdef ENABLE_DEFERRED_MSGS
+#define DEFERRED_MSG_QUEUE_SIZE_DEFAULT 64
+static inline u8 hcDeferProcessMsg(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+
+    if (worker->userContext) {
+        if (worker->deferredMsgs == NULL) {
+            worker->deferredMsgs = newBoundedQueue(pd, DEFERRED_MSG_QUEUE_SIZE_DEFAULT);
+        }
+        if (queueIsFull(worker->deferredMsgs)) {
+            worker->deferredMsgs = queueDoubleResize(worker->deferredMsgs, /*freeOld=*/true);
+        }
+        u64 baseSize = 0, marshalledSize = 0;
+        ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, 0);
+        u64 fullMsgSize = baseSize + marshalledSize;
+        ocrPolicyMsg_t * msgCopy = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, fullMsgSize);
+        initializePolicyMessage(msgCopy, fullMsgSize);
+        ocrPolicyMsgMarshallMsg(msg, baseSize, (u8*)msgCopy, MARSHALL_DUPLICATE);
+        queueAddLast(worker->deferredMsgs, (void *) msgCopy);
+        return 1;
+    }
+    return 0;
+}
+#endif
+
 //Notify scheduler of policy message before it is processed
 static inline void hcSchedNotifyPreProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg) {
     //Hard-coded for now, ideally scheduler should register interests
@@ -1297,6 +1325,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
 #endif
 
+#ifdef ENABLE_DEFERRED_MSGS
+    if ((msg->type & PD_MSG_IS_DEFERRABLE) && hcDeferProcessMsg(self, msg))
+        return OCR_EDEFERRED;
+#endif
     hcSchedNotifyPreProcessMessage(self, msg);
 
     switch(msg->type & PD_MSG_TYPE_ONLY) {
@@ -2431,13 +2463,24 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         } else {
             if(dstKind == OCR_GUID_EDT) {
                 ocrTask_t *edt = (ocrTask_t*)(dst.metaDataPtr);
+#ifdef ENABLE_DEFERRED_MSGS
+                // If the target of the satisfy is destroyed before we get to it...
+                if (edt && edt->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId) {
+#else
                 ASSERT(edt->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+#endif
 #ifdef REG_ASYNC_SGL
                 PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.satisfyWithMode(
                     edt, PD_MSG_FIELD_I(payload), PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode));
 #else
                 PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.satisfy(
                     edt, PD_MSG_FIELD_I(payload), PD_MSG_FIELD_I(slot));
+#endif
+#ifdef ENABLE_DEFERRED_MSGS
+                } else {
+                    // ... just return success and forget about the whole thing
+                    PD_MSG_FIELD_O(returnDetail) = 0;
+                }
 #endif
 #ifdef ENABLE_EXTENSION_PAUSE
                 rself->pqrFlags.prevDb = PD_MSG_FIELD_I(payload).guid;

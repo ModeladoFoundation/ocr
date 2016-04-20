@@ -85,6 +85,9 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_DESTROY
     msg.type = PD_MSG_EVT_DESTROY | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+    msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
 
     PD_MSG_FIELD_I(guid.guid) = eventGuid;
     PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
@@ -95,6 +98,7 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
     tagDeferredMsg(&msg, curEdt);
 #endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEventDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(eventGuid), returnCode);
     RETURN_PROFILE(returnCode);
@@ -115,6 +119,9 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
     msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+    msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
     PD_MSG_FIELD_I(satisfierGuid.guid) = curEdt?curEdt->guid:NULL_GUID;
     PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
     PD_MSG_FIELD_I(guid.guid) = eventGuid;
@@ -132,6 +139,7 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     tagDeferredMsg(&msg, curEdt);
 #endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                     "EXIT ocrEventSatisfySlot(evt="GUIDF") -> %"PRIu32"\n", GUIDA(eventGuid), returnCode);
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EVENT, OCR_ACTION_SATISFY, traceEventSatisfyDependence, eventGuid, dataGuid);
@@ -207,6 +215,9 @@ u8 ocrEdtTemplateDestroy(ocrGuid_t guid) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EDTTEMP_DESTROY
     msg.type = PD_MSG_EDTTEMP_DESTROY | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+    msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
     PD_MSG_FIELD_I(guid.guid) = guid;
     PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
@@ -216,6 +227,7 @@ u8 ocrEdtTemplateDestroy(ocrGuid_t guid) {
     tagDeferredMsg(&msg, curEdt);
 #endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtTemplateDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(guid), returnCode);
     RETURN_PROFILE(returnCode);
@@ -388,6 +400,9 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_WORK_DESTROY
     msg.type = PD_MSG_WORK_DESTROY | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+    msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
     PD_MSG_FIELD_I(guid.guid) = edtGuid;
     PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
@@ -397,6 +412,7 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
     tagDeferredMsg(&msg, curEdt);
 #endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(edtGuid), returnCode);
     RETURN_PROFILE(returnCode);
@@ -440,6 +456,9 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_ADD
         msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+        msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
         PD_MSG_FIELD_I(source.guid) = source;
         PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(dest.guid) = destination;
@@ -452,6 +471,7 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         tagDeferredMsg(&msg, curEdt);
 #endif
         returnCode = pd->fcts.processMessage(pd, &msg, true);
+        if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
         DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrAddDependence through PD_MSG_DEP_ADD(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",
                      GUIDA(source), GUIDA(destination), returnCode);
@@ -463,6 +483,9 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
         msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+        msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
         PD_MSG_FIELD_I(satisfierGuid.guid) = curEdt?curEdt->guid:NULL_GUID;
         PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
         PD_MSG_FIELD_I(guid.guid) = destination;
@@ -481,6 +504,7 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
 #endif
 
         returnCode = pd->fcts.processMessage(pd, &msg, true);
+        if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
         DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrAddDependence through PD_MSG_DEP_SATISFY(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",
                      GUIDA(source), GUIDA(destination), returnCode);

@@ -135,6 +135,9 @@ u8 ocrDbDestroy(ocrGuid_t db) {
 #define PD_TYPE PD_MSG_DEP_DYNREMOVE
         getCurrentEnv(NULL, NULL, NULL, &msg);
         msg.type = PD_MSG_DEP_DYNREMOVE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+#ifdef ENABLE_DEFERRED_MSGS
+        msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
         PD_MSG_FIELD_I(edt.guid) = task->guid;
         PD_MSG_FIELD_I(edt.metaDataPtr) = task;
         PD_MSG_FIELD_I(db.guid) = db;
@@ -144,6 +147,7 @@ u8 ocrDbDestroy(ocrGuid_t db) {
         tagDeferredMsg(&msg, task);
 #endif
         returnCode = policy->fcts.processMessage(policy, &msg, true);
+        if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
         if(returnCode != 0) {
             DPRINTF(DEBUG_LVL_WARN, "Destroying DB (GUID: "GUIDF") -> %"PRIu32"; Issue unregistering the datablock\n", GUIDA(db), returnCode);
         }
@@ -160,6 +164,9 @@ u8 ocrDbDestroy(ocrGuid_t db) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DB_FREE
         msg.type = PD_MSG_DB_FREE | PD_MSG_REQUEST;
+#ifdef ENABLE_DEFERRED_MSGS
+        msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
         PD_MSG_FIELD_I(guid.guid) = db;
         PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(srcLoc) = policy->myLocation;
@@ -181,6 +188,7 @@ u8 ocrDbDestroy(ocrGuid_t db) {
         DPRINTF(DEBUG_LVL_WARN, "Destroying DB (GUID: "GUIDF") Issue destroying the datablock\n", GUIDA(db));
     }
 
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrDbDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(db), returnCode);
     RETURN_PROFILE(returnCode);
@@ -198,6 +206,9 @@ u8 ocrDbRelease(ocrGuid_t db) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DB_RELEASE
     msg.type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+#ifdef ENABLE_DEFERRED_MSGS
+    msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
     PD_MSG_FIELD_IO(guid.guid) = db;
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(srcLoc) = policy->myLocation;
@@ -213,6 +224,7 @@ u8 ocrDbRelease(ocrGuid_t db) {
     if(returnCode == 0) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
     }
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
 #undef PD_MSG
 #undef PD_TYPE
 
@@ -225,6 +237,9 @@ u8 ocrDbRelease(ocrGuid_t db) {
 #define PD_TYPE PD_MSG_DEP_DYNREMOVE
         getCurrentEnv(NULL, NULL, NULL, &msg);
         msg.type = PD_MSG_DEP_DYNREMOVE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+#ifdef ENABLE_DEFERRED_MSGS
+        msg.type |= PD_MSG_IS_DEFERRABLE;
+#endif
         PD_MSG_FIELD_I(edt.guid) = task->guid;
         PD_MSG_FIELD_I(edt.metaDataPtr) = task;
         PD_MSG_FIELD_I(db.guid) = db;
@@ -234,6 +249,7 @@ u8 ocrDbRelease(ocrGuid_t db) {
         tagDeferredMsg(&msg, task);
 #endif
         returnCode = policy->fcts.processMessage(policy, &msg, true);
+        if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
         if (returnCode != 0) {
             DPRINTF(DEBUG_LVL_WARN, "Releasing DB  -> %"PRIu32"; Issue unregistering DB datablock\n", returnCode);
         }
@@ -245,6 +261,7 @@ u8 ocrDbRelease(ocrGuid_t db) {
         }
     }
 
+    if (returnCode == OCR_EDEFERRED) returnCode = 0; //Ignore return code for deferred
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrDbRelease(guid="GUIDF") -> %"PRIu32"\n", GUIDA(db), returnCode);
     RETURN_PROFILE(returnCode);
