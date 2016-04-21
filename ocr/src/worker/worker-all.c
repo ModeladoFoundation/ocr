@@ -83,5 +83,9 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
 #ifdef OCR_MONITOR_SCHEDULER
     self->isSeeking = false;
 #endif
+#ifdef ENABLE_RESILIENCY
+    self->activeDepv = NULL;
+    self->notifyLock = INIT_LOCK;
+#endif
 }
 

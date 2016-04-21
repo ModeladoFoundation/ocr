@@ -531,6 +531,10 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             }
             // BRING_UP is called twice in RL_LEGACY mode, record we've seen the first call.
             rself->rlSwitch.legacySecondStart = true;
+#ifdef ENABLE_RESILIENCY
+            DPRINTF(DEBUG_LVL_INFO, "PD worker count: %lu Compute worker count: %u\n", policy->workerCount, rself->computeWorkerCount);
+            rself->faultMonitorCounter = rself->computeWorkerCount;
+#endif
             // Register properties here to allow tear down to read special flags set on bring up
             rself->rlSwitch.properties = properties;
             phaseCount = RL_GET_PHASE_COUNT_UP(policy, RL_USER_OK);
@@ -2561,6 +2565,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(PD_MSG_FIELD_I(properties) & RL_TEAR_DOWN);
             ASSERT(PD_MSG_FIELD_I(runlevel) & RL_COMPUTE_OK);
             self->shutdownCode = PD_MSG_FIELD_I(errorCode);
+#ifdef ENABLE_RESILIENCY
+            rself->shutdownInProgress = 1;
+#endif
             u8 returnCode __attribute__((unused)) = self->fcts.switchRunlevel(
                               self, RL_USER_OK, RL_TEAR_DOWN | RL_ASYNC | RL_REQUEST | RL_FROM_MSG);
             ASSERT(returnCode == 0);
@@ -2679,6 +2686,120 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_MSG
 #undef PD_TYPE
         EXIT_PROFILE;
+        break;
+    }
+
+    case PD_MSG_RESILIENCY_NOTIFY: {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_RESILIENCY_NOTIFY
+#ifdef ENABLE_RESILIENCY
+        ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+        ASSERT(rself->fault == 0);
+        rself->faultArgs = PD_MSG_FIELD_I(faultArgs);
+        hal_fence();
+        bool faultInjected = false;
+        switch(rself->faultArgs.kind) {
+        case OCR_FAULT_DATABLOCK_CORRUPTION:
+            {
+                ocrFatGuid_t *dbGuid = &(rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db);
+                ASSERT(!ocrGuidIsNull(dbGuid->guid) && dbGuid->metaDataPtr == NULL);
+                localDeguidify(self, dbGuid);
+                ocrDataBlock_t *db = (ocrDataBlock_t*)(dbGuid->metaDataPtr);
+                if((db->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0)
+                    faultInjected = true;
+            }
+            break;
+        default:
+            // Not handled
+            ASSERT(0);
+            return OCR_EFAULT;
+        }
+        if (faultInjected) {
+            rself->fault = 1;
+            PD_MSG_FIELD_O(returnDetail) = 0;
+        } else {
+            PD_MSG_FIELD_O(returnDetail) = 1;
+        }
+#else
+        PD_MSG_FIELD_O(returnDetail) = 0;
+#endif
+#undef PD_MSG
+#undef PD_TYPE
+        msg->type &= ~PD_MSG_REQUEST;
+        msg->type |= PD_MSG_RESPONSE;
+        break;
+    }
+
+    case PD_MSG_RESILIENCY_MONITOR: {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+#ifdef ENABLE_RESILIENCY
+        ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+        if (rself->shutdownInProgress == 0 && rself->fault != 0) { //Fault detected
+            ASSERT(rself->faultMonitorCounter != 0);
+
+            // Read fault data:
+            PD_MSG_FIELD_O(faultArgs) = rself->faultArgs;
+
+            // Checkin:
+            u32 oldVal, newVal;
+            do {
+                oldVal = rself->faultMonitorCounter;
+                newVal = hal_cmpswap32(&(rself->faultMonitorCounter), oldVal, oldVal - 1);
+            } while(oldVal != newVal);
+
+            if (oldVal == rself->computeWorkerCount) {
+                DPRINTF(DEBUG_LVL_WARN, "Fault detected! Waiting for recovery...\n");
+            }
+
+            ocrWorker_t * worker;
+            getCurrentEnv(NULL, &worker, NULL, NULL);
+            DPRINTF(DEBUG_LVL_INFO, "Worker %lu checked in...\n", worker->id);
+
+            // Recovery:
+            if(oldVal == 1) { // The last worker to arrive executes the recovery code
+                ASSERT(rself->faultMonitorCounter == 0);
+                rself->faultMonitorCounter = rself->computeWorkerCount;
+                //Now recover from fault
+                switch(rself->faultArgs.kind) {
+                case OCR_FAULT_DATABLOCK_CORRUPTION:
+                    {
+                        ocrFatGuid_t dbGuid = rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db;
+                        ASSERT(!ocrGuidIsNull(dbGuid.guid) && dbGuid.metaDataPtr != NULL);
+                        DPRINTF(DEBUG_LVL_WARN, "Fault kind: OCR_FAULT_DATABLOCK_CORRUPTION (db="GUIDF")\n", GUIDA(dbGuid.guid));
+                        //...TODO:Refresh corrupted DB;
+                        //skipping for now because fault-injection does not really corrupt the data,
+                        //just the db ptr
+                        ocrDataBlock_t *db = (ocrDataBlock_t*)(dbGuid.metaDataPtr);
+                        db->ptr = db->bkPtr;
+                    }
+                    break;
+                default:
+                    // Not handled
+                    ASSERT(0);
+                    return OCR_EFAULT;
+                }
+                DPRINTF(DEBUG_LVL_WARN, "Fault recovery completed\n");
+                rself->faultArgs.kind = OCR_FAULT_NONE;
+                RESULT_ASSERT((hal_cmpswap32(&rself->fault, 1, 0)), ==, 1);
+            } else {
+                // Others wait for recovery
+                while(rself->fault != 0 && rself->shutdownInProgress == 0)
+                    ;
+            }
+
+            // Resume:
+            PD_MSG_FIELD_O(returnDetail) = OCR_EFAULT;
+        } else {
+            PD_MSG_FIELD_O(returnDetail) = 0;
+        }
+#else
+        PD_MSG_FIELD_O(returnDetail) = 0;
+#endif
+#undef PD_MSG
+#undef PD_TYPE
+        msg->type &= ~PD_MSG_REQUEST;
+        msg->type |= PD_MSG_RESPONSE;
         break;
     }
 
@@ -2806,6 +2927,13 @@ void initializePolicyDomainHc(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
 
     ocrPolicyDomainHc_t* derived = (ocrPolicyDomainHc_t*) self;
     derived->rlSwitch.legacySecondStart = false;
+#ifdef ENABLE_RESILIENCY
+    derived->faultArgs.kind = OCR_FAULT_NONE;
+    derived->shutdownInProgress = 0;
+    derived->fault = 0;
+    derived->faultMonitorCounter = 0;
+    derived->computeWorkerCount = 0;
+#endif
 }
 
 static void destructPolicyDomainFactoryHc(ocrPolicyDomainFactory_t * factory) {

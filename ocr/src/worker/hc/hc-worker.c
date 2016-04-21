@@ -91,7 +91,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 worker->curTask = curTask;
                 DPRINTF(DEBUG_LVL_VERB, "Worker shifting to execute EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
-                ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(curTask);
+                RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
                 hcWorker->edtGuid = curTask->guid;
 #ifdef OCR_ENABLE_EDT_NAMING
                 hcWorker->name = curTask->name;
@@ -334,6 +334,12 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             self->curState = GET_STATE(RL_MEMORY_OK, 0); // Technically last phase of memory OK but doesn't really matter
             self->desiredState = GET_STATE(RL_COMPUTE_OK, phase);
             self->location = (u64) self; // Currently used only by visualizer, value is not important as long as it's unique
+#ifdef ENABLE_RESILIENCY
+            if (((ocrWorkerHc_t*)self)->hcType == HC_WORKER_COMP) {
+                ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)PD;
+                hal_xadd32((u32*)&hcPolicy->computeWorkerCount, 1);
+            }
+#endif
 
             // See if we are blessed
             self->amBlessed = (properties & RL_BLESSED) != 0;
@@ -381,6 +387,12 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                 self->callbackArg = val;
                 hal_fence();
                 self->desiredState = GET_STATE(RL_COMPUTE_OK, phase);
+#ifdef ENABLE_RESILIENCY
+                if (((ocrWorkerHc_t*)self)->hcType == HC_WORKER_COMP) {
+                    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)PD;
+                    hal_xadd32((u32*)&hcPolicy->computeWorkerCount, -1);
+                }
+#endif
             } else {
                 ASSERT(false && "Unexpected phase on runlevel RL_COMPUTE_OK teardown");
             }

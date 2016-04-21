@@ -2812,6 +2812,16 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT(0);
     }
 
+    case PD_MSG_RESILIENCY_NOTIFY: {
+        DPRINTF(DEBUG_LVL_WARN, "CE PD does not yet implement RESILIENCY_NOTIFY\n");
+        ASSERT(0);
+    }
+
+    case PD_MSG_RESILIENCY_MONITOR: {
+        DPRINTF(DEBUG_LVL_WARN, "CE PD does not yet implement RESILIENCY_MONITOR\n");
+        ASSERT(0);
+    }
+
     default:
         // Not handled
         DPRINTF(DEBUG_LVL_WARN, "Unknown message type 0x%"PRIx64"\n",

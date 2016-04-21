@@ -1528,6 +1528,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     case PD_MSG_MGT_UNREGISTER:
     case PD_MSG_GUID_RESERVE:
     case PD_MSG_GUID_UNRESERVE:
+    case PD_MSG_RESILIENCY_NOTIFY:
+    case PD_MSG_RESILIENCY_MONITOR:
     // case PD_MSG_EVT_CREATE:
     {
         msg->destLocation = curLoc;

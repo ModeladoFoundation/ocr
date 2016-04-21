@@ -12,6 +12,7 @@
 #include "ocr-runtime-types.h"
 #include "ocr-scheduler.h"
 #include "ocr-types.h"
+#include "ocr-hal.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -131,6 +132,10 @@ typedef struct _ocrWorker_t {
     bool isSeeking;
 #endif
 
+#ifdef ENABLE_RESILIENCY
+    volatile ocrEdtDep_t *activeDepv;
+    lock_t notifyLock;
+#endif
 } ocrWorker_t;
 
 

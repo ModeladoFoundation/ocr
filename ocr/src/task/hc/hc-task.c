@@ -1351,6 +1351,101 @@ u8 notifyDbReleaseTaskHc(ocrTask_t *base, ocrFatGuid_t db) {
     return OCR_ENOENT;
 }
 
+#ifdef ENABLE_RESILIENCY
+// Reset the EDT to the state before it started executing
+// TODO: MEMORY LEAK! Deallocations ignored for now.
+static void taskReset(ocrTask_t* base) {
+    DPRINTF(DEBUG_LVL_INFO, "Repeat_Execution "GUIDF"\n", GUIDA(base->guid));
+    u32 i;
+    ocrPolicyDomain_t *pd = NULL;
+    ocrWorker_t *curWorker = NULL;
+    getCurrentEnv(&pd, &curWorker, NULL, NULL);
+    ocrTaskHc_t* derived = (ocrTaskHc_t*)base;
+#if !(defined(REG_ASYNC) || defined(REG_ASYNC_SGL))
+    derived->lock = INIT_LOCK;
+#endif
+    derived->unkDbs = NULL;
+    derived->countUnkDbs = 0;
+    derived->maxUnkDbs = 0;
+    for(i = 0; i < OCR_MAX_MULTI_SLOT; ++i) {
+        derived->doNotReleaseSlots[i] = 0ULL;
+    }
+    regNode_t * depv = derived->signalers;
+    for (i = 1; i < base->depc; ++i) {
+        if (ocrGuidIsEq(depv[i-1].guid, depv[i].guid)) {
+            derived->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
+        }
+    }
+#ifdef ENABLE_OCR_API_DEFERRABLE
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    derived->evtHead = NULL;
+    derived->tailStrand = NULL;
+#else
+    derived->evts = NULL;
+#endif
+#endif
+}
+
+static u8 checkForFaults(ocrTask_t *base, bool postCheck) {
+    u32 i;
+    ocrTaskHc_t* derived = (ocrTaskHc_t*)base;
+    ocrPolicyDomain_t *pd = NULL;
+    PD_MSG_STACK(msg);
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+    msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_I(properties) = 0;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+    u32 returnDetail = PD_MSG_FIELD_O(returnDetail);
+    ocrFaultArgs_t faultArgs = PD_MSG_FIELD_O(faultArgs);
+#undef PD_MSG
+#undef PD_TYPE
+
+    if (returnDetail != 0) { //Fault detected
+        switch(faultArgs.kind) {
+        case OCR_FAULT_DATABLOCK_CORRUPTION:
+            {
+                ocrFatGuid_t dbFatGuid = faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db;
+                ocrGuid_t dbGuid = dbFatGuid.guid;
+                ocrDataBlock_t *db = (ocrDataBlock_t*)(dbFatGuid.metaDataPtr);
+                ASSERT(!(ocrGuidIsNull(dbGuid)) && db != NULL);
+                //Check if current EDT is impacted
+                bool dataFault = false;
+                u32 depc = base->depc;
+                ocrEdtDep_t * depv = derived->resolvedDeps;
+                for(i=0; i < depc; ++i) {
+                    if (ocrGuidIsEq(dbGuid, depv[i].guid)) {
+                        depv[i].ptr = db->ptr;
+                        dataFault = true;
+                        break;
+                    }
+                }
+                if(dataFault == false && derived->unkDbs != NULL) {
+                    ocrGuid_t *unkDbs = derived->unkDbs;
+                    u64 count = derived->countUnkDbs;
+                    for(i=0; i < count; ++i) {
+                        if (ocrGuidIsEq(dbGuid, unkDbs[i])) {
+                            dataFault = true;
+                            break;
+                        }
+                    }
+                }
+                if (dataFault) {
+                    return postCheck ? OCR_EAGAIN : OCR_EFAULT;
+                }
+            }
+            break;
+        default:
+            //Not handled
+            ASSERT(0);
+            return OCR_EFAULT;
+        }
+    }
+    return 0;
+}
+#endif
+
 #ifdef ENABLE_OCR_API_DEFERRABLE
 static void deferredExecute(ocrTask_t* self) {
     ocrTaskHc_t* dself = (ocrTaskHc_t*)self;
@@ -1564,8 +1659,18 @@ u8 taskExecute(ocrTask_t* base) {
         EXIT_PROFILE;
     }
     ocrGuid_t retGuid = NULL_GUID;
-    {
-
+    u8 err = 0;
+    do {
+#ifdef ENABLE_RESILIENCY
+        // Check for faults before EDT execution
+        while(checkForFaults(base, false) != 0)
+            ;
+        if ((base->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0) {
+            hal_lock(&curWorker->notifyLock);
+            curWorker->activeDepv = depv;
+            hal_unlock(&curWorker->notifyLock);
+        }
+#endif
 #ifdef OCR_ENABLE_VISUALIZER
         u64 startTime = salGetTime();
 #endif
@@ -1607,7 +1712,27 @@ u8 taskExecute(ocrTask_t* base) {
         u64 endTime = salGetTime();
         DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" FctName: %s Start: %"PRIu64" End: %"PRIu64"\n", GUIDA(base->guid), base->name, startTime, endTime);
 #endif
-    }
+#ifdef ENABLE_RESILIENCY
+        hal_lock(&curWorker->notifyLock);
+        curWorker->activeDepv = NULL;
+        hal_unlock(&curWorker->notifyLock);
+        // Check for faults after EDT execution
+        // If required, re-execute EDT
+        err = checkForFaults(base, true);
+        if (err) {
+            switch(err) {
+            case OCR_EAGAIN:
+                taskReset(base);
+                break;
+            default:
+                //Not handled
+                ASSERT(0);
+                return err;
+            }
+        }
+#endif
+
+    } while(err);
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
