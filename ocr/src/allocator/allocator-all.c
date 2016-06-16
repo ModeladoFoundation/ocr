@@ -129,3 +129,17 @@ void *addrGlobalizeOnTG(void *result, ocrPolicyDomain_t *self) {
 #endif
     return (void*)res;
 }
+
+struct slabSizeTable_t slabSizeTable;
+
+void slabInit(u64 type, s32 size)
+{
+    s64 type_id = (s64)type;
+    type_id = -type_id;
+    ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );
+    ASSERT(size > 0);
+    hal_lock(&slabSizeTable.lock);
+    ASSERT(slabSizeTable.size[type_id] == 0);  // is empty?
+    slabSizeTable.size[type_id] = size;      // fill the slot
+    hal_unlock(&slabSizeTable.lock);
+}

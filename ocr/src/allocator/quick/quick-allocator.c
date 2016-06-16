@@ -283,8 +283,13 @@ struct bmapOp {
 #define SIZE_TO_SLABS(size)     ( ((size)+SLAB_MASK) >> SLAB_SHIFT )
 #define SLAB_MAX_SIZE(index)    (  (index) << SLAB_SHIFT )
 #define SLAB_OVERHEAD           ( sizeof(u64)*3 )
-#define MAX_SLABS               ( 36 )
-#define MAX_SIZE_FOR_SLABS      SLAB_MAX_SIZE(MAX_SLABS-1)
+// see allocator-all.h for MAX_SLABS_NAMED macros
+
+// For unnamed slabs, the size difference between each size bins is 16 (see SLAB_SHIFT)
+// so this will cover up to 16*32 = 512 bytes.
+#define MAX_SLABS_UNNAMED       ( 32 )                              // unnamed slabs max
+#define MAX_SLABS               ( MAX_SLABS_UNNAMED + MAX_SLABS_NAMED )
+#define MAX_SIZE_FOR_SLABS      SLAB_MAX_SIZE(MAX_SLABS_UNNAMED-1)  // max size (for unnamed)
 #define MAX_OBJ_PER_SLAB        ( 63 )
 
 // Each agent (or thread) has pointers to an array of objects it allocates from the central heap.
@@ -304,9 +309,11 @@ struct slab_header {
     struct per_agent_cache *per_agent;
     u64 bitmap;
     u32 mark;
-    u32 size;
+    u32 objsize;
+    u32 index;
 };
 #endif
+
 
 //#define ALIGN_CACHE_LINE       // disabled. needs review
 #ifdef ALIGN_CACHE_LINE
@@ -533,7 +540,12 @@ static void quickPrintCache(void)
                 DPRINTF(DEBUG_LVL_INFO, "==== MEMORY LEAK REPORT (cache %p) ====\n", CACHE_POOL(myid));
                 head_printed = 1;
             }
-            DPRINTF(DEBUG_LVL_INFO, "(%"PRId32"~%"PRId32"] : malloc %"PRId32" free %"PRId32"\n", SLAB_MAX_SIZE(i-1), SLAB_MAX_SIZE(i), m, f);
+            if (i < MAX_SLABS_UNNAMED) {
+                DPRINTF(DEBUG_LVL_INFO, "(%"PRId32"~%"PRId32"] : malloc %"PRId32" free %"PRId32"\n", SLAB_MAX_SIZE(i-1), SLAB_MAX_SIZE(i), m, f);
+            } else {
+                s32 s = slabSizeTable.size[i - MAX_SLABS_UNNAMED];
+                DPRINTF(DEBUG_LVL_INFO, "size %"PRId32" : malloc %"PRId32" free %"PRId32"\n", s, m, f);
+            }
         }
     }
     hal_unlock(&CACHE_POOL(myid)->lock);
@@ -563,7 +575,7 @@ static void quickCleanPool(poolHdr_t *pool)
                 ASSERT(head->mark == SLAB_MARK);
                 if (head->bitmap == ((1UL << MAX_OBJ_PER_SLAB)-1UL) /* empty slab? */) {
                     // it must be only (and first) slab in the slab list
-                    s32 slabsIndex = SIZE_TO_SLABS(head->size);
+                    s32 slabsIndex = head->index;
                     hal_lock(&head->per_agent->lock);
                     struct slab_header *slabs = head->per_agent->slabs[slabsIndex];
                     if (slabs == head) {
@@ -1615,7 +1627,7 @@ static void quickSetUserbits(blkPayload_t *p, u64 user)
 }
 
 #ifdef PER_AGENT_CACHE
-static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 slabMaxSize, struct _ocrPolicyDomain_t *pd, struct per_agent_cache *per_agent)
+static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 slabMaxSize, s32 slabsIndex, struct _ocrPolicyDomain_t *pd, struct per_agent_cache *per_agent)
 {
         // goes to the central heap to allocate slab
         void *slab = quickMallocInternal(pool, sizeof(struct slab_header)+(SLAB_OVERHEAD+slabMaxSize)*MAX_OBJ_PER_SLAB, pd );
@@ -1634,17 +1646,13 @@ static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 slabMaxSize, struct 
         head->next = head->prev = head;
         head->bitmap = (1UL << MAX_OBJ_PER_SLAB)-1UL;
         head->mark = SLAB_MARK;
-        head->size = slabMaxSize;
+        head->objsize = slabMaxSize;
+        head->index = slabsIndex;
         return head;
 }
 
-static blkPayload_t *quickMallocSlab(poolHdr_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
+static blkPayload_t *quickMallocSlab(poolHdr_t *pool, s32 slabsIndex, struct _ocrPolicyDomain_t *pd)
 {
-    if (size > MAX_SIZE_FOR_SLABS) {
-        DPRINTF(DEBUG_LVL_WARN, "size %"PRId64" is too large for slab?\n", size);
-        ASSERT(0);
-    }
-
     // s64 myid = (s64)pd;
     // ASSERT(myid >=0 && myid < MAX_THREAD);
     if (CACHE_POOL(myid) == NULL) {
@@ -1652,12 +1660,18 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool,u64 size, struct _ocrPolicy
         DPRINTF(DEBUG_LVL_VERB, "cache %p created, handles up to size %"PRId64"\n", CACHE_POOL(myid), (s64)MAX_SIZE_FOR_SLABS);
     }
 
-    s32 slabsIndex = SIZE_TO_SLABS(size);
-    s32 slabMaxSize = SLAB_MAX_SIZE(slabsIndex);
+    s32 slabMaxSize;
+    if (slabsIndex < MAX_SLABS_UNNAMED) {
+        slabMaxSize = SLAB_MAX_SIZE(slabsIndex);
+    } else {
+        slabMaxSize = slabSizeTable.size[slabsIndex-MAX_SLABS_UNNAMED];
+    }
+    ASSERT(slabMaxSize > 0);
+
     hal_lock(&CACHE_POOL(myid)->lock);
     struct slab_header *slabs = CACHE_POOL(myid)->slabs[slabsIndex];
     if (slabs == NULL /* initial alloc? */ || slabs->bitmap == 0 /* full? */) {
-        struct slab_header *slab = quickNewSlab(pool, slabMaxSize, pd, CACHE_POOL(myid));
+        struct slab_header *slab = quickNewSlab(pool, slabMaxSize, slabsIndex, pd, CACHE_POOL(myid));
         if (slab == NULL) {
             hal_unlock(&CACHE_POOL(myid)->lock);
             DPRINTF(DEBUG_LVL_WARN, "slab alloc failed -- too small heap?\n");
@@ -1698,9 +1712,10 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool,u64 size, struct _ocrPolicy
 
 static blkPayload_t *quickMalloc(poolHdr_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
 {
-    if (size > MAX_SIZE_FOR_SLABS) // for big objects, go to the central heap
+    if (size > MAX_SIZE_FOR_SLABS) { // for big objects, go to the central heap
         return quickMallocInternal(pool, size, pd);
-    return quickMallocSlab(pool, size, pd);
+    }
+    return quickMallocSlab(pool, SIZE_TO_SLABS(size), pd);  // for small objects
 }
 
 static void quickFree(blkPayload_t *p)
@@ -1722,14 +1737,14 @@ static void quickFree(blkPayload_t *p)
     struct slab_header *head = (struct slab_header *)((s64)(q) + neg_off);
     ASSERT(head->mark == SLAB_MARK);
     s64 offset = (s64)q - (s64)head - sizeof(struct slab_header);
-    s64 pos = offset / (head->size+SLAB_OVERHEAD);
+    s64 pos = offset / (head->objsize+SLAB_OVERHEAD);
     ASSERT(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
     //printf("%"PRIx64" , %"PRId64", pos %"PRId32"\n", HEAD(q), HEAD(q), pos);
     //printf("offset %"PRId64" , size %"PRId32" \n", offset, head->size+SLAB_OVERHEAD);
-    ASSERT((offset % (head->size+SLAB_OVERHEAD)) == 0);
+    ASSERT((offset % (head->objsize+SLAB_OVERHEAD)) == 0);
 
     // local if (addrGlobalizeOnTG(CACHE_POOL(X)) == head->per_agent)
-    s32 slabsIndex = SIZE_TO_SLABS(head->size);
+    s32 slabsIndex = head->index;
     hal_lock(&head->per_agent->lock);
     struct slab_header *slabs = head->per_agent->slabs[slabsIndex];
 
@@ -1922,17 +1937,27 @@ u8 quickSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 
 void* quickAllocate(
     ocrAllocator_t *self,   // Allocator to attempt block allocation
-    u64 size,               // Size of desired block, in bytes
+    u64 size,               // Size of desired block, in bytes (or type_id for slab allocation)
     u64 hints) {            // Allocator-dependent hints
 
     ocrAllocatorQuick_t * rself = (ocrAllocatorQuick_t *) self;
 
     void *ret;
 #ifdef PER_AGENT_CACHE
-    if (hints & OCR_ALLOC_HINT_RUNTIME) {
+    s32 type_id = (s32)size;
+    if (type_id < 0) {         // negative size is interpreted as type_id for slab allocation request
+        type_id = -type_id;
+        ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );
+        ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, type_id+MAX_SLABS_UNNAMED, self->pd);
+    } else if (hints & OCR_ALLOC_HINT_RUNTIME) {
         // ideally pdMalloc uses fast path only, but sometimes pdMalloc wants quite big size,
         // e.g. ~256KB for baseDequeInit() so we use quickMalloc() to check just big sizes.
-        // ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, size, self->pd);
+        //
+        //if (size > MAX_SIZE_FOR_SLABS) {
+        //    DPRINTF(DEBUG_LVL_WARN, "size %"PRId64" is too large for slab?\n", size);
+        //    ASSERT(0);
+        //}
+        // ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, SIZE_TO_SLABS(size), self->pd);
         ret = quickMalloc((poolHdr_t *)rself->poolAddr, size, self->pd);
     } else {
         ret = quickMalloc((poolHdr_t *)rself->poolAddr, size, self->pd);
