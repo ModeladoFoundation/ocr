@@ -1473,8 +1473,14 @@ void destructEventFactoryHc(ocrObjectFactory_t * factory) {
 }
 
 ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
-    ocrEventFactory_t* base = (ocrEventFactory_t*) runtimeChunkAlloc(
-                                  sizeof(ocrEventFactoryHc_t), PERSISTENT_CHUNK);
+    ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
+                                  runtimeChunkAlloc(sizeof(ocrEventFactoryHc_t), PERSISTENT_CHUNK);
+    bbase->clone = NULL;
+    bbase->mdSize = NULL;
+    bbase->serialize = NULL;
+    bbase->deserialize = NULL;
+
+    ocrEventFactory_t *base = (ocrEventFactory_t*) bbase;
 
     base->instantiate = FUNC_ADDR(u8 (*)(ocrEventFactory_t*, ocrFatGuid_t*,
                                   ocrEventTypes_t, u32, ocrParamList_t*), newEventHc);

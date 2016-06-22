@@ -1696,7 +1696,14 @@ void destructTaskFactoryHc(ocrObjectFactory_t* factory) {
 }
 
 ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) {
-    ocrTaskFactory_t* base = (ocrTaskFactory_t*)runtimeChunkAlloc(sizeof(ocrTaskFactoryHc_t), PERSISTENT_CHUNK);
+    ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
+                                  runtimeChunkAlloc(sizeof(ocrTaskFactoryHc_t), PERSISTENT_CHUNK);
+    bbase->clone = NULL;
+    bbase->serialize = NULL;
+    bbase->deserialize = NULL;
+    bbase->mdSize = NULL;
+
+    ocrTaskFactory_t* base = (ocrTaskFactory_t*) bbase;
 
     // Initialize the base's base
     base->base.fcts.processEvent = FUNC_ADDR(u8 (*) (ocrObject_t*, pdEvent_t**, u32), processEventTaskHc);

@@ -338,8 +338,14 @@ void destructRegularFactory(ocrObjectFactory_t *factory) {
 }
 
 ocrDataBlockFactory_t *newDataBlockFactoryRegular(ocrParamList_t *perType, u32 factoryId) {
-    ocrDataBlockFactory_t *base = (ocrDataBlockFactory_t*)
+    ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrDataBlockFactoryRegular_t), PERSISTENT_CHUNK);
+    bbase->clone = NULL;
+    bbase->serialize = NULL;
+    bbase->deserialize = NULL;
+    bbase->mdSize = NULL;
+
+    ocrDataBlockFactory_t* base = (ocrDataBlockFactory_t*) bbase;
 
     // Initialize base's base
     base->base.fcts.processEvent = NULL;

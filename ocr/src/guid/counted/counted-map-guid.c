@@ -361,7 +361,7 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             }
         } else {
             // Implementation limitation. For now DB relies on the proxy mecanism in hc-dist-policy
-            *val = ((getKindFromGuid(guid) == OCR_GUID_DB) ? (u64) mdProxy : (u64) mdProxy->ptr);
+            *val = ((getKindFromGuid(guid) == OCR_GUID_DB) ? ((u64)mdProxy) : ((u64)mdProxy->ptr));
         }
         if (mode == MD_FETCH) {
             ASSERT(proxy != NULL);

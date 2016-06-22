@@ -1508,6 +1508,26 @@ ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[
     return NULL_GUID;
 }
 
+//TODO should be part of the PD interface
+//Helper function to resolve a pointer to the factory responsible for a particular kind of GUID
+ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kind) {
+    if(kind == OCR_GUID_EDT) {
+        return pd->factories[pd->taskFactoryIdx];
+    }
+    if(kind == OCR_GUID_EDT_TEMPLATE) {
+        return pd->factories[pd->taskTemplateFactoryIdx];
+    }
+    if(kind == OCR_GUID_DB) {
+        return pd->factories[pd->datablockFactoryIdx];
+    }
+    if(kind & OCR_GUID_EVENT) {
+        return pd->factories[pd->eventFactoryIdx];
+    }
+    ASSERT(false);
+    return NULL;
+}
+
+
 #ifndef ENABLE_POLICY_DOMAIN_HC_DIST
 
 // //Note: These are moved to common modules in subsequent patches
@@ -1535,4 +1555,3 @@ void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task) {
     }
 }
 #endif
-

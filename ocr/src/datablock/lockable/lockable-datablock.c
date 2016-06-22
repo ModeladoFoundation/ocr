@@ -714,10 +714,16 @@ void destructLockableFactory(ocrObjectFactory_t *factory) {
 }
 
 ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 factoryId) {
-    ocrDataBlockFactory_t *base = (ocrDataBlockFactory_t*)
+    ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrDataBlockFactoryLockable_t), PERSISTENT_CHUNK);
     // Initialize the base's base
-    base->base.fcts.processEvent = NULL;
+    bbase->fcts.processEvent = NULL;
+    bbase->clone = NULL;
+    bbase->serialize = NULL;
+    bbase->deserialize = NULL;
+    bbase->mdSize = NULL;
+
+    ocrDataBlockFactory_t *base = (ocrDataBlockFactory_t*) bbase;
     base->instantiate = FUNC_ADDR(u8 (*)
                                   (ocrDataBlockFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, ocrFatGuid_t,
                                    u64, void*, ocrHint_t*, u32, ocrParamList_t*), newDataBlockLockable);

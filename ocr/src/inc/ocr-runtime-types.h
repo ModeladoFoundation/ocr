@@ -78,6 +78,31 @@ typedef enum _ocrRLPhaseComponents_t {
 struct _ocrObject_t;
 struct _pdEvent_t;
 
+// BUG #605
+// This is a placeholder for something that identifies a memory,
+// a compute node and a policy domain. Whatever else this becomes in the future, it
+// includes the "engine index" in the low order eight bits.  Irrelevant for other
+// platforms, this is needed by TG where it provides the block-based index for which
+// processor or memory is identified:  0 == CE, 1-8 == XE; additional bits allow for
+// a differnt number of XE's in other potential TG hardware family members.
+typedef u64 ocrLocation_t;
+#define UNDEFINED_LOCATION ((u64)-1)
+
+#define UNINITIALIZED_NEIGHBOR_INDEX ((u64)-1)
+
+/**
+ * @brief Base type for OCR Objects.
+ *
+ */
+typedef struct _ocrObject_t {
+    ocrGuid_t guid;
+    u32 fctId;              /**< Factory ID for this object */
+} ocrObject_t;
+
+#define getObjectField(self, name) (((ocrObject_t *)(self))->name)
+
+#define setObjectField(self, name, value) (((ocrObject_t *)(self))->name = value)
+
 /**
  * @brief Functions common to all objects
  */
@@ -127,21 +152,12 @@ typedef struct _ocrObjectFactory_t {
      * @return Void
      */
     void (*destruct)(struct _ocrObjectFactory_t *factory);
+    u8 (*clone)(struct _ocrObjectFactory_t * factory, ocrGuid_t, ocrObject_t ** mdPtr);
+    u8 (*serialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * src, u64 * mode, ocrLocation_t destLocation, void ** destBuffer, u64 * destSize);
+    u8 (*deserialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t evtGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize);
+    // The size of the metadata if it was to be serialized at the time of the call
+    u8 (*mdSize)(ocrObject_t *dest, u64 mode, u64 * size);
 } ocrObjectFactory_t;
-
-/**
- * @brief Base type for OCR Objects.
- *
- */
-typedef struct _ocrObject_t {
-    ocrGuid_t guid;
-    u32 fctId;              /**< Factory ID for this object */
-    // Considering adding guid
-} ocrObject_t;
-
-#define getObjectField(self, name) (((ocrObject_t *)(self))->name)
-
-#define setObjectField(self, name, value) (((ocrObject_t *)(self))->name = value)
 
 /**
  * @brief Memory region "tags"
@@ -383,18 +399,6 @@ typedef enum { // Coded on 8 bits maximum
     MONITOR_PROGRESS_EVENT = 0x2, /**< Monitor an event completion */
     MAX_MONITOR_PROGRESS   = 0x3
 } ocrMonitorProgress_t;
-
-// BUG #605
-// This is a placeholder for something that identifies a memory,
-// a compute node and a policy domain. Whatever else this becomes in the future, it
-// includes the "engine index" in the low order eight bits.  Irrelevant for other
-// platforms, this is needed by TG where it provides the block-based index for which
-// processor or memory is identified:  0 == CE, 1-8 == XE; additional bits allow for
-// a differnt number of XE's in other potential TG hardware family members.
-typedef u64 ocrLocation_t;
-#define UNDEFINED_LOCATION ((u64)-1)
-
-#define UNINITIALIZED_NEIGHBOR_INDEX ((u64)-1)
 
 /**
  * @brief Returned by the pollMessage function in
