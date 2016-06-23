@@ -273,6 +273,26 @@ u8 commonSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArg
         schedulerHeuristic = dself->schedulerHeuristics[PLACEMENT_HEURISTIC_ID];
         break;
     }
+#ifdef LOAD_BALANCING_TEST
+    case OCR_SCHED_NOTIFY_EDT_SATISFIED: {
+        // Call the computation heuristic and it may check how full is his queue or whatever else
+        schedulerHeuristic = dself->schedulerHeuristics[COMP_HEURISTIC_ID];
+        u8 res = schedulerHeuristic->fcts.op[OCR_SCHEDULER_HEURISTIC_OP_NOTIFY].invoke(schedulerHeuristic, opArgs, hints);
+        if (res == OCR_ENOSPC) { //TODO just made up the error code
+            // Decided there was no space available for this task so try to load-balance it somewhere.
+            // The load balancer impl must be careful not to bounce things around too much.
+            // Here we set hints once and it becomes a must not a may
+            schedulerHeuristic = dself->schedulerHeuristics[PLACEMENT_HEURISTIC_ID];
+            // returns OCR_ENOP if no decisions have been made. In that case the EDT stays in the current PD.
+            return schedulerHeuristic->fcts.op[OCR_SCHEDULER_HEURISTIC_OP_NOTIFY].invoke(schedulerHeuristic, opArgs, hints);
+        } else {
+            // COMP heuristic agreed to take on this EDT
+            ASSERT(res == 0);
+            return OCR_ENOP; // Allows caller to proceed
+        }
+        break;
+    }
+#endif
     case OCR_SCHED_NOTIFY_COMM_READY: {
         schedulerHeuristic = dself->schedulerHeuristics[COMM_HEURISTIC_ID];
         break;

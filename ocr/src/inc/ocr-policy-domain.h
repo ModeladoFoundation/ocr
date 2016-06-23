@@ -715,6 +715,8 @@ typedef struct _ocrPolicyMsg_t {
                                 * Out: The GUID and pointer to the cloned metadata */
             union {
                 struct {
+                    u8 type;                   /**< In: MD_CLONE or MD_MOVE */
+                    ocrLocation_t dstLocation; /**< In: The location to MOVE to */
                 } in;
                 struct {
                     u64 size;          /**< Out: Size of the metadata that was cloned */

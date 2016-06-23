@@ -318,7 +318,6 @@ u8 ceSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, o
         break;
     // Notifies ignored by this scheduler
     case OCR_SCHED_NOTIFY_EDT_SATISFIED:
-        return OCR_ENOP;
     default:
         ASSERT(0);
         return OCR_ENOTSUP;

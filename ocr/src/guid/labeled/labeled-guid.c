@@ -466,6 +466,8 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
                 msgClone.type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
                 PD_MSG_FIELD_IO(guid.guid) = guid;
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(type) = MD_CLONE;
+                PD_MSG_FIELD_I(dstLocation) = pd->myLocation;
                 u8 returnCode = pd->fcts.processMessage(pd, &msgClone, false);
                 ASSERT(returnCode == OCR_EPEND);
                 // Warning: after this call we're potentially concurrent with the MD being registered on the GP

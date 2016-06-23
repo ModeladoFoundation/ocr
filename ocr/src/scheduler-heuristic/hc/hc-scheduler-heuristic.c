@@ -19,6 +19,12 @@
 #include "ocr-scheduler-object.h"
 #include "scheduler-heuristic/hc/hc-scheduler-heuristic.h"
 
+#define DEBUG_TYPE SCHEDULER_HEURISTIC
+
+#ifdef LOAD_BALANCING_TEST
+#include "extensions/ocr-hints.h"
+#endif
+
 /******************************************************/
 /* OCR-HC SCHEDULER_HEURISTIC                         */
 /******************************************************/
@@ -186,6 +192,44 @@ static u8 hcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
     return retVal;
 }
 
+// Will go away with MT
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+
+#ifdef LOAD_BALANCING_TEST
+static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+    ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
+    ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
+    ocrSchedulerObject_t *schedObj = hcContext->mySchedulerObject;
+    ASSERT(schedObj);
+    ocrSchedulerObject_t edtObj;
+    edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
+    edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrLocation_t edtLoc;
+    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], edtObj.guid.guid, &edtLoc);
+    if (edtLoc != pd->myLocation) {
+        DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler: Received foreign EDT for execution\n");
+    } else {
+        ocrTask_t * edt = (ocrTask_t *) edtObj.guid.metaDataPtr;
+        ASSERT(edt != NULL);
+        // These checks short-circuit a little bit the call path so that the placement
+        // heuristic is not called to end up doing the same kind of checks
+        ocrHint_t edtHints;
+        ocrHintInit(&edtHints, OCR_HINT_EDT_T);
+        u8 noHint = pd->taskFactories[0]->fcts.getHint(edt, &edtHints);
+        u64 edtAff;
+        u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
+        bool loadBalance = ((edt->funcPtr != &processRequestEdt) && noPlcHint);
+        if (loadBalance) {
+            DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler node-level load balancing "GUIDF"\n", GUIDA(edtObj.guid.guid));
+            return OCR_ENOSPC;
+        } // else fall-through and continue with scheduling
+    }
+    return 0;
+}
+#endif
+
 u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerHeuristicContext_t *context = self->fcts.getContext(self, opArgs->location);
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
@@ -247,7 +291,11 @@ u8 hcSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerO
         break;
     // Notifies ignored by this heuristic
     case OCR_SCHED_NOTIFY_EDT_SATISFIED:
+#ifdef LOAD_BALANCING_TEST
+        return hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(self, context, opArgs, hints);
+#else
         return OCR_ENOP;
+#endif
     // Unknown ops
     default:
         return OCR_ENOTSUP;

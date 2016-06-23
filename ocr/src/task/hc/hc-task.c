@@ -296,6 +296,7 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
     task->countUnkDbs = 0;
     task->maxUnkDbs = 0;
     task->resolvedDeps = NULL;
+    task->mdState = MD_STATE_EDT_MASTER;
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
     task->evtHead = NULL;
@@ -537,6 +538,9 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
         rself->frontierSlot = 0;
     }
     // Try to start the DB acquisition process if scheduler agreed
+    // When scheduleSatisfiedTask returns zero it means the scheduler
+    // has either decided to move the task or wants to start the DB
+    // acquisition later.
     if (scheduleSatisfiedTask(self) != 0 && !iterateDbFrontier(self)) {
         //TODO: Keeping this here for 0.9 compatibility but
         //iterateDbFrontier and related code will eventually
@@ -570,10 +574,12 @@ u8 destructTaskHc(ocrTask_t* base) {
     // what the task might be doing. For now just have a simple policy
     // that we'll let the task run to completion
     if (base->state < ALLDEPS_EDTSTATE) {
+        ocrTask_t * curEdt = NULL;
+        getCurrentEnv(&pd, NULL, &curEdt, NULL);
+        ocrTaskHc_t* dself = (ocrTaskHc_t*)base;
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
 #else
-        ocrTaskHc_t* dself = (ocrTaskHc_t*)base;
         u32 i= 0;
         u32 ub = queueGetSize(dself->evts);
         while (i < ub) {
@@ -584,70 +590,73 @@ u8 destructTaskHc(ocrTask_t* base) {
         queueDestroy(dself->evts);
 #endif
 #endif
-        ocrTask_t * curEdt = NULL;
-        getCurrentEnv(&pd, NULL, &curEdt, NULL);
-        // Clean up output-event
-        if (!(ocrGuidIsNull(base->outputEvent))) {
-            PD_MSG_STACK(msg);
-            getCurrentEnv(NULL, NULL, NULL, &msg);
+        // Dealing with EDT movement here. When an EDT moves the current PD's
+        // version should be deallocated, however we do not want to checkout from
+        // finish scopes and destroy events. Only do that if the MD is in master state.
+        if (dself->mdState == MD_STATE_EDT_MASTER) {
+            // Clean up output-event
+            if (!(ocrGuidIsNull(base->outputEvent))) {
+                PD_MSG_STACK(msg);
+                getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_DESTROY
-            msg.type = PD_MSG_EVT_DESTROY | PD_MSG_REQUEST;
-            PD_MSG_FIELD_I(guid.guid) = base->outputEvent;
-            PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-            PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
-            PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-            PD_MSG_FIELD_I(properties) = 0;
-            u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
-            ASSERT(returnCode == 0);
+                msg.type = PD_MSG_EVT_DESTROY | PD_MSG_REQUEST;
+                PD_MSG_FIELD_I(guid.guid) = base->outputEvent;
+                PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
+                PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+                PD_MSG_FIELD_I(properties) = 0;
+                u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
+                ASSERT(returnCode == 0);
 #undef PD_MSG
 #undef PD_TYPE
-        }
+            }
 
-        // If this is a finish EDT and it hasn't ran yet just destroy
-        if (!(ocrGuidIsNull(base->finishLatch))) {
-            PD_MSG_STACK(msg);
-            getCurrentEnv(NULL, NULL, NULL, &msg);
+            // If this is a finish EDT and it hasn't ran yet just destroy
+            if (!(ocrGuidIsNull(base->finishLatch))) {
+                PD_MSG_STACK(msg);
+                getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_DESTROY
-            msg.type = PD_MSG_EVT_DESTROY | PD_MSG_REQUEST;
-            PD_MSG_FIELD_I(guid.guid) = base->finishLatch;
-            PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-            PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
-            PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-            PD_MSG_FIELD_I(properties) = 0;
-            u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
-            ASSERT(returnCode == 0);
+                msg.type = PD_MSG_EVT_DESTROY | PD_MSG_REQUEST;
+                PD_MSG_FIELD_I(guid.guid) = base->finishLatch;
+                PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
+                PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+                PD_MSG_FIELD_I(properties) = 0;
+                u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
+                ASSERT(returnCode == 0);
 #undef PD_MSG
 #undef PD_TYPE
-        }
+            }
 
-        // Need to decrement the parent latch since the EDT didn't run
-        if (!(ocrGuidIsNull(base->parentLatch))) {
-            PD_MSG_STACK(msg);
-            getCurrentEnv(NULL, NULL, NULL, &msg);
+            // Need to decrement the parent latch since the EDT didn't run
+            if (!(ocrGuidIsNull(base->parentLatch))) {
+                PD_MSG_STACK(msg);
+                getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
-            //TODO ABA issue here if not REQ_RESP ?
-            msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
-            // PD_MSG_FIELD_I(satisfierGuid) = {(curEdt ? curEdt->guid : NULL_GUID), curEdt};
-            PD_MSG_FIELD_I(satisfierGuid.guid) = (curEdt ? curEdt->guid : NULL_GUID);
-            PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
-            PD_MSG_FIELD_I(guid.guid) = base->parentLatch;
-            PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-            PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
-            PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-            PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
-            PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-            PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_DECR_SLOT;
+                //TODO ABA issue here if not REQ_RESP ?
+                msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+                // PD_MSG_FIELD_I(satisfierGuid) = {(curEdt ? curEdt->guid : NULL_GUID), curEdt};
+                PD_MSG_FIELD_I(satisfierGuid.guid) = (curEdt ? curEdt->guid : NULL_GUID);
+                PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
+                PD_MSG_FIELD_I(guid.guid) = base->parentLatch;
+                PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+                PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
+                PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+                PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_DECR_SLOT;
 #ifdef REG_ASYNC_SGL
-            PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
+                PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
 #endif
-            PD_MSG_FIELD_I(properties) = 0;
-            u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
-            ASSERT(returnCode == 0);
+                PD_MSG_FIELD_I(properties) = 0;
+                u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
+                ASSERT(returnCode == 0);
 #undef PD_MSG
 #undef PD_TYPE
+            }
         }
     } else {
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
@@ -687,18 +696,75 @@ u8 destructTaskHc(ocrTask_t* base) {
     return 0;
 }
 
+//TODO-MD discrepancy between szMd here and in events where they do not account for embedded MD
+static u8 allocateNewTaskHc(ocrPolicyDomain_t *pd, ocrFatGuid_t * resultGuid, u32 szMd, ocrLocation_t targetLoc, u32 properties) {
+    PD_MSG_STACK(msg);
+    // Create the task itself by getting a GUID
+    getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_GUID_CREATE
+    msg.type = PD_MSG_GUID_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_IO(guid) = *resultGuid;
+    // We allocate everything in the meta-data to keep things simple
+    PD_MSG_FIELD_I(size) = szMd;
+    PD_MSG_FIELD_I(kind) = OCR_GUID_EDT;
+    PD_MSG_FIELD_I(targetLoc) = targetLoc;
+    PD_MSG_FIELD_I(properties) = properties;
+    RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
+    *resultGuid = PD_MSG_FIELD_IO(guid);
+#undef PD_MSG
+#undef PD_TYPE
+    return 0;
+}
+
 u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edtTemplate,
                       u32 paramc, u64* paramv, u32 depc, u32 properties,
                       ocrHint_t *hint, ocrFatGuid_t * outputEventPtr,
                       ocrTask_t *curEdt, ocrFatGuid_t parentLatch,
                       ocrParamList_t *perInstance) {
-
-    // Get the current environment
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t *curTask = NULL;
-    u32 i;
     getCurrentEnv(&pd, NULL, &curTask, NULL);
-    ASSERT(outputEventPtr != NULL);
+    ocrFatGuid_t resultGuid = *edtGuid;
+    u32 hintc = hasProperty(properties, EDT_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_EDT_HC;
+    u32 szMd = sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t) + hintc*sizeof(u64);
+
+    ocrLocation_t targetLoc = pd->myLocation;
+    if (hint != NULL_HINT) {
+        u64 hintValue = 0ULL;
+        if ((ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
+            ocrGuid_t affGuid;
+#if GUID_BIT_COUNT == 64
+            affGuid.guid = hintValue;
+#elif GUID_BIT_COUNT == 128
+            affGuid.upper = 0ULL;
+            affGuid.lower = hintValue;
+#endif
+            ASSERT(!ocrGuidIsNull(affGuid));
+            affinityToLocation(&(targetLoc), affGuid);
+       }
+    }
+    // Paths:
+    // - Deferred creation: GUID_PROP_ISVALID | GUID_PROP_TORECORD
+    // - MD creation master: GUID_PROP_TORECORD
+    // - MD creation clone: GUID_PROP_ISVALID | GUID_PROP_TORECORD
+    ASSERT(properties & GUID_PROP_TORECORD);
+
+    allocateNewTaskHc(pd, &resultGuid, szMd, targetLoc, properties);
+    ocrTask_t *base = (ocrTask_t*) resultGuid.metaDataPtr;
+    ocrTaskHc_t *edt = (ocrTaskHc_t*) base;
+    ASSERT(edt);
+    // Set up the base's base
+    base->base.fctId = factory->factoryId;
+    base->guid = resultGuid.guid;
+
+    // We need an output event for the EDT if either:
+    //  - the user requested one (outputEventPtr is non NULL)
+    //  - the EDT is a finish EDT (and therefore we need to link
+    //    the output event to the latch event)
+    //  - the EDT is within a finish scope (and we need to link to
+    //    that latch event)
+    ASSERT(outputEventPtr != NULL); // This should always be initialized
     ocrFatGuid_t outputEvent = {.guid = NULL_GUID, .metaDataPtr = NULL};
 #ifdef ENABLE_OCR_API_DEFERRABLE
     ocrFatGuid_t defFinish;
@@ -720,12 +786,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         }
     }
 #endif
-    // We need an output event for the EDT if either:
-    //  - the user requested one (outputEventPtr is non NULL)
-    //  - the EDT is a finish EDT (and therefore we need to link
-    //    the output event to the latch event)
-    //  - the EDT is within a finish scope (and we need to link to
-    //    that latch event)
     if (!ocrGuidIsNull(outputEventPtr->guid) || hasProperty(properties, EDT_PROP_FINISH) ||
             !(ocrGuidIsNull(parentLatch.guid))) {
         PD_MSG_STACK(msg);
@@ -761,50 +821,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #undef PD_MSG
 #undef PD_TYPE
     }
-
-    u32 hintc = hasProperty(properties, EDT_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_EDT_HC;
-    u32 schedc = factory->usesSchedulerObject;
-
-    PD_MSG_STACK(msg);
-    // Create the task itself by getting a GUID
-    getCurrentEnv(NULL, NULL, NULL, &msg);
-
-    ocrLocation_t targetLoc = pd->myLocation;
-    if (hint != NULL_HINT) {
-        u64 hintValue = 0ULL;
-        if ((ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
-            ocrGuid_t affGuid;
-#if GUID_BIT_COUNT == 64
-            affGuid.guid = hintValue;
-#elif GUID_BIT_COUNT == 128
-            affGuid.upper = 0ULL;
-            affGuid.lower = hintValue;
-#endif
-            ASSERT(!ocrGuidIsNull(affGuid));
-            affinityToLocation(&(targetLoc), affGuid);
-        }
-    }
-
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_GUID_CREATE
-    msg.type = PD_MSG_GUID_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_IO(guid.guid) = edtGuid->guid;
-    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-    // We allocate everything in the meta-data to keep things simple
-    PD_MSG_FIELD_I(size) = sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t) + hintc*sizeof(u64) + schedc*sizeof(u64);
-    PD_MSG_FIELD_I(kind) = OCR_GUID_EDT;
-    PD_MSG_FIELD_I(targetLoc) = targetLoc;
-    //In deferred properties carry the valid and torecord flags
-    PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
-    RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
-    ocrTaskHc_t *edt = (ocrTaskHc_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);
-    ocrTask_t *base = (ocrTask_t*)edt;
-    ASSERT(edt);
-
-    // Set up the base's base
-    base->base.fctId = factory->factoryId;
-    // Set-up base structures
-    base->guid = PD_MSG_FIELD_IO(guid.guid);
     base->templateGuid = edtTemplate.guid;
     ASSERT(edtTemplate.metaDataPtr); // For now we just assume it is passed whole
     base->funcPtr = ((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->executePtr;
@@ -820,6 +836,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     base->finishLatch = NULL_GUID;
 #endif
     base->parentLatch = parentLatch.guid;
+    u32 i;
     for(i = 0; i < ELS_SIZE; ++i) {
         base->els[i] = NULL_GUID;
     }
@@ -852,11 +869,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         if (hint != NULL_HINT) factory->fcts.setHint(base, hint);
     }
 
-    if (schedc != 0) {
-        base->flags |= OCR_TASK_FLAG_USES_SCHEDULER_OBJECT;
-        u64* schedObjPtr = (u64*)HC_TASK_SCHED_OBJ_PTR(edt);
-        *schedObjPtr = 0;
-    }
     if (perInstance != NULL) {
         paramListTask_t *taskparams = (paramListTask_t*)perInstance;
         if (taskparams->workType == EDT_RT_WORKTYPE) {
@@ -918,6 +930,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid);
     // Check to see if the EDT can be run
     if(base->depc == edt->slotSatisfiedCount) {
+        //TODO-MD-EDT: Is this an issue if the scheduler calls move here ?
         DPRINTF(DEBUG_LVL_INFO,
                 "Scheduling task "GUIDF" due to initial satisfactions\n", GUIDA(base->guid));
         RESULT_PROPAGATE2(taskAllDepvSatisfied(base), 1);
@@ -1694,7 +1707,156 @@ ocrRuntimeHint_t* getRuntimeHintTaskHc(ocrTask_t* self) {
     return &(derived->hint);
 }
 
-void destructTaskFactoryHc(ocrObjectFactory_t* factory) {
+#define MSG_MDCOMM_SZ       (_PD_MSG_SIZE_IN(PD_MSG_METADATA_COMM))
+
+// Simple flat serialization
+// #define SER_WRITE(dest, src, sz) (memcpy(dest, src, sz), ((char *)dest)+(sz))
+#define SER_WRITE(dest, src, sz) {hal_memCopy(dest, src, sz, false); char * _tmp__ = ((char *) dest) + (sz); dest=_tmp__;}
+
+//TODO-MD-EDT: I think we can pretty much automate all the serialization with some xmacro magic
+// Compute the size of a serialized data-structure defined in 'self' (and derived)
+#define SZ_PARAMV(self)         (sizeof(u64)*((ocrTask_t*)self)->paramc)
+#define SZ_SIGNALERS(self)      (sizeof(regNode_t)*((ocrTask_t*)self)->depc)
+#define SZ_HINTS(self)          ((hasProperty(((ocrTask_t*)self)->flags, OCR_TASK_FLAG_USES_HINTS) ? OCR_HINT_COUNT_EDT_HC : 0)*sizeof(u64))
+#define SZ_UNKDBS(self)         (((ocrTaskHc_t *)self)->countUnkDbs*sizeof(ocrGuid_t))
+#define SZ_RESOLVEDDEPS(self)   ((((ocrTaskHc_t *)self)->resolvedDeps == NULL) ? 0 : (((ocrTask_t*)self)->depc*sizeof(ocrEdtDep_t)))
+
+// Computes the address of a data-structure embedded in 'self'
+#define OFF_PARAMV(self)            (((char *) self) + sizeof(ocrTaskHc_t))
+#define OFF_SIGNALERS(self)         (OFF_PARAMV(self) + SZ_PARAMV(self))
+#define OFF_HINTS(self)             (OFF_SIGNALERS(self) + SZ_SIGNALERS(self))
+#define OFF_UNKDBS(self)            (OFF_HINTS(self) + SZ_HINTS(self))
+#define OFF_RESOLVEDDEPS(self)      (OFF_UNKDBS(self) + SZ_UNKDBS(self))
+
+//TODO-MD-EDT:
+//This is returning the size for a deep copy. Mode, whether it is an action or a type of size should reflect that.
+u8 mdSizeTaskFactoryHc(ocrObject_t *dest, u64 mode, u64 * size) {
+    ocrTask_t * self = (ocrTask_t *) dest;
+    *size = sizeof(ocrTaskHc_t) +
+        SZ_PARAMV(self) + SZ_SIGNALERS(self) + SZ_HINTS(self) + SZ_UNKDBS(self) + SZ_RESOLVEDDEPS(self);
+    return 0;
+}
+
+u8 serializeTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * src, u64 * mode, ocrLocation_t destLocation, void ** destBuffer, u64 * destSize) {
+    //TODO-MD-EDT: what's the mode here ?
+    //NOTE: Don't really have a use for the destLocation here
+    ASSERT(destBuffer != NULL);
+    ocrTask_t * self = (ocrTask_t *) src;
+#ifdef OCR_ASSERT
+    u64 mdSizeCheck = 0; //TODO-MD-EDT mode
+    mdSizeTaskFactoryHc((ocrObject_t *) self, 0, &mdSizeCheck);
+    ASSERT(*destSize >= mdSizeCheck);
+#endif
+    ocrTaskHc_t * dself = (ocrTaskHc_t *) src;
+    ASSERT(ocrGuidIsEq(guid, self->guid));
+    ocrTaskHc_t * dst = (ocrTaskHc_t *) *destBuffer;
+    *dst = *dself;
+    dst->maxUnkDbs = dself->countUnkDbs;
+    // Fixup embedded pointers and heap-allocated:
+    // paramv | signalers | hintc | unkDbs | resolvedDeps
+    char * cur = OFF_PARAMV(dst);
+    SER_WRITE(cur, self->paramv, SZ_PARAMV(self));
+    SER_WRITE(cur, dself->signalers, SZ_SIGNALERS(dself));
+    SER_WRITE(cur, dself->hint.hintVal, SZ_HINTS(dself));
+    ASSERT(dself->unkDbs == NULL); // No use for it currently but code is here
+    SER_WRITE(cur, dself->unkDbs, SZ_UNKDBS(dself));
+    SER_WRITE(cur, dself->resolvedDeps, SZ_RESOLVEDDEPS(dself));
+    return 0;
+}
+
+u8 deserializeTaskFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t edtGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize) {
+    //TODO-MD-EDT: shouldn't we have a M_ mode here ?
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ASSERT(srcBuffer != NULL);
+    ASSERT(dest != NULL);
+    //TODO-MD-EDT: Make a copy but we could actually just piggy back on the srcBuffer ?
+    ocrTaskHc_t * src = (ocrTaskHc_t *) srcBuffer;
+    // Create a new instance whose size can fit all the embedded data-structures others will be heap allocated
+    u32 dstSz = sizeof(ocrTaskHc_t) + SZ_PARAMV(src) + SZ_SIGNALERS(src) + SZ_HINTS(src);
+    ocrFatGuid_t resultGuid = {.guid = edtGuid, .metaDataPtr = NULL};
+    // Here the targetLoc doesn't matter since we already have a guid, just use current loc
+    allocateNewTaskHc(pd, &resultGuid, dstSz, /*targetLoc*/ pd->myLocation, GUID_PROP_ISVALID | GUID_PROP_TORECORD);
+    ocrTaskHc_t * dst = resultGuid.metaDataPtr;
+    // Do this copy before so that all the fields are initialized
+    *dst = *src;
+    // Copy the serialized pointers to destination
+    hal_memCopy(OFF_PARAMV(dst), OFF_PARAMV(src), SZ_PARAMV(src), false);
+    ((ocrTask_t*) dst)->paramv = (u64 *) OFF_PARAMV(dst);
+    hal_memCopy(OFF_SIGNALERS(dst), OFF_SIGNALERS(src), SZ_SIGNALERS(src), false);
+    dst->signalers = (regNode_t *) OFF_SIGNALERS(dst);
+    hal_memCopy(OFF_HINTS(dst), OFF_HINTS(src), SZ_HINTS(src), false);
+    dst->hint.hintVal = (u64 *) OFF_HINTS(dst);
+    // Do the heap allocated ones
+    ASSERT(((SZ_UNKDBS(src) == 0) && (dst->unkDbs == NULL)) || 1);
+    if (SZ_UNKDBS(src)) {
+        dst->unkDbs = pd->fcts.pdMalloc(pd, SZ_UNKDBS(src));
+        hal_memCopy(dst->unkDbs, OFF_UNKDBS(src), SZ_UNKDBS(src), false);
+    }
+    ASSERT(((SZ_RESOLVEDDEPS(src) == 0) && (dst->resolvedDeps == NULL)) || 1);
+    dst->resolvedDeps = pd->fcts.pdMalloc(pd, SZ_RESOLVEDDEPS(src));
+    hal_memCopy(dst->resolvedDeps, OFF_RESOLVEDDEPS(src), SZ_RESOLVEDDEPS(src), false);
+    *dest = (ocrObject_t *) dst;
+    return 0;
+}
+
+//TODO-MD-EDT: This is just to see if it impl works but it my make sense
+//to add a move operation since it's contorted now
+u8 cloneTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t ** mdPtr) {
+    ocrLocation_t destLocation = *((ocrLocation_t *) mdPtr);
+    ocrTask_t * self = (ocrTask_t *) factory;
+    // Create a policy-domain message
+    ocrPolicyMsg_t * msg;
+    PD_MSG_STACK(msgStack);
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ASSERT(destLocation != pd->myLocation);
+
+    // Query the serialized size
+    u64 mdMode = 0; //TODO-MD-EDT: Should this be MD_MOVE ? What are the modes ?
+    u64 mdSize = 0;
+    mdSizeTaskFactoryHc((ocrObject_t *) self, 0, &mdSize);
+
+    u64 msgSize = MSG_MDCOMM_SZ + mdSize;
+    u32 msgProp = 0;
+    if (msgSize > sizeof(ocrPolicyMsg_t)) {
+        //TODO-MD-SLAB
+        msg = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSize);
+        initializePolicyMessage(msg, msgSize);
+        getCurrentEnv(NULL, NULL, NULL, msg);
+        msgProp = PERSIST_MSG_PROP;
+    } else {
+        msg = &msgStack;
+        getCurrentEnv(NULL, NULL, NULL, &msgStack);
+    }
+
+    // Fill in this call specific arguments
+    msg->destLocation = destLocation;
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_METADATA_COMM
+    msg->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(guid) = self->guid;
+    PD_MSG_FIELD_I(direction) = MD_DIR_PUSH;
+    PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/ //TODO-MD-OP not clearly defined yet
+    PD_MSG_FIELD_I(mode) = mdMode;
+    PD_MSG_FIELD_I(factoryId) = self->fctId;
+    PD_MSG_FIELD_I(response) = NULL;
+    PD_MSG_FIELD_I(mdPtr) = NULL;
+    DPRINTF(DEBUG_LVL_VVERB, "edt-md: push "GUIDF" in mode=%"PRIu64"\n", GUIDA(guid), mdMode);
+    PD_MSG_FIELD_I(sizePayload) = mdSize;
+    char * ptr = &(PD_MSG_FIELD_I(payload));
+    ocrObjectFactory_t * ffactory = pd->factories[self->fctId];
+    serializeTaskFactoryHc(ffactory, guid, (ocrObject_t *) self, &mdMode, destLocation, (void **) &ptr, &mdSize);
+#undef PD_MSG
+#undef PD_TYPE
+    ((ocrTaskHc_t*)self)->mdState = MD_STATE_EDT_GHOST; // Update current MD to ghost state
+    pd->fcts.sendMessage(pd, destLocation, msg, NULL, msgProp);
+    // Destroy the EDT metadata
+    destructTaskHc(self);
+    return 0;
+}
+
+void destructTaskFactoryHc(ocrTaskFactory_t* factory) {
     runtimeChunkFree((u64)((ocrTaskFactory_t*)factory)->hintPropMap, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
 }
@@ -1702,10 +1864,10 @@ void destructTaskFactoryHc(ocrObjectFactory_t* factory) {
 ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) {
     ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrTaskFactoryHc_t), PERSISTENT_CHUNK);
-    bbase->clone = NULL;
-    bbase->serialize = NULL;
-    bbase->deserialize = NULL;
-    bbase->mdSize = NULL;
+    bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**), cloneTaskFactoryHc);
+    bbase->mdSize = FUNC_ADDR(u8 (*)(ocrObject_t * dest, u64, u64*), mdSizeTaskFactoryHc);
+    bbase->serialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, u64*, ocrLocation_t, void**, u64*), serializeTaskFactoryHc);
+    bbase->deserialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, u64, void*, u64), deserializeTaskFactoryHc);
 
     ocrTaskFactory_t* base = (ocrTaskFactory_t*) bbase;
 
@@ -1735,9 +1897,6 @@ ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) 
     //Setup hint framework
     base->hintPropMap = (u64*)runtimeChunkAlloc(sizeof(u64)*(OCR_HINT_EDT_PROP_END - OCR_HINT_EDT_PROP_START - 1), PERSISTENT_CHUNK);
     OCR_HINT_SETUP(base->hintPropMap, ocrHintPropTaskHc, OCR_HINT_COUNT_EDT_HC, OCR_HINT_EDT_PROP_START, OCR_HINT_EDT_PROP_END);
-
-    paramListTaskFact_t *paramTaskFact = (paramListTaskFact_t*)perInstance;
-    base->usesSchedulerObject = paramTaskFact->usesSchedulerObject;
     return base;
 }
 #endif /* ENABLE_TASK_HC */

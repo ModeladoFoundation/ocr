@@ -62,7 +62,7 @@ static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid
 
     u32 paramc = 1;
     u32 depc = 0;
-    u32 properties = 0;
+    u32 properties = GUID_PROP_TORECORD;
     ocrWorkType_t workType = EDT_RT_WORKTYPE;
 
     START_PROFILE(api_EdtCreate);
@@ -273,7 +273,7 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                 } else {
 #ifdef COMMWRK_PROCESS_SATISFY // This is for benchmarking purpose to measure overhead of delegating processing
                     if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DEP_SATISFY) {
-                        DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process PD_MSG_DEP_SATISFY message, type=0x%"PRIx64" msgId: %"PRIu64"\n",  message->type, message->msgId);
+                        DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process PD_MSG_DEP_SATISFY message, type=0x%"PRIx32" msgId: %"PRIu64"\n",  message->type, message->msgId);
                         processRequestEdt(1, &msgParamv, 0, NULL);
                     } else {
 #endif
@@ -372,7 +372,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
 #endif
         ocrEdtCreate(&edtGuid, edtTemplateGuid, EDT_PARAM_DEF, /* paramv = */ NULL,
                      /* depc = */ EDT_PARAM_DEF, /* depv = */ &dbGuid,
-                     EDT_PROP_NONE, &edtHint, NULL);
+                     GUID_PROP_TORECORD, &edtHint, NULL);
     }
 
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, PHASE_RUN));

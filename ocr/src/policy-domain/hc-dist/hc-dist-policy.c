@@ -193,7 +193,7 @@ u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateG
 
     u32 paramc = 1;
     u32 depc = 0;
-    u32 properties = 0;
+    u32 properties = GUID_PROP_TORECORD;
     ocrWorkType_t workType = EDT_RT_WORKTYPE;
 
     START_PROFILE(api_EdtCreate);
@@ -619,7 +619,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     suggestLocationPlacement(self, curLoc, (ocrPlatformModelAffinity_t *) self->platformModel,
                              (ocrLocationPlacer_t *) self->placer, msg);
 #else
-    hcDistSchedNotifyPreProcessMessage(self, msg);
+        hcDistSchedNotifyPreProcessMessage(self, msg);
 #endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
@@ -792,6 +792,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     }
     case PD_MSG_METADATA_COMM:
     {
+        //Fall-through to send or base PD process
         break;
     }
     case PD_MSG_DB_CREATE:
@@ -824,7 +825,14 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_WORK_DESTROY
-        RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+        //TODO-MD-EDT: This needs better support in the GUID/MD to decide if it is a local or fwd op
+        //+ there's probably a leak at the origin PD
+        u64 val;
+        self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_I(guid.guid), &val, NULL, MD_LOCAL, NULL);
+        if (val == 0) { // No local representent
+            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+        } // else, we do have a local representent, destroy locally
+        //TODO-MD-EDT this should also destroy the proxy left at the origin
         DPRINTF(DEBUG_LVL_VVERB, "WORK_DESTROY: target is %"PRId32"\n", (u32)msg->destLocation);
 #undef PD_MSG
 #undef PD_TYPE
@@ -927,28 +935,36 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
         if (msg->type & PD_MSG_REQUEST) {
-
-            // Do not call the macro because it relies on GUID_INFO
-            // and we go into a deadlock when cloning GUID maps
-            // RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
-            self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(msg->destLocation));
-            DPRINTF(DEBUG_LVL_VVERB,"METADATA_CLONE: request for guid="GUIDF" src=%"PRId32" dest=%"PRId32"\n",
-                    GUIDA(PD_MSG_FIELD_IO(guid.guid)), (u32)msg->srcLocation, (u32)msg->destLocation);
-            if ((msg->destLocation != curLoc) && (msg->srcLocation == curLoc)) {
-                // Outgoing request
-                // NOTE: In the current implementation when we call metadata-clone
-                //       it is because we've already checked the guid provider and
-                //       the guid is not available
-                // If it's a non-blocking processing, will set the returnDetail to busy after the request is sent out
+            if (PD_MSG_FIELD_I(type) == MD_CLONE) {
+                // Do not call the macro because it relies on GUID_INFO
+                // and we go into a deadlock when cloning GUID maps
+                // RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
+                self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(msg->destLocation));
+                DPRINTF(DEBUG_LVL_VVERB,"METADATA_CLONE: request for guid="GUIDF" src=%"PRId32" dest=%"PRId32"\n",
+                        GUIDA(PD_MSG_FIELD_IO(guid.guid)), (u32)msg->srcLocation, (u32)msg->destLocation);
+                if ((msg->destLocation != curLoc) && (msg->srcLocation == curLoc)) {
+                    // Outgoing request
+                    // NOTE: In the current implementation when we call metadata-clone
+                    //       it is because we've already checked the guid provider and
+                    //       the guid is not available
+                    // If it's a non-blocking processing, will set the returnDetail to busy after the request is sent out
 #ifdef OCR_ASSERT
-                u64 val;
-                self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL);
-                ASSERT(val == 0);
+                    u64 val;
+                    self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL);
+                    ASSERT(val == 0);
 #endif
+                }
+            } else { // MD_MOVE request
+                // In current implementation this type of message never leaves the current PD
+                ASSERT(msg->srcLocation == msg->destLocation);
+                ASSERT(msg->srcLocation == curLoc);
+                // Local PD needs to inspect the MD_MOVE operation and take appropriate actions
+                // which include notifying relevant PD modules and invoke lower-level MD_COMM APIs
             }
         }
+
         if ((msg->destLocation == curLoc) && (msg->srcLocation != curLoc) && (msg->type & PD_MSG_RESPONSE)) {
-            // Incoming response to a clone request posted earlier
+            // Incoming response to a MD_CLONE request posted earlier
             ocrGuidKind tkind;
             self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &tkind);
             if (tkind == OCR_GUID_EDT_TEMPLATE) {
@@ -1055,8 +1071,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_DYNADD
-        CHECK_PROCESS_MESSAGE_LOCALLY_AND_RETURN;
-        RETRIEVE_LOCATION_FROM_MSG(self, edt, msg->destLocation, I);
+        // CHECK_PROCESS_MESSAGE_LOCALLY_AND_RETURN;
+        // RETRIEVE_LOCATION_FROM_MSG(self, edt, msg->destLocation, I);
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNADD: target is %"PRId32"\n", (u32)msg->destLocation);
 #undef PD_MSG
 #undef PD_TYPE
@@ -1066,7 +1082,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_DYNREMOVE
-        RETRIEVE_LOCATION_FROM_MSG(self, edt, msg->destLocation, I);
+        //TODO-MD-EDT: Shouldn't be able to dynremove from remote.
+        // RETRIEVE_LOCATION_FROM_MSG(self, edt, msg->destLocation, I);
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNREMOVE: target is %"PRId32"\n", (u32)msg->destLocation);
 #undef PD_MSG
 #undef PD_TYPE

@@ -40,6 +40,8 @@
 
 #define DEBUG_TYPE POLICY
 
+extern ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kind, u32 factoryId);
+
 static u8 helperSwitchInert(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, phase_t phase, u32 properties) {
     u64 i = 0;
     u64 maxCount = 0;
@@ -450,7 +452,6 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                     toReturn |= policy->workers[j]->fcts.switchRunlevel(
                         policy->workers[j], policy, runlevel, rself->rlSwitch.nextPhase, properties, NULL, 0);
                 }
-
                 //to be deprecated
                 destroyLocationPlacer(policy);
                 destroyPlatformModelAffinity(policy);
@@ -1566,6 +1567,60 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     }
     case PD_MSG_METADATA_COMM:
     {
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_METADATA_COMM
+        ocrGuid_t guid = PD_MSG_FIELD_I(guid);
+        // All of the pull/push requests are subject to brokering
+        // A serialization request
+        ocrGuidKind guidKind;
+        self->guidProviders[0]->fcts.getKind(self->guidProviders[0], guid, &guidKind);
+
+        // - Resolve the factory pointer (from the kind and factoryId)
+        u32 factoryId = 0; //TODO-MD this is very fragile since it depends on the runtime having a single factory per OCR object kind
+        ocrObjectFactory_t * factory = resolveObjectFactory(self, guidKind, factoryId);
+
+        //TODO-MD unify APIs: for now broker handles push/pull that may require asynchrony
+        // The other branch is for operations that can carried out immediately
+        if (guidKind == OCR_GUID_EDT) {
+            DPRINTF(DEBUG_LVL_VVERB, "Processing incoming MD_COMM PUSH for OCR_GUID_EDT\n");
+            // Currently only support MD_MOVE for EDTs that are translated into a PUSH operation
+#ifdef OCR_ASSERT
+            u64 val = 0;
+            self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, NULL);
+            ASSERT(val == 0);
+            ASSERT(PD_MSG_FIELD_I(direction) == MD_DIR_PUSH);
+#endif
+            ocrObject_t * mdPtr = NULL;
+            factory->deserialize(factory, guid, &mdPtr, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
+            //TODO-MD: This is implicitely saying if the ptr was null we didn't know about the MD
+            //      so it is assumed we're deserializing some form of clone message
+            ASSERT((mdPtr != NULL) && "error: PD_MSG_METADATA_COMM deserialize operation failed");
+            // NOTE: Implementation ensures there's a single message generated for the initial clone
+            // so that this registration is not concurrent with others for the same GUID
+            // RESULT_ASSERT(self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], guid, (u64) mdPtr), == , 0);
+            // DPRINTF(DEBUG_LVL_WARN, "registerGuid called after deserialize\n");
+            // Notify the scheduler of the EDT move
+            ocrPolicyDomain_t *pd = NULL;
+            PD_MSG_STACK(msgNotify);
+            getCurrentEnv(&pd, NULL, NULL, &msgNotify);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msgNotify)
+#define PD_TYPE PD_MSG_SCHED_NOTIFY
+            msgNotify.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
+            PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_SATISFIED;
+            PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid.guid = guid;
+            PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid.metaDataPtr = mdPtr;
+            RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msgNotify, false));
+            u8 res = PD_MSG_FIELD_O(returnDetail);
+            if (res) {
+                ASSERT(res == OCR_ENOP);
+                ocrTask_t * task = (ocrTask_t *) mdPtr;
+                RESULT_ASSERT(((ocrTaskFactory_t*) pd->factories[task->fctId])->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
+            }
+#undef PD_MSG
+#undef PD_TYPE
+        }
         break;
     }
     case PD_MSG_WORK_CREATE: {
@@ -1589,12 +1644,13 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         u32 depc = PD_MSG_FIELD_IO(depc); // intentionally read before processing
         ocrFatGuid_t * depv = PD_MSG_FIELD_I(depv);
         ocrHint_t *hint = PD_MSG_FIELD_I(hint);
-        u32 properties = PD_MSG_FIELD_I(properties);
+        u32 properties = PD_MSG_FIELD_I(properties) | GUID_PROP_TORECORD;
         u8 returnCode = createEdtHelper(
                 self, &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(templateGuid),
                 &(PD_MSG_FIELD_IO(paramc)), PD_MSG_FIELD_I(paramv), &(PD_MSG_FIELD_IO(depc)),
                 properties, hint, outputEvent, (ocrTask_t*)(PD_MSG_FIELD_I(currentEdt).metaDataPtr),
                 PD_MSG_FIELD_I(parentLatch), PD_MSG_FIELD_I(workType));
+
         if ((properties & EDT_PROP_RT_HINT_ALLOC) && (msg->srcLocation == self->myLocation)) {
             self->fcts.pdFree(self, hint);
         }
@@ -1666,7 +1722,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 #undef PD_MSG
                 #undef PD_TYPE
                     }
-#endif
+#endif /*!EDT_DEPV_DELAYED*/
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_WORK_CREATE
                     u8 toReturn __attribute__((unused)) = self->fcts.processMessage(self, &msgAddDep, true);
@@ -1898,39 +1954,63 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t fatGuid = PD_MSG_FIELD_IO(guid);
         ocrGuidKind kind = OCR_GUID_NONE;
         guidKind(self, fatGuid, &kind);
-        //IMPL: For now only support edt template cloning
-
-        switch(kind) {
-            case OCR_GUID_EDT_TEMPLATE:
-                localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
-                //These won't support flat serialization
+        if (PD_MSG_FIELD_I(type) == MD_CLONE) {
+            ASSERT(msg->type & PD_MSG_REQ_RESPONSE);
+            switch(kind) {
+                case OCR_GUID_EDT_TEMPLATE:
+                    localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
+                    //These won't support flat serialization
 #ifdef OCR_ENABLE_STATISTICS
-                ASSERT(false && "no statistics support in distributed edt templates");
+                    ASSERT(false && "no statistics support in distributed edt templates");
 #endif
-                PD_MSG_FIELD_O(size) = sizeof(ocrTaskTemplateHc_t) + (sizeof(u64) * OCR_HINT_COUNT_EDT_HC);
-                PD_MSG_FIELD_O(returnDetail) = 0;
-                break;
-            case OCR_GUID_AFFINITY:
-                localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
-                PD_MSG_FIELD_O(size) = sizeof(ocrAffinity_t);
-                PD_MSG_FIELD_O(returnDetail) = 0;
-                break;
+                    PD_MSG_FIELD_O(size) = sizeof(ocrTaskTemplateHc_t) + (sizeof(u64) * OCR_HINT_COUNT_EDT_HC);
+                    PD_MSG_FIELD_O(returnDetail) = 0;
+                    break;
+                case OCR_GUID_AFFINITY:
+                    localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
+                    PD_MSG_FIELD_O(size) = sizeof(ocrAffinity_t);
+                    PD_MSG_FIELD_O(returnDetail) = 0;
+                    break;
 #ifdef ENABLE_EXTENSION_LABELING
-            case OCR_GUID_GUIDMAP:
-                localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
-                ocrGuidMap_t * map = (ocrGuidMap_t *) PD_MSG_FIELD_IO(guid.metaDataPtr);
-                PD_MSG_FIELD_O(size) =  ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)) + map->numParams*sizeof(s64);
-                PD_MSG_FIELD_O(returnDetail) = 0;
-                break;
+                case OCR_GUID_GUIDMAP:
+                    localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
+                    ocrGuidMap_t * map = (ocrGuidMap_t *) PD_MSG_FIELD_IO(guid.metaDataPtr);
+                    PD_MSG_FIELD_O(size) =  ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)) + map->numParams*sizeof(s64);
+                    PD_MSG_FIELD_O(returnDetail) = 0;
+                    break;
 #endif
-            default:
-                ASSERT(false && "Unsupported GUID kind cloning");
-                PD_MSG_FIELD_O(returnDetail) = OCR_ENOTSUP;
+                default:
+                    ASSERT(false && "Unsupported GUID kind cloning");
+                    PD_MSG_FIELD_O(returnDetail) = OCR_ENOTSUP;
+            }
+            msg->type &= ~PD_MSG_REQUEST;
+            msg->type |= PD_MSG_RESPONSE;
+        } else {
+            ASSERT(PD_MSG_FIELD_I(type) == MD_MOVE);
+            ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
+            //TODO-MD The EDT is destroyed by the caller:
+            // Should it be done here instead, as part of the move ?
+            ASSERT((kind == OCR_GUID_EDT) && "Only support metadata move of EDTs");
+            // In clone mode: I invoke the factory because I don't have any other handle to
+            // this particular instance. It may be completely remote and unknown about.
+            // In move, I have both the factory and an instance that I can call.
+            // Move is about transferring the metadata from this PD to another PD.
+            // It involves creating a LL MD message of a certain size, serialize the MD,
+            // and send the message to the destination.
+            //TODO-MD this is grossly cheating. Need to define an API but let see how it works out for now
+            // factory->move(factory, guid, dstLocation);
+            localDeguidify(self, &fatGuid);
+            ocrTask_t * task = (ocrTask_t *) fatGuid.metaDataPtr;
+            //TODO-MD Need some form of factoryID resolving
+            u32 factoryId = 0;
+            ocrObjectFactory_t * factory = resolveObjectFactory(self, kind, factoryId);
+            ocrLocation_t dstLoc = PD_MSG_FIELD_I(dstLocation);
+            ASSERT(self->myLocation != dstLoc);
+            // Trigger the movement
+            factory->clone((ocrObjectFactory_t *) task, fatGuid.guid, (ocrObject_t **) &dstLoc);
         }
 #undef PD_MSG
 #undef PD_TYPE
-        msg->type &= ~PD_MSG_REQUEST;
-        msg->type |= PD_MSG_RESPONSE;
         break;
     }
     case PD_MSG_GUID_RESERVE:

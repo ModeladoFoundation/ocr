@@ -164,6 +164,9 @@ typedef struct _ocrObjectFactory_t {
 #define MD_DIR_PULL 1
 #define MD_DIR_PUSH 2
 
+#define MD_CLONE 1
+#define MD_MOVE  2
+
 /**
  * @brief Memory region "tags"
  *

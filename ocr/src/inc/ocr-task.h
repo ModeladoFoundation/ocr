@@ -35,7 +35,6 @@ struct _ocrTaskTemplate_t;
 /****************************************************/
 typedef struct _paramListTaskFact_t {
     ocrParamList_t base;
-    u8 usesSchedulerObject;
 } paramListTaskFact_t;
 
 typedef struct _paramListTaskTemplateFact_t {
@@ -382,8 +381,6 @@ typedef struct _ocrTaskFactory_t {
     ocrTaskFcts_t fcts;         /**< Function pointers created instances should use */
     u32 factoryId;              /**< Corresponds to fctId in task */
     u64 *hintPropMap;           /**< Mapping hint properties to implementation specific packed array */
-    u8 usesSchedulerObject;     /**< This flag indicates if the datablock can have
-                                     a scheduler object associated with it */
 } ocrTaskFactory_t;
 
 #endif /* __OCR_TASK_H__ */
