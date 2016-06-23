@@ -273,7 +273,7 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                 } else {
 #ifdef COMMWRK_PROCESS_SATISFY // This is for benchmarking purpose to measure overhead of delegating processing
                     if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DEP_SATISFY) {
-                        DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process PD_MSG_DEP_SATISFY message, type=0x%"PRIx64" msgId: %"PRIu64"\n",  message->type, message->msgId);
+                        DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process PD_MSG_DEP_SATISFY message, type=0x%"PRIx32" msgId: %"PRIu64"\n",  message->type, message->msgId);
                         processRequestEdt(1, &msgParamv, 0, NULL);
                     } else {
 #endif

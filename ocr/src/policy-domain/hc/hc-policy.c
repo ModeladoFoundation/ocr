@@ -1568,7 +1568,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     }
     case PD_MSG_METADATA_COMM:
     {
-<<<<<<< HEAD
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_METADATA_COMM
         ocrGuid_t guid = PD_MSG_FIELD_I(guid);
@@ -1623,8 +1622,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_MSG
 #undef PD_TYPE
         }
-=======
->>>>>>> Adding PD_MSG_METADATA_COMM msg type
         break;
     }
     case PD_MSG_WORK_CREATE: {

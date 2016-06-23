@@ -741,7 +741,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
             affGuid.lower = hintValue;
 #endif
             ASSERT(!ocrGuidIsNull(affGuid));
-            targetLoc = affinityToLocation(affGuid);
+            affinityToLocation(&(targetLoc), affGuid);
        }
     }
     // Paths:
@@ -753,6 +753,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     allocateNewTaskHc(pd, &resultGuid, szMd, targetLoc, properties);
     ocrTask_t *base = (ocrTask_t*) resultGuid.metaDataPtr;
     ocrTaskHc_t *edt = (ocrTaskHc_t*) base;
+    ASSERT(edt);
     // Set up the base's base
     base->base.fctId = factory->factoryId;
     base->guid = resultGuid.guid;
