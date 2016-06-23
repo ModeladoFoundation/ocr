@@ -277,17 +277,8 @@ char* populate_type(ocrParamList_t **type_param, type_enum index, dictionary *di
     case policydomain_type:
         ALLOC_PARAM_LIST(*type_param, paramListPolicyDomainFact_t);
         break;
-    case taskfactory_type: {
-            ALLOC_PARAM_LIST(*type_param, paramListTaskFact_t);
-            ((paramListTaskFact_t*)(*type_param))->usesSchedulerObject = 0;
-            if (key_exists(dict, secname, "schedobj")) {
-                char *valuestr = NULL;
-                snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "schedobj");
-                INI_GET_STR (key, valuestr, "");
-                ASSERT(strcmp(valuestr, "1") == 0);
-                ((paramListTaskFact_t*)(*type_param))->usesSchedulerObject = 1;
-            }
-        }
+    case taskfactory_type:
+        ALLOC_PARAM_LIST(*type_param, paramListTaskFact_t);
         break;
     case tasktemplatefactory_type:
         ALLOC_PARAM_LIST(*type_param, paramListTaskTemplateFact_t);

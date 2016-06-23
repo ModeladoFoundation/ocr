@@ -204,13 +204,7 @@ u8 countedMapGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 ski
 static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     // Here no need to allocate
     u64 newGuid = generateNextGuid(self, kind, targetLoc, 1);
-
-    if (properties & GUID_PROP_TORECORD) {
-        DPRINTF(DEBUG_LVL_VVERB,"Recording %"PRIx64" @ %"PRIx64"\n", newGuid, val);
-        GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) newGuid, (void *) val);
-    }
     // See BUG #928 on GUID issues
-
 #if GUID_BIT_COUNT == 64
     ocrGuid_t tempGuid = {.guid = newGuid};
     *guid = tempGuid;
@@ -220,6 +214,22 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
 #else
 #error Unknown type of GUID
 #endif
+
+    if (properties & GUID_PROP_TORECORD) {
+        DPRINTF(DEBUG_LVL_VVERB,"Recording %"PRIx64" @ %"PRIx64"\n", newGuid, val);
+        // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
+        void * toPut = (void *) val;
+        if (!isLocalGuid(self, *guid)) {
+            ocrPolicyDomain_t * pd = self->pd;
+            MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+            mdProxy->ptr = val;
+            toPut = (void *) mdProxy;
+        }
+        GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) newGuid, (void *) toPut);
+    }
+    // See BUG #928 on GUID issues
+
+
     return 0;
 }
 
@@ -228,6 +238,7 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
  * the guid and some meta-data payload behind it
  * fatGuid's metaDataPtr will point to.
  */
+
 u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     //TODO-MD-IOGUID get consensus on a property flag to not ignore the GUID
     if(properties & GUID_PROP_IS_LABELED) {
@@ -246,7 +257,7 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
     PD_MSG_FIELD_I(properties) = 0;
     PD_MSG_FIELD_I(type) = GUID_MEMTYPE;
 
-    RESULT_PROPAGATE(policy->fcts.processMessage (policy, &msg, true));
+    RESULT_PROPAGATE(policy->fcts.processMessage(policy, &msg, true));
 
     void * ptr = (void *)PD_MSG_FIELD_O(ptr);
     if (properties & GUID_PROP_ISVALID) {
@@ -259,12 +270,23 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
 #else
 #error Unknown type of GUID
 #endif
-            GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) guid, (void *) ptr);
+            void * toPut = ptr;
+            // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
+            if (!isLocalGuid(self, fguid->guid)) {
+                ocrPolicyDomain_t * pd = self->pd;
+                MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+                mdProxy->ptr = (u64) ptr;
+                toPut = (void *) mdProxy;
+            }
+            GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) guid, (void *) toPut);
         }
     } else {
+        // Two cases, with MD the guid may already be known and we just need to allocate space for the clone
+        // else this is a brand new creation, we need to generate a guid and update the fatGuid.
         countedMapGetGuid(self, &(fguid->guid), (u64) ptr, kind, targetLoc, GUID_PROP_TORECORD);
         DPRINTF(DEBUG_LVL_VVERB, "Generating GUID "GUIDF"\n", GUIDA(fguid->guid));
     }
+    ASSERT(!ocrGuidIsNull(fguid->guid) && !ocrGuidIsUninitialized(fguid->guid));
     // Update the fat GUID's metaDataPtr
     fguid->metaDataPtr = ptr;
 #undef PD_MSG
@@ -308,7 +330,6 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
                 ASSERT(kind == NULL); // Shouldn't happen in current impl
                 return 0;
             }
-
             ocrPolicyDomain_t * pd = self->pd;
             mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
             mdProxy->queueHead = (void *) REG_OPEN; // sentinel value
@@ -326,6 +347,8 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
                 msgClone.type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
                 PD_MSG_FIELD_IO(guid.guid) = guid;
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(type) = MD_CLONE;
+                PD_MSG_FIELD_I(dstLocation) = pd->myLocation;
                 u8 returnCode = pd->fcts.processMessage(pd, &msgClone, false);
                 ASSERT(returnCode == OCR_EPEND);
                 // Warning: after this call we're potentially concurrent with the MD being registered on the GP

@@ -56,6 +56,7 @@ ocrStaticAssert(OCR_HINT_COUNT_DB_LOCKABLE < OCR_RUNTIME_HINT_PROP_BITS);
 //MD: Thing this would be deprecated. A 'waiter' would be a continuation
 //and the continuation's would now what was blocked on acquire.
 typedef struct _dbWaiter_t {
+    //TODO-MD-EDT: Also need the location of the requester since the EDT can move
     ocrGuid_t guid;
     ocrLocation_t destLoc;
     u32 slot;

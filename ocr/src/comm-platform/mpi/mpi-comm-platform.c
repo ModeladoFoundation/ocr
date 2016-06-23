@@ -1369,9 +1369,6 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             self->pd->fcts.pdFree(self->pd, mpiComm->sendHdlPool);
             self->pd->fcts.pdFree(self->pd, mpiComm->recvHdlPool);
             self->pd->fcts.pdFree(self->pd, mpiComm->recvFxdHdlPool);
-            ASSERT(mpiComm->sendPoolSz == 0);
-            ASSERT(mpiComm->recvPoolSz == 0);
-            ASSERT(mpiComm->recvFxdPoolSz == 1); // always one fixed recv posted
             PD->fcts.pdFree(PD, PD->neighbors);
             PD->neighbors = NULL;
         }

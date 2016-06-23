@@ -25,6 +25,10 @@
 /* OCR PLACEMENT AFFINITY SCHEDULER_HEURISTIC         */
 /******************************************************/
 
+#ifdef LOAD_BALANCING_TEST
+#include "extensions/ocr-affinity.h"
+#endif
+
 ocrSchedulerHeuristic_t* newSchedulerHeuristicPlacementAffinity(ocrSchedulerHeuristicFactory_t * factory, ocrParamList_t *perInstance) {
     ocrSchedulerHeuristic_t* self = (ocrSchedulerHeuristic_t*) runtimeChunkAlloc(sizeof(ocrSchedulerHeuristicPlacementAffinity_t), PERSISTENT_CHUNK);
     initializeSchedulerHeuristicOcr(factory, self, perInstance);
@@ -149,6 +153,11 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
                             doAutoPlace = false;
                         }
                     }
+#ifdef LOAD_BALANCING_TEST
+                    else { // Let the load balancing take the decision when there's no hints
+                        doAutoPlace = false;
+                    }
+#endif
                 } else { // For runtime EDTs, always local
                     doAutoPlace = false;
                 }
@@ -203,12 +212,95 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
     }
 
     return 0;
-
 }
+
+#ifdef LOAD_BALANCING_TEST
+
+static void scheduleEdtMovement(ocrPolicyDomain_t * pd, ocrFatGuid_t edtFGuid, ocrLocation_t srcLocation, ocrLocation_t dstLocation) {
+    DPRINTF(DEBUG_LVL_VVERB, "EDT-MV Scheduler posts MD_MOVE call\n");
+    PD_MSG_STACK(msg);
+    getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_GUID_METADATA_CLONE
+    msg.type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST;
+    PD_MSG_FIELD_IO(guid) = edtFGuid;
+    PD_MSG_FIELD_I(type) = MD_MOVE;
+    PD_MSG_FIELD_I(dstLocation) = dstLocation;
+    pd->fcts.processMessage(pd, &msg, false);
+    // Warning: after this call we're potentially concurrent with the MD being registered on the GP
+#undef PD_MSG
+#undef PD_TYPE
+}
+
+//TODO-MD need micro-tasking here to avoid redistributing RT work
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+
+static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+    ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
+    ocrSchedulerObject_t edtObj;
+    edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid;
+    edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+#ifdef OCR_ASSERT
+    ocrLocation_t edtLoc;
+    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], edtObj.guid.guid, &edtLoc);
+    ASSERT(edtLoc == pd->myLocation);
+#endif
+    ASSERT(edtObj.guid.metaDataPtr != NULL);
+    ocrTask_t * edt = ((ocrTask_t *)edtObj.guid.metaDataPtr);
+    // Do not try to move the EDT if there's already a hint placement.
+    ocrHint_t edtHints;
+    ocrHintInit(&edtHints, OCR_HINT_EDT_T);
+    u8 noHint = pd->taskFactories[0]->fcts.getHint(edt, &edtHints);
+    u64 edtAff;
+    u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
+    //TODO-MT need micro-tasking activated here to avoid redistributing RT work
+    bool doMove = ((edt->funcPtr != &processRequestEdt) && noPlcHint);
+    DPRINTF(DEBUG_LVL_VVERB, "[LB] workEdt=%d doMove=%d noHint=%d noPlcHint=%d\n", (edt->funcPtr != &processRequestEdt), (int) doMove, (int) noHint, (int) noPlcHint);
+    if (doMove) {
+        ocrSchedulerHeuristicPlacementAffinity_t * dself = (ocrSchedulerHeuristicPlacementAffinity_t *) self;
+        ocrPlatformModelAffinity_t * model = dself->platformModel; // Cached from the PD initialization
+        hal_lock(&(dself->lock)); // TODO this is concurrent with placement at the WORK creation time
+        u32 placementIndex = dself->edtLastPlacementIndex;
+        ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
+        dself->edtLastPlacementIndex++;
+        if (dself->edtLastPlacementIndex == model->pdLocAffinitiesSize) {
+            dself->edtLastPlacementIndex = 0;
+        }
+        hal_unlock(&(dself->lock));
+        ASSERT(pd != NULL);
+        if(noHint) {
+            ocrHintInit(&edtHints, OCR_HINT_EDT_T);
+        }
+        ocrLocation_t dstLocation = affinityToLocation(pdLocAffinity);
+        ocrSetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(pdLocAffinity));
+        RESULT_ASSERT(pd->taskFactories[0]->fcts.setHint(edt, &edtHints), ==, 0);
+#ifdef OCR_ASSERT
+        RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(edt, &edtHints), ==, 0);
+        u8 hasHint = !ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff);
+        ASSERT(hasHint);
+#endif
+        if (dstLocation != pd->myLocation) {
+            ASSERT((((u64)pd->myLocation) == 0) || (((u64)pd->myLocation) == 1));
+            DPRINTF(DEBUG_LVL_VVERB,"[LB] Moving EDT "GUIDF" from PD[%"PRIu64"] to PD[%"PRIu64"]\n",
+                    edtObj.guid.guid, (u64) pd->myLocation, (u64) dstLocation);
+            scheduleEdtMovement(pd, edtObj.guid, pd->myLocation, dstLocation);
+            return 0;
+        }
+    }
+    return OCR_ENOP;
+}
+#endif
 
 static u8 placerAffinitySchedHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     switch(notifyArgs->kind) {
+#ifdef LOAD_BALANCING_TEST
+    // Only alter EDT placement AFTER their creation and dependences are all resolved to DBs
+    case OCR_SCHED_NOTIFY_EDT_SATISFIED:
+        return placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(self, /*context*/ NULL, opArgs, hints);
+#endif
     case OCR_SCHED_NOTIFY_PRE_PROCESS_MSG:
         return placerAffinitySchedHeuristicNotifyProcessMsgInvoke(self, /*context*/ NULL, opArgs, hints);
     case OCR_SCHED_NOTIFY_EDT_DONE:
@@ -230,7 +322,9 @@ static u8 placerAffinitySchedHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self
         }
         break;
     // Notifies ignored by this heuristic
+#ifndef LOAD_BALANCING_TEST
     case OCR_SCHED_NOTIFY_EDT_SATISFIED:
+#endif
     case OCR_SCHED_NOTIFY_DB_CREATE:
         return OCR_ENOP;
     // Unknown ops
