@@ -159,6 +159,11 @@ typedef struct _ocrObjectFactory_t {
     u8 (*mdSize)(ocrObject_t *dest, u64 mode, u64 * size);
 } ocrObjectFactory_t;
 
+// Metadata Management
+#define ocrObjectOperation_t u32
+#define MD_DIR_PULL 1
+#define MD_DIR_PUSH 2
+
 /**
  * @brief Memory region "tags"
  *

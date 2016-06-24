@@ -784,6 +784,10 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         }
         break;
     }
+    case PD_MSG_METADATA_COMM:
+    {
+        break;
+    }
     case PD_MSG_DB_CREATE:
     {
 #define PD_MSG msg

@@ -1328,6 +1328,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     case PD_MSG_MGT_REGISTER:
     case PD_MSG_MGT_UNREGISTER:
     case PD_MSG_MGT_MONITOR_PROGRESS:
+    case PD_MSG_METADATA_COMM:
     {
         DPRINTF(DEBUG_LVL_WARN, "CE PD does not handle call of type 0x%"PRIx32"\n",
                 (u32)(msg->type & PD_MSG_TYPE_ONLY));

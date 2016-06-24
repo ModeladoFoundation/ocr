@@ -165,6 +165,10 @@ typedef struct _paramListPolicyDomainInst_t {
  * metadata */
 #define PD_MSG_GUID_DESTROY     0x00046020
 
+/**< Low-level messages to push and pull metadata across policy-domains
+ */
+#define PD_MSG_METADATA_COMM    0x00007020
+
 /**< AND with this and if result non-null, GUID distribution related
  * operation (taking/giving EDTs, DBs, events, etc)
  */
@@ -715,6 +719,27 @@ typedef struct _ocrPolicyMsg_t {
                 } out;
             } inOrOut __attribute__ (( aligned(8) ));
         } PD_MSG_STRUCT_NAME(PD_MSG_GUID_METADATA_CLONE);
+
+        struct {
+            union {
+                struct {
+                    ocrGuid_t guid;    /**< In: The GUID of the metadata */
+                    u64 mode;          /**< In: Metadata implementation specific serialization mode */
+                    struct _ocrPolicyMsg_t * response; /** TODO: this would move into the handle_t/comm_t */
+                    void * mdPtr;      /**< In: The deserialized metadata. This is a placeholder for
+                                                when deserialize has been called on the payload,
+                                                it is NULL otherwise */
+                    u32 factoryId;     /**< In: The factory ID for the metadata */
+                    u32 sizePayload;   /**< In: The serialized metadata payload size */
+                    ocrObjectOperation_t op; /**< In: Operation that triggered the push/pull */
+                    u8 direction;       /**< In: Pull or Push message */
+                    char payload;      /**< In: Metadata implementation specific serialized data of size 'sizePayload' */
+                } in;
+                struct {
+                    u32 returnDetail;   /**< Out: Success or error code */
+                } out;
+            } inOrOut __attribute__ (( aligned(8) ));
+        } PD_MSG_STRUCT_NAME(PD_MSG_METADATA_COMM);
 
         struct {
             union {

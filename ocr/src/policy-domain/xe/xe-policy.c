@@ -954,7 +954,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     case PD_MSG_SAL_READ: case PD_MSG_SAL_WRITE:
     case PD_MSG_MGT_REGISTER: case PD_MSG_MGT_UNREGISTER:
     case PD_MSG_SAL_TERMINATE:
-    case PD_MSG_GUID_METADATA_CLONE: case PD_MSG_MGT_MONITOR_PROGRESS:
+    case PD_MSG_GUID_METADATA_CLONE: case PD_MSG_MGT_MONITOR_PROGRESS: case PD_MSG_METADATA_COMM:
     {
         DPRINTF(DEBUG_LVL_WARN, "XE PD does not handle call of type 0x%"PRIx32"\n",
                 (u32)(msg->type & PD_MSG_TYPE_ONLY));
