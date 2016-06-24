@@ -1367,11 +1367,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
             if(db == NULL) {
                 DPRINTF(DEBUG_LVL_WARN, "DB Create failed for size %"PRIx64"\n", PD_MSG_FIELD_IO(size));
-<<<<<<< HEAD
-            } else{
-=======
             } else {
->>>>>>> OCR: Minor fix to logging levels on 2 messages
                 DPRINTF(DEBUG_LVL_VERB, "Creating a datablock of size %"PRIu64" @ %p (GUID: "GUIDF") (edt GUID: "GUIDF")\n",
                         db->size, db->ptr, GUIDA(db->guid), GUIDA(tEdt.guid));
                 OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_DATABLOCK, OCR_ACTION_CREATE, traceDataCreate, db->guid, db->size);
@@ -1572,6 +1568,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     }
     case PD_MSG_METADATA_COMM:
     {
+<<<<<<< HEAD
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_METADATA_COMM
         ocrGuid_t guid = PD_MSG_FIELD_I(guid);
@@ -1626,6 +1623,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_MSG
 #undef PD_TYPE
         }
+=======
+>>>>>>> Adding PD_MSG_METADATA_COMM msg type
         break;
     }
     case PD_MSG_WORK_CREATE: {
