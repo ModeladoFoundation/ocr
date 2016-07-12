@@ -548,6 +548,7 @@ static u8 dbMoveSend(ocrSchedulerHeuristic_t *self, ocrPolicyDomain_t *pd, ocrGu
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(edt.guid) = NULL_GUID;
         PD_MSG_FIELD_I(edt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
         PD_MSG_FIELD_I(properties) = DB_PROP_RT_PD_ACQUIRE;
@@ -1902,6 +1903,7 @@ static u8 stSchedulerHeuristicTransactDb(ocrSchedulerHeuristic_t *self, ocrSched
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_IO(edt.guid) = NULL_GUID;
     PD_MSG_FIELD_IO(edt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_PD_ACQUIRE;
     RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0); //blocking call to acquire

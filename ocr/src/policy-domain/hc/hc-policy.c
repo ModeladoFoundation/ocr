@@ -1382,7 +1382,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             } else {
                 ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
                 PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
-                    db, &(PD_MSG_FIELD_O(ptr)), tEdt, EDT_SLOT_NONE, DB_MODE_RW, !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE),
+                    db, &(PD_MSG_FIELD_O(ptr)), tEdt, self->myLocation, EDT_SLOT_NONE, DB_MODE_RW, !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE),
                     (u32) DB_MODE_RW);
                 // Set the default mode in the response message for the caller
                 PD_MSG_FIELD_IO(properties) |= DB_MODE_RW;
@@ -1425,7 +1425,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ocrDataBlock_t *db = (ocrDataBlock_t*)(PD_MSG_FIELD_IO(guid.metaDataPtr));
             ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
             PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
-                db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(edtSlot),
+                db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(destLoc), PD_MSG_FIELD_IO(edtSlot),
                 (ocrDbAccessMode_t) (PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),
                 !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), PD_MSG_FIELD_IO(properties));
             //BUG #273 db: modify the acquire call if we agree on changing the api
@@ -1483,7 +1483,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
         ocrGuid_t edtGuid __attribute__((unused)) =  PD_MSG_FIELD_I(edt.guid);
         PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.release(
-            db, PD_MSG_FIELD_I(edt), !!(PD_MSG_FIELD_I(properties) & DB_PROP_RT_ACQUIRE));
+            db, PD_MSG_FIELD_I(edt), PD_MSG_FIELD_I(srcLoc), !!(PD_MSG_FIELD_I(properties) & DB_PROP_RT_ACQUIRE));
         DPRINTF(DEBUG_LVL_INFO, "DB guid "GUIDF" of size %"PRIu64" released by EDT "GUIDF"\n",
                 GUIDA(db->guid), db->size, GUIDA(edtGuid));
         OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_RELEASE, traceTaskDataRelease, edtGuid, db->guid, db->size);
@@ -1509,7 +1509,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         //Save a copy of the DB guid for DPRINTF() and tracing before the free call
         ocrGuid_t dbGuid = PD_MSG_FIELD_I(guid).guid;
         PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.free(
-            db, PD_MSG_FIELD_I(edt), PD_MSG_FIELD_I(properties));
+            db, PD_MSG_FIELD_I(edt), PD_MSG_FIELD_I(srcLoc), PD_MSG_FIELD_I(properties));
         if(PD_MSG_FIELD_O(returnDetail)!=0)
             DPRINTF(DEBUG_LVL_WARN, "DB Free failed for guid "GUIDF"\n", GUIDA(dbGuid));
         else{

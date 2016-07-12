@@ -425,8 +425,10 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 msg.type = PD_MSG_DB_ACQUIRE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
                 PD_MSG_FIELD_IO(guid.guid) = depv[i].guid; // DB guid
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
                 PD_MSG_FIELD_IO(edt.guid) = self->guid; // EDT guid
                 PD_MSG_FIELD_IO(edt.metaDataPtr) = self;
+                PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
                 PD_MSG_FIELD_IO(edtSlot) = self->depc + 1; // RT slot
                 PD_MSG_FIELD_IO(properties) = depv[i].mode;
                 u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
@@ -1415,6 +1417,7 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
                 PD_MSG_FIELD_I(edt.guid) = base->guid;
                 PD_MSG_FIELD_I(edt.metaDataPtr) = base;
+                PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
                 PD_MSG_FIELD_I(ptr) = NULL;
                 PD_MSG_FIELD_I(size) = 0;
                 PD_MSG_FIELD_I(properties) = 0;
@@ -1442,6 +1445,7 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
             PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
             PD_MSG_FIELD_I(edt.guid) = base->guid;
             PD_MSG_FIELD_I(edt.metaDataPtr) = base;
+            PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
             PD_MSG_FIELD_I(ptr) = NULL;
             PD_MSG_FIELD_I(size) = 0;
             PD_MSG_FIELD_I(properties) = 0; // Not a runtime free xosince it was acquired using DB create

@@ -277,6 +277,7 @@ void* xeRunWorker(ocrWorker_t * worker) {
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(edt.guid) = NULL_GUID;
         PD_MSG_FIELD_I(edt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
         PD_MSG_FIELD_I(properties) = 0;

@@ -111,6 +111,7 @@ static u8 createDbRegNode(ocrFatGuid_t * dbFatGuid, u32 nbElems, bool doRelease,
         getCurrentEnv(NULL, NULL, NULL, &msg);
         msg.type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
         PD_MSG_FIELD_IO(guid) = (*dbFatGuid);
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(edt) = curEdt;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
@@ -150,6 +151,7 @@ u8 destructEventHc(ocrEvent_t *base) {
         PD_MSG_FIELD_I(guid) = event->waitersDb;
         PD_MSG_FIELD_I(edt.guid) = curTask ? curTask->guid : NULL_GUID;
         PD_MSG_FIELD_I(edt.metaDataPtr) = curTask;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE | DB_PROP_NO_RELEASE;
         RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, false));
 #undef PD_MSG
@@ -319,6 +321,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
         msg->type = PD_MSG_DB_ACQUIRE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
         PD_MSG_FIELD_IO(guid) = dbWaiters;
         PD_MSG_FIELD_IO(edt) = currentEdt;
+        PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
         PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
         if (isPersistentEvent) {
             // !! Warning !! RW here (and not RO) works in pair with the lock
@@ -346,6 +349,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
         msg->type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
         PD_MSG_FIELD_IO(guid) = dbWaiters;
         PD_MSG_FIELD_I(edt) = currentEdt;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
         PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE;
@@ -600,6 +604,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             msg->type = PD_MSG_DB_ACQUIRE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
             PD_MSG_FIELD_IO(guid) = event->waitersDb;
             PD_MSG_FIELD_IO(edt) = currentEdt;
+            PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
             PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
             PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
             //Should be a local DB
@@ -676,6 +681,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
         msg->type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
         PD_MSG_FIELD_IO(guid) = dbGuid;
         PD_MSG_FIELD_I(edt) = currentEdt;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
         PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE;
@@ -692,6 +698,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             msg->type = PD_MSG_DB_FREE | PD_MSG_REQUEST;
             PD_MSG_FIELD_I(guid) = oldDbGuid;
             PD_MSG_FIELD_I(edt) = currentEdt;
+            PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
             PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE;
             if((toReturn = pd->fcts.processMessage(pd, msg, false))) {
                 ASSERT(false); // debug
@@ -928,6 +935,7 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
     msg.type = PD_MSG_DB_ACQUIRE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_IO(guid) = event->waitersDb;
     PD_MSG_FIELD_IO(edt) = curEdt;
+    PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
     //Should be a local DB
@@ -956,6 +964,7 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
     msg.type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_IO(guid) = event->waitersDb;
     PD_MSG_FIELD_I(edt) = curEdt;
+    PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
     PD_MSG_FIELD_I(ptr) = NULL;
     PD_MSG_FIELD_I(size) = 0;
     PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE;
@@ -997,6 +1006,7 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     msg.type = PD_MSG_DB_ACQUIRE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_IO(guid) = event->base.waitersDb;
     PD_MSG_FIELD_IO(edt) = curEdt;
+    PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
     //Should be a local DB
@@ -1030,6 +1040,7 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     msg.type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_IO(guid) = event->base.waitersDb;
     PD_MSG_FIELD_I(edt) = curEdt;
+    PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
     PD_MSG_FIELD_I(ptr) = NULL;
     PD_MSG_FIELD_I(size) = 0;
     PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE;

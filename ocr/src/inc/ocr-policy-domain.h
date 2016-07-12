@@ -465,7 +465,8 @@ typedef struct _ocrPolicyMsg_t {
             // due to the implementation of the lockable DB
             //BUG #273: This is reported in bug #273
             ocrFatGuid_t guid;         /**< In: GUID of the DB to acquire */
-            ocrFatGuid_t edt;          /**< In: EDT doing the acquire */
+            ocrFatGuid_t edt;          /**< In: EDT doing the acquire (whenever relevant) */
+            ocrLocation_t destLoc;     /**< In: Destination location for the acquire */
             u32 edtSlot;               /**< In: EDT's slot if applicable else EDT_SLOT_NONE */
             u32 properties;            /**< In: Properties for acquire. Bit 0: 1 if runtime acquire */
             union {
@@ -485,6 +486,7 @@ typedef struct _ocrPolicyMsg_t {
             union {
                 struct {
                     ocrFatGuid_t edt;          /**< In: GUID of the EDT doing the release */
+                    ocrLocation_t srcLoc;      /**< In: Source location doing the release */
                     void* ptr;                 /**< In: Optionally provide pointer to the released memory */
                     u64 size;                  /**< In: Optionally provide size to the released memory */
                     u32 properties;            /**< In: Properties of the release: Bit 0: 1 if runtime release */
@@ -500,6 +502,7 @@ typedef struct _ocrPolicyMsg_t {
                 struct {
                     ocrFatGuid_t guid;         /**< In: GUID of the DB to free */
                     ocrFatGuid_t edt;          /**< In: GUID of the EDT doing the free */
+                    ocrLocation_t srcLoc;      /**< In: Location emitting the free */
                     u32 properties;            /**< In: Properties of the free */
                 } in;
                 struct {

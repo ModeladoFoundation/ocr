@@ -162,6 +162,7 @@ u8 ocrDbDestroy(ocrGuid_t db) {
         msg.type = PD_MSG_DB_FREE | PD_MSG_REQUEST;
         PD_MSG_FIELD_I(guid.guid) = db;
         PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(srcLoc) = policy->myLocation;
         PD_MSG_FIELD_I(edt.guid) = task?task->guid:NULL_GUID;
         PD_MSG_FIELD_I(edt.metaDataPtr) = task;
         // Tell whether or not the task was using the DB. This is useful
@@ -199,6 +200,7 @@ u8 ocrDbRelease(ocrGuid_t db) {
     msg.type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_IO(guid.guid) = db;
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(srcLoc) = policy->myLocation;
     PD_MSG_FIELD_I(edt.guid) = task?task->guid:NULL_GUID;
     PD_MSG_FIELD_I(edt.metaDataPtr) = task;
     PD_MSG_FIELD_I(ptr) = NULL;

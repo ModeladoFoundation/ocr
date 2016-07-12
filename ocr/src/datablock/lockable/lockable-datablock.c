@@ -57,6 +57,7 @@ ocrStaticAssert(OCR_HINT_COUNT_DB_LOCKABLE < OCR_RUNTIME_HINT_PROP_BITS);
 //and the continuation's would now what was blocked on acquire.
 typedef struct _dbWaiter_t {
     ocrGuid_t guid;
+    ocrLocation_t destLoc;
     u32 slot;
     u32 properties; // properties specified with the acquire request
     bool isInternal;
@@ -65,36 +66,6 @@ typedef struct _dbWaiter_t {
 
 // Forward declaration
 u8 lockableDestruct(ocrDataBlock_t *self);
-
-// simple helper function to resolve the location of a guid
-static ocrLocation_t fatGuidToLocation(ocrPolicyDomain_t * pd, ocrFatGuid_t fatGuid) {
-    // at startup this code may be run outside of an EDT
-    if (ocrGuidIsNull(fatGuid.guid)) {
-        return pd->myLocation;
-    } else {
-        ocrLocation_t edtLoc = INVALID_LOCATION;
-        u8 res __attribute__((unused)) = guidLocation(pd, fatGuid, &edtLoc);
-        // Check that the GUID is valid
-        ASSERT(!res);
-        return edtLoc;
-    }
-}
-
-static ocrLocation_t guidToLocation(ocrPolicyDomain_t * pd, ocrGuid_t edtGuid) {
-    // at startup this code may be run outside of an EDT
-    if (ocrGuidIsNull(edtGuid)) {
-        return pd->myLocation;
-    } else {
-        ocrFatGuid_t fatGuid;
-        fatGuid.guid = edtGuid;
-        fatGuid.metaDataPtr = NULL;
-        ocrLocation_t edtLoc = INVALID_LOCATION;
-        u8 res __attribute__((unused)) = guidLocation(pd, fatGuid, &edtLoc);
-        // Check that the GUID is valid
-        ASSERT(!res);
-        return edtLoc;
-    }
-}
 
 //MD: Here we need the continuation of the acquire that
 //went off-PD, to walk the right waiter queue when resolved.
@@ -156,7 +127,7 @@ static bool lockButSelf(ocrDataBlockLockable_t *rself) {
 //asserts on edtSlot not being equal to EDT_SLOT_NONE. The current runtime implementation
 //only supports asynchronous acquisition of datablocks from EDT's dependences (i.e. the call
 //site of acquire is written in a way that supports an asynchronous callback).
-static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSlot,
+static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocation_t destLoc, u32 edtSlot,
                   ocrDbAccessMode_t mode, bool isInternal, u32 properties) {
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
 
@@ -188,6 +159,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
             getCurrentEnv(&pd, NULL, NULL, NULL);
             dbWaiter_t * waiterEntry = (dbWaiter_t *) pd->fcts.pdMalloc(pd, sizeof(dbWaiter_t));
             waiterEntry->guid = edt.guid;
+            waiterEntry->destLoc = destLoc;
             waiterEntry->slot = edtSlot;
             waiterEntry->isInternal = isInternal;
             waiterEntry->properties = properties;
@@ -207,6 +179,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
             getCurrentEnv(&pd, NULL, NULL, NULL);
             dbWaiter_t * waiterEntry = (dbWaiter_t *) pd->fcts.pdMalloc(pd, sizeof(dbWaiter_t));
             waiterEntry->guid = edt.guid;
+            waiterEntry->destLoc = destLoc;
             waiterEntry->slot = edtSlot;
             waiterEntry->isInternal = isInternal;
             waiterEntry->properties = properties;
@@ -225,7 +198,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
             ocrPolicyDomain_t * pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             // check of DB already in ITW use by another location
-            enque = (fatGuidToLocation(pd, edt) != rself->itwLocation);
+            enque = (destLoc != rself->itwLocation);
         } else {
             enque = (rself->attributes.numUsers != 0) || (rself->attributes.modeLock == DB_LOCKED_EW);
         }
@@ -236,6 +209,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
             getCurrentEnv(&pd, NULL, NULL, NULL);
             dbWaiter_t * waiterEntry = (dbWaiter_t *) pd->fcts.pdMalloc(pd, sizeof(dbWaiter_t));
             waiterEntry->guid = edt.guid;
+            waiterEntry->destLoc = destLoc;
             waiterEntry->slot = edtSlot;
             waiterEntry->isInternal = isInternal;
             waiterEntry->properties = properties;
@@ -250,7 +224,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
                 ocrPolicyDomain_t * pd = NULL;
                 getCurrentEnv(&pd, NULL, NULL, NULL);
                 rself->attributes.modeLock = DB_LOCKED_ITW;
-                rself->itwLocation = fatGuidToLocation(pd, edt);
+                rself->itwLocation = destLoc;
             }
         }
     }
@@ -294,6 +268,7 @@ static void processAcquireCallback(ocrDataBlock_t *self, dbWaiter_t * waiter, oc
     PD_MSG_FIELD_IO(guid.metaDataPtr) = self;
     PD_MSG_FIELD_IO(edt.guid) = waiter->guid;
     PD_MSG_FIELD_IO(edt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_IO(destLoc) = waiter->destLoc;
     PD_MSG_FIELD_IO(edtSlot) = waiter->slot;
     // In this implementation properties encodes the MODE + isInternal +
     // any additional flags set by the PD (such as the FETCH flag)
@@ -302,7 +277,7 @@ static void processAcquireCallback(ocrDataBlock_t *self, dbWaiter_t * waiter, oc
     PD_MSG_FIELD_O(size) = self->size;
     PD_MSG_FIELD_O(returnDetail) = 0;
     //NOTE: we still have the lock, calling the internal version
-    u8 res __attribute__((unused)) = lockableAcquireInternal(self, &PD_MSG_FIELD_O(ptr), PD_MSG_FIELD_IO(edt),
+    u8 res __attribute__((unused)) = lockableAcquireInternal(self, &PD_MSG_FIELD_O(ptr), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(destLoc),
                                   PD_MSG_FIELD_IO(edtSlot), waiterMode, waiter->isInternal,
                                   PD_MSG_FIELD_IO(properties));
     // Not much we would be able to recover here
@@ -311,11 +286,11 @@ static void processAcquireCallback(ocrDataBlock_t *self, dbWaiter_t * waiter, oc
 #undef PD_TYPE
 }
 
-u8 lockableAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSlot,
+u8 lockableAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocation_t destLoc, u32 edtSlot,
                   ocrDbAccessMode_t mode, bool isInternal, u32 properties) {
     ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
     bool unlock = lockButSelf(rself);
-    u8 res = lockableAcquireInternal(self, ptr, edt, edtSlot, mode, isInternal, properties);
+    u8 res = lockableAcquireInternal(self, ptr, edt, destLoc, edtSlot, mode, isInternal, properties);
     if (unlock) {
         rself->worker = NULL;
       hal_unlock(&rself->lock);
@@ -323,7 +298,8 @@ u8 lockableAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSl
     return res;
 }
 
-u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal) {
+// 'edt' may be NULL_GUID here if we are doing a PD-level release
+u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, bool isInternal) {
     ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
     dbWaiter_t * waiter = NULL;
     DPRINTF(DEBUG_LVL_VERB, "Releasing DB @ 0x%"PRIx64" (GUID "GUIDF") from EDT "GUIDF" (runtime release: %"PRId32")\n",
@@ -382,12 +358,12 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal) {
             PD_MSG_STACK(msg);
             getCurrentEnv(&pd, NULL, NULL, NULL);
             // Setup: Have ITW lock + its right location for acquire
-            ocrLocation_t itwLocation = guidToLocation(pd, waiter->guid);
+            ocrLocation_t itwLocation = waiter->destLoc;
             rself->itwLocation = itwLocation;
             dbWaiter_t * prev = waiter;
             do {
                 dbWaiter_t * next = waiter->next;
-                if (itwLocation == guidToLocation(pd, waiter->guid)) {
+                if (itwLocation == waiter->destLoc) {
                     processAcquireCallback(self, waiter, DB_MODE_RW, waiter->properties, &msg);
                     if (prev == waiter) { // removing head
                         prev = next;
@@ -540,7 +516,7 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
     return 0;
 }
 
-u8 lockableFree(ocrDataBlock_t *self, ocrFatGuid_t edt, u32 properties) {
+u8 lockableFree(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, u32 properties) {
     bool isInternal = ((properties & DB_PROP_RT_ACQUIRE) != 0);
     bool reqRelease = ((properties & DB_PROP_NO_RELEASE) == 0);
     ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
@@ -565,7 +541,7 @@ u8 lockableFree(ocrDataBlock_t *self, ocrFatGuid_t edt, u32 properties) {
         if (reqRelease) {
             DPRINTF(DEBUG_LVL_VVERB, "Free triggering release for DB @ 0x%"PRIx64" (GUID: "GUIDF")\n",
                     (u64)self->ptr, GUIDA(rself->base.guid));
-            lockableRelease(self, edt, isInternal);
+            lockableRelease(self, edt, srcLoc, isInternal);
         }
     }
     return 0;
@@ -731,9 +707,9 @@ ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 
 
     // Instance functions
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), lockableDestruct);
-    base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool, u32), lockableAcquire);
-    base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, bool), lockableRelease);
-    base->fcts.free = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, u32), lockableFree);
+    base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, ocrLocation_t, u32, ocrDbAccessMode_t, bool, u32), lockableAcquire);
+    base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, bool), lockableRelease);
+    base->fcts.free = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, u32), lockableFree);
     base->fcts.registerWaiter = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t,
                                                  u32, bool), lockableRegisterWaiter);
     base->fcts.unregisterWaiter = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t,

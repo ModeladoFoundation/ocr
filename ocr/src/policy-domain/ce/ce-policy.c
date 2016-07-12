@@ -1374,7 +1374,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             } else {
                 ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
                 PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
-                    db, &(PD_MSG_FIELD_O(ptr)), edtFatGuid, EDT_SLOT_NONE,
+                    db, &(PD_MSG_FIELD_O(ptr)), edtFatGuid, self->myLocation, EDT_SLOT_NONE,
                     DB_MODE_RW, !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), (u32)DB_MODE_RW);
             }
         } else {
@@ -1410,7 +1410,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
             //ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
             PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
-                db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(edtSlot),
+                                db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt),  PD_MSG_FIELD_IO(destLoc), PD_MSG_FIELD_IO(edtSlot),
                 (ocrDbAccessMode_t)(PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),
                 !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), PD_MSG_FIELD_IO(properties));
             PD_MSG_FIELD_O(size) = db->size;
@@ -1455,7 +1455,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         DPRINTF(DEBUG_LVL_VERB, "Processing DB_RELEASE req/resp for GUID "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_IO(guid.guid)));
         PD_MSG_FIELD_O(returnDetail) =
-            ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.release(db, PD_MSG_FIELD_I(edt), !!(PD_MSG_FIELD_I(properties) & DB_PROP_RT_ACQUIRE));
+            ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.release(db, PD_MSG_FIELD_I(edt), PD_MSG_FIELD_I(srcLoc), !!(PD_MSG_FIELD_I(properties) & DB_PROP_RT_ACQUIRE));
         returnCode = ceProcessResponse(self, msg, 0);
 #undef PD_MSG
 #undef PD_TYPE
@@ -1476,7 +1476,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
         ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
         PD_MSG_FIELD_O(returnDetail) =
-            ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.free(db, PD_MSG_FIELD_I(edt), !!(PD_MSG_FIELD_I(properties) & DB_PROP_RT_ACQUIRE));
+            ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.free(db, PD_MSG_FIELD_I(edt), PD_MSG_FIELD_I(srcLoc), !!(PD_MSG_FIELD_I(properties) & DB_PROP_RT_ACQUIRE));
         returnCode = ceProcessResponse(self, msg, 0);
 #undef PD_MSG
 #undef PD_TYPE

@@ -45,6 +45,11 @@ static inline u8 guidLocationShort(struct _ocrPolicyDomain_t * pd, ocrFatGuid_t 
     return pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid.guid, locationRes);
 }
 
+static inline u8 checkLocationValidity(struct _ocrPolicyDomain_t * pd, ocrLocation_t loc) {
+    u64 locID = ((u64)loc);
+    return ((locID >= 0) && (locID <= pd->neighborCount));
+}
+
 #define RETRIEVE_LOCATION_FROM_MSG(pd, fname, dstLoc, DIR) \
     ocrFatGuid_t fatGuid__ = PD_MSG_FIELD_##DIR(fname); \
     RESULT_ASSERT(guidLocationShort(pd, fatGuid__, &dstLoc), ==, 0);
@@ -510,6 +515,7 @@ static void * acquireLocalDbOblivious(ocrPolicyDomain_t * pd, ocrGuid_t dbGuid) 
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_IO(edt.guid) = (curTask == NULL) ? NULL_GUID : curTask->guid;
     PD_MSG_FIELD_IO(edt.metaDataPtr) = curTask;
+    PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_PROP_RT_OBLIVIOUS; // Runtime acquire
     if(pd->fcts.processMessage(pd, &msg, true)) {
@@ -1071,6 +1077,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DB_ACQUIRE
         if (msg->type & PD_MSG_REQUEST) {
+            ASSERT(checkLocationValidity(self, PD_MSG_FIELD_IO(destLoc)));
             RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO)
             // Send/Receive to/from remote or local processing, all fall-through
             if ((msg->srcLocation != curLoc) && (msg->destLocation == curLoc)) {
@@ -1149,12 +1156,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             }
         } else { // DB_ACQUIRE response
             ASSERT(msg->type & PD_MSG_RESPONSE);
-            if (!ocrGuidIsNull(PD_MSG_FIELD_IO(edt.guid))) {
-                RETRIEVE_LOCATION_FROM_MSG(self, edt, msg->destLocation, IO)
-            } else {
-                //If PD acquire of DB was issued, then EDT field would be empty.
-                ASSERT(msg->destLocation == curLoc);
-            }
+            ASSERT(checkLocationValidity(self, PD_MSG_FIELD_IO(destLoc)));
+            msg->destLocation = PD_MSG_FIELD_IO(destLoc);
             if ((msg->srcLocation != curLoc) && (msg->destLocation == curLoc)) {
                 // Incoming acquire response
                 ocrGuid_t dbGuid = PD_MSG_FIELD_IO(guid.guid);

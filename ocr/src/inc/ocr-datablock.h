@@ -68,6 +68,8 @@ typedef struct _ocrDataBlockFcts_t {
      * @param[out] ptr          Returns the pointer to use to access the data
      * @param[in] edt           EDT seeking registration
      *                          Must be fully resolved
+     * @param[in] destLoc       Destination location for the acquire
+     *                          May be different than the EDT location at this time
      * @param[in] edtSlot       EDT slot the DB is acquired for. Can be EDT_NO_SLOT
      *                          when not applicable. For example when acquiring
      *                          a datablock for runtime usage)
@@ -80,7 +82,7 @@ typedef struct _ocrDataBlockFcts_t {
      * @note Multiple acquires for the same EDT have no effect BUT
      * the DB should only be freed ONCE
      */
-    u8 (*acquire)(struct _ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt,
+    u8 (*acquire)(struct _ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocation_t destLoc,
                   u32 edtSlot, ocrDbAccessMode_t mode, bool isInternal, u32 properties);
 
     /**
@@ -89,13 +91,14 @@ typedef struct _ocrDataBlockFcts_t {
      * @param self          Pointer for this data-block
      * @param edt           EDT seeking to de-register from the data-block.
      *                      Must be fully resolved
+     * @param srcLoc        Source location that initiated the release
      * @param isInternal    True if matching an internal acquire
      * @return 0 on success and an error code on failure (see ocr-db.h)
      *
      * @note No need to match one-to-one with acquires. One release
      * releases any and all previous acquires
      */
-    u8 (*release)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal);
+    u8 (*release)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, bool isInternal);
 
     /**
      * @brief Requests that the block be freed when possible
@@ -108,10 +111,11 @@ typedef struct _ocrDataBlockFcts_t {
      * @param self          Pointer to this data-block
      * @param edt           EDT seeking to free the data-block
      *                      Must be fully resolved
+     * @param srcLoc        Location requesting the free
      * @param properties    Properties of the free (runtime free, require release, etc..)
      * @return 0 on success and an error code on failure (see ocr-db.h)
      */
-    u8 (*free)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, u32 properties);
+    u8 (*free)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, u32 properties);
 
     /**
      * @brief Register a "waiter" (aka a dependence) on the data-block
