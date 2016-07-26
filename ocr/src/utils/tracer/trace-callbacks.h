@@ -31,6 +31,7 @@
  * @param timestamp     Timestamp when trace occured (ns)
  * @param parent        Parent task executing when trace occured
  * @param edtGuid       GUID of EDT bieng created
+ * @param fctPtr        Function pointer of code associated with the EDT
  */
 
 

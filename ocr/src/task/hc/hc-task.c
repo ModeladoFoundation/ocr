@@ -926,7 +926,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     DPRINTF(DEBUG_LVL_INFO, "Create "GUIDF" depc %"PRId32" outputEvent "GUIDF"\n", GUIDA(base->guid), depc, GUIDA(outputEventPtr?outputEventPtr->guid:NULL_GUID));
     edtGuid->guid = base->guid;
     edtGuid->metaDataPtr = base;
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid);
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid, base->funcPtr);
     // Check to see if the EDT can be run
     if(base->depc == edt->slotSatisfiedCount) {
         //TODO-MD-EDT: Is this an issue if the scheduler calls move here ?
