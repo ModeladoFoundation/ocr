@@ -155,12 +155,36 @@ static inline void _profilerResume(_profiler *self, u8 isFakePause) {
 
 #else
 
+#ifdef OCR_RUNTIME_PROFILER_TAU
+#include <Profile/Profiler.h>
+#define START_PROFILE(name)                                             \
+    TAU_PROFILE_TIMER(_tau_profile, #name, "", TAU_USER);               \
+    TAU_PROFILE_START(_tau_profile);
+
+/* TAU doesn't have PAUSE or RESUME functionality. */
+#define PAUSE_PROFILE
+#define RESUME_PROFILE
+
+#define RETURN_PROFILE(val)                                             \
+    do {                                                                \
+        TAU_PROFILE_STOP(_tau_profile);                                 \
+        return val;                                                     \
+    } while(0);
+
+#define EXIT_PROFILE                                                    \
+    do {                                                                \
+        TAU_PROFILE_STOP(_tau_profile);                                 \
+    } while(0);
+
+#else
+
 #define START_PROFILE(name)
 #define PAUSE_PROFILE
 #define RESUME_PROFILE
 
 #define RETURN_PROFILE(val) return val;
 #define EXIT_PROFILE
+#endif /* OCR_RUNTIME_PROFILER_TAU */
 #endif /* OCR_RUNTIME_PROFILER */
 
 #endif /* __OCR_PROFILER_INTERNAL_H__ */

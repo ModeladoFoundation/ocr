@@ -14,7 +14,8 @@
 
 void __attribute__ ((weak)) traceTaskCreate(u64 location, bool evtType, ocrTraceType_t objType,
                                             ocrTraceAction_t actionType, u64 workerId,
-                                            u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid){
+                                            u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                                            ocrEdt_t fctPtr){
 
     //TRACING CALLBACKS - Task Create
     INIT_TRACE_OBJECT();

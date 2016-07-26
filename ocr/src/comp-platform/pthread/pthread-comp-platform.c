@@ -19,8 +19,6 @@
 
 #include "utils/profiler/profiler-internal.h"
 
-#include "apex.h"
-
 #define DEBUG_TYPE COMP_PLATFORM
 
 extern void bindThread(u32 mask);
@@ -82,11 +80,9 @@ static void * pthreadRoutineWrapper(void * arg) {
     switch(pthreadCompPlatform->threadStatus) {
     case 0:
         // regular worker
-        apex_register_thread("worker");
         return pthreadRoutineExecute(pthreadCompPlatform->base.worker);
     case RL_PD_MASTER:
     {
-        apex_register_thread("pd_master");
         // Since we do not start the worker right away, we need to at least
         // partially initialize the environment
         pthreadCompPlatform->base.fcts.setCurrentEnv(

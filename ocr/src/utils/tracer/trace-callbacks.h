@@ -37,7 +37,8 @@
 
 void traceTaskCreate(u64 location, bool evtType, ocrTraceType_t objType,
                      ocrTraceAction_t actionType, u64 workerId,
-                     u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid);
+                     u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                     ocrEdt_t fctPtr);
 
 
 /**

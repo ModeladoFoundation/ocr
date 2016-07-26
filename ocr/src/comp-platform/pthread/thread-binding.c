@@ -7,7 +7,6 @@
 #include "ocr-config.h"
 #ifdef ENABLE_COMP_PLATFORM_PTHREAD
 
-#include "debug.h"
 #include "ocr-types.h"
 
 #define _GNU_SOURCE
@@ -15,6 +14,8 @@
 #include <unistd.h>
 #include <sched.h>
 #include <errno.h>
+
+#include "debug.h"
 
 #define DEBUG_TYPE COMP_PLATFORM
 /* Platform specific thread binding implementations */

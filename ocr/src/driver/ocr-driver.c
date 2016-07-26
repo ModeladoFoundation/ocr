@@ -39,8 +39,6 @@
 
 #define DEBUG_TYPE INIPARSING
 
-#include "apex.h"
-
 /* Configuration parsing options */
 #ifndef ENABLE_EXTENSION_LEGACY
 // Defined in ocr-legacy.h but only included in ENABLE_EXTENSION_LEGACY
@@ -995,7 +993,6 @@ static void * packUserArguments(int argc, char ** argv) {
 
 // This main function is used for x86 platforms
 int __attribute__ ((weak)) main(int argc, const char* argv[]) {
-    apex_init("main");
     // Parse parameters. The idea is to extract the ones relevant
     // to the runtime and pass all the other ones down to the mainEdt
     ocrConfig_t ocrConfig;
@@ -1033,7 +1030,6 @@ int __attribute__ ((weak)) main(int argc, const char* argv[]) {
     // Warning: Finalizer specific to platforms may call exit
     platformSpecificFinalizer(returnCode);
 
-    apex_finalize();
     return (int)returnCode;
 }
 

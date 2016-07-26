@@ -1387,6 +1387,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     (u32) DB_MODE_RW);
                 // Set the default mode in the response message for the caller
                 PD_MSG_FIELD_IO(properties) |= DB_MODE_RW;
+                // If we acquired the data-block when creating it, trace the acquire as well.
+                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, traceTaskDataAcquire, tEdt.guid, db->guid, db->size);
             }
         } else {
             // Cannot acquire
@@ -1445,8 +1447,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
                 DPRINTF(DEBUG_LVL_INFO, "DB guid "GUIDF" of size %"PRIu64" acquired by EDT "GUIDF"\n",
                         GUIDA(db->guid), db->size, GUIDA(PD_MSG_FIELD_IO(edt.guid)));
-                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, traceTaskDataAcquire, PD_MSG_FIELD_IO(edt.guid),
-                                db->guid, db->size);
+                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, traceTaskDataAcquire, PD_MSG_FIELD_IO(edt.guid), db->guid, db->size);
                 msg->type &= ~PD_MSG_REQUEST;
                 msg->type |= PD_MSG_RESPONSE;
             }

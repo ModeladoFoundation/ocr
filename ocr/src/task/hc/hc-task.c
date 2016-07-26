@@ -1554,7 +1554,6 @@ u8 taskExecute(ocrTask_t* base) {
 
         //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
         DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
-        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr);
 
         ASSERT(derived->unkDbs == NULL); // Should be no dynamically acquired DBs before running
         getCurrentEnv(&pd, &curWorker, NULL, NULL);
@@ -1594,6 +1593,7 @@ u8 taskExecute(ocrTask_t* base) {
         TPRINTF("EDT Start: 0x%"PRIx64" 0x%"PRIx64" in %s\n",
                 base->funcPtr, base->guid, location);
 #endif
+        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr);
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
         if(base->funcPtr == &processRequestEdt) {
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
@@ -1614,7 +1614,7 @@ u8 taskExecute(ocrTask_t* base) {
         TPRINTF("EDT End: 0x%"PRIx64" 0x%"PRIx64" in %s\n",
                 base->funcPtr, base->guid, location);
 #endif
-
+        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, base->guid);
 #ifdef OCR_ENABLE_VISUALIZER
         u64 endTime = salGetTime();
         DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" FctName: %s Start: %"PRIu64" End: %"PRIu64"\n", GUIDA(base->guid), base->name, startTime, endTime);

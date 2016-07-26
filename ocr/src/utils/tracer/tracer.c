@@ -54,8 +54,9 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 //Get var args
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
+                ocrEdt_t func = va_arg(ap, ocrEdt_t);
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, func);
                 break;
             }
             case OCR_ACTION_DESTROY:

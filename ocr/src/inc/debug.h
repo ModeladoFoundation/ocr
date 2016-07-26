@@ -689,7 +689,6 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 
 #endif /* OCR_TRACE_BINARY */
 
-
 // Support for compile time asserts
 #define COMPILE_ASSERT(e) extern char (*COMPILE_ASSERT(void))[sizeof(char[1-2*!(e)])]
 
