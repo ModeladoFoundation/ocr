@@ -22,7 +22,7 @@ extern u64 ocrHintPropIndexEnd[];
 /****************************************************/
 #define OCR_HINT_INDX(property, type)       (property - ocrHintPropIndexStart[type] - 1)
 #define OCR_HINT_BIT_MASK(hint, property)   (0x1 << OCR_HINT_INDX(property, hint->type))
-#define OCR_HINT_FIELD(hint, property)      ((u64*)(&(hint->args)))[OCR_HINT_INDX(property, hint->type)]
+#define OCR_HINT_FIELD(hint, property)      ((ocrHintVal_t*)(&(hint->args)))[OCR_HINT_INDX(property, hint->type)]
 
 #define OCR_HINT_SETUP(map, props, count, _start, _end)             \
 do {                                                                \
@@ -42,7 +42,7 @@ do {                                                                \
 
 typedef struct {
     u64 hintMask;   /**< Refer below for mask format details */
-    u64 *hintVal;   /**< The array to hold supported hint values */
+    ocrHintVal_t *hintVal;   /**< The array to hold supported hint values */
 } ocrRuntimeHint_t;
 
 /****************************************************/
@@ -98,7 +98,7 @@ do {                                                                        \
         u32 index = _prop[i] - _start - 1;                                  \
         u64 mask = 0x1UL << index;                                          \
         if (_uHint->propMask & mask) {                                      \
-            _rHint->hintVal[i] = ((u64*)(&(_uHint->args)))[index];          \
+            _rHint->hintVal[i] = ((ocrHintVal_t*)(&(_uHint->args)))[index]; \
             if ((runtimePropMask & mask) == 0) {                            \
                 _rHint->hintMask |= mask;                                   \
                 size++;                                                     \
@@ -122,7 +122,7 @@ do {                                                                        \
         u32 index = _prop[i] - _start - 1;                                  \
         u64 mask = 0x1UL << index;                                          \
         if (runtimePropMask & mask) {                                       \
-            ((u64*)(&(_uHint->args)))[index] = _rHint->hintVal[i];          \
+            ((ocrHintVal_t*)(&(_uHint->args)))[index] = _rHint->hintVal[i]; \
             _uHint->propMask |= mask;                                       \
         }                                                                   \
     }                                                                       \

@@ -952,7 +952,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 void * base = PD_MSG_FIELD_IO(guid.metaDataPtr);
                 ocrTaskTemplateHc_t * tpl = (ocrTaskTemplateHc_t *) metaDataPtr;
                 if (tpl->hint.hintVal != NULL) {
-                    tpl->hint.hintVal  = (u64*)((u64)base + sizeof(ocrTaskTemplateHc_t));
+                    tpl->hint.hintVal  = (ocrHintVal_t*)((u64)base + sizeof(ocrTaskTemplateHc_t));
                 }
                 self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), (u64) metaDataPtr);
                 PROCESS_MESSAGE_RETURN_NOW(self, 0);
@@ -1957,7 +1957,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             if (resizeNeeded) {
                 msgInCopy = msg;
                 DPRINTF(DEBUG_LVL_VVERB,"Buffer resize for response of message type 0x%"PRIx64"\n",
-                                        (msgInCopy->type & PD_MSG_TYPE_ONLY));
+                                        (u64)(msgInCopy->type & PD_MSG_TYPE_ONLY));
                 msg = self->fcts.pdMalloc(self, baseSizeOut);
                 initializePolicyMessage(msg, baseSizeOut);
                 ocrPolicyMsgMarshallMsg(msgInCopy, baseSizeIn, (u8*)msg, MARSHALL_DUPLICATE);

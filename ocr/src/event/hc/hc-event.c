@@ -1205,7 +1205,7 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *guid,
         event->hint.hintVal = NULL;
     } else {
         OCR_RUNTIME_HINT_MASK_INIT(event->hint.hintMask, OCR_HINT_EVT_T, factory->factoryId);
-        event->hint.hintVal = (u64*)((u64)base + sizeOfGuid);
+        event->hint.hintVal = (ocrHintVal_t*)((u64)base + sizeOfGuid);
     }
 
     // Initialize GUIDs for the waiters data-blocks

@@ -388,10 +388,10 @@ static u8 ocrPolicyMsgUnMarshallMsgTransactEdt(ocrTask_t *task, u32 mode) {
 
     if (task->flags & OCR_TASK_FLAG_USES_HINTS) {
         u64 t = (u64)(hcTask->hint.hintVal);
-        hcTask->hint.hintVal = (u64*)((u64)localPtr + (t>>1));
+        hcTask->hint.hintVal = (ocrHintVal_t*)((u64)localPtr + (t>>1));
         DPRINTF(DEBUG_LVL_VVERB, "Unmarshalled hints for task %p hints %p (t: %"PRIu64")\n", task, hcTask->hint.hintVal, t);
         for (i=0; i<OCR_HINT_COUNT_EDT_HC; i++) {
-            DPRINTF(DEBUG_LVL_VVERB, "Unmarshalled hint[%"PRIu32"]: %"PRIu64"\n", i, hcTask->hint.hintVal[i]);
+            DPRINTF(DEBUG_LVL_VVERB, "Unmarshalled hint[%"PRIu32"]: %"PRId64"\n", i, hcTask->hint.hintVal[i].s64Val);
         }
     }
 

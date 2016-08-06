@@ -289,7 +289,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
         result->hint.hintVal = NULL;
     } else {
         OCR_RUNTIME_HINT_MASK_INIT(result->hint.hintMask, OCR_HINT_DB_T, factory->factoryId);
-        result->hint.hintVal = (u64*)((u64)result + sizeof(ocrDataBlockRegular_t));
+        result->hint.hintVal = (ocrHintVal_t*)((u64)result + sizeof(ocrDataBlockRegular_t));
     }
 #ifdef OCR_ENABLE_STATISTICS
     statsDB_CREATE(pd, task->guid, task, allocator.guid,

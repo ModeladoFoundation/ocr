@@ -198,7 +198,7 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
             hal_unlock(&(dself->lock));
             msg->destLocation = affinityToLocation(pdLocAffinity);
             DPRINTF(DEBUG_LVL_VVERB,"Auto-Placement for msg %p, type 0x%"PRIx64", at location %"PRId32"\n",
-                    msg, (msg->type & PD_MSG_TYPE_ONLY), (u32)placementIndex);
+                    msg, (u64)(msg->type & PD_MSG_TYPE_ONLY), (u32)placementIndex);
         }
     }
 

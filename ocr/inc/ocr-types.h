@@ -373,7 +373,11 @@ typedef enum {
 
 } ocrHintProp_t;
 
-typedef uint64_t ocrHintVal_t;
+typedef union {
+    s64 s64Val;
+    u64 u64Val;
+    ocrGuid_t guidVal;
+} ocrHintVal_t;
 
 /**
  * @brief OCR Hint structure
@@ -386,10 +390,10 @@ typedef struct {
     ocrHintType_t type; /* The type of hint variable; depends on target kind */
     u64 propMask;       /* The bit mask that reflects all the set properties */
     union {
-        u64 propEDT[OCR_HINT_EDT_PROP_END - OCR_HINT_EDT_PROP_START - 1];
-        u64 propDB[OCR_HINT_DB_PROP_END - OCR_HINT_DB_PROP_START - 1];
-        u64 propEVT[OCR_HINT_EVT_PROP_END - OCR_HINT_EVT_PROP_START - 1];
-        u64 propGROUP[OCR_HINT_GROUP_PROP_END - OCR_HINT_GROUP_PROP_START - 1];
+        ocrHintVal_t propEDT[OCR_HINT_EDT_PROP_END - OCR_HINT_EDT_PROP_START - 1];
+        ocrHintVal_t propDB[OCR_HINT_DB_PROP_END - OCR_HINT_DB_PROP_START - 1];
+        ocrHintVal_t propEVT[OCR_HINT_EVT_PROP_END - OCR_HINT_EVT_PROP_START - 1];
+        ocrHintVal_t propGROUP[OCR_HINT_GROUP_PROP_END - OCR_HINT_GROUP_PROP_START - 1];
     } args;
 } ocrHint_t;
 

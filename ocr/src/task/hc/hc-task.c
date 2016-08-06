@@ -143,7 +143,7 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
         derived->hint.hintVal = NULL;
     } else {
         OCR_RUNTIME_HINT_MASK_INIT(derived->hint.hintMask, OCR_HINT_EDT_T, factory->factoryId);
-        derived->hint.hintVal = (u64*)((u64)base + sizeof(ocrTaskTemplateHc_t));
+        derived->hint.hintVal = (ocrHintVal_t*)((u64)base + sizeof(ocrTaskTemplateHc_t));
     }
 
 #ifdef OCR_ENABLE_STATISTICS
@@ -844,9 +844,9 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         base->flags |= OCR_TASK_FLAG_USES_HINTS;
         ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)(edtTemplate.metaDataPtr);
         edt->hint.hintMask = derived->hint.hintMask;
-        edt->hint.hintVal = (u64*)((u64)base + sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t));
+        edt->hint.hintVal = (ocrHintVal_t*)((u64)base + sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t));
         u64 hintSize = OCR_RUNTIME_HINT_GET_SIZE(derived->hint.hintMask);
-        for (i = 0; i < hintc; i++) edt->hint.hintVal[i] = (hintSize == 0) ? 0 : derived->hint.hintVal[i]; //copy the hints from the template
+        for (i = 0; i < hintc; i++) edt->hint.hintVal[i] = (hintSize == 0) ? (ocrHintVal_t){} : derived->hint.hintVal[i]; //copy the hints from the template
         if (hint != NULL_HINT) factory->fcts.setHint(base, hint);
     }
 

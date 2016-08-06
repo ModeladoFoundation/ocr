@@ -662,7 +662,7 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
         result->hint.hintVal = NULL;
     } else {
         OCR_RUNTIME_HINT_MASK_INIT(result->hint.hintMask, OCR_HINT_DB_T, factory->factoryId);
-        result->hint.hintVal = (u64*)((u64)result + sizeof(ocrDataBlockLockable_t));
+        result->hint.hintVal = (ocrHintVal_t*)((u64)result + sizeof(ocrDataBlockLockable_t));
     }
 #ifdef OCR_ENABLE_STATISTICS
     ocrTask_t *task = NULL;

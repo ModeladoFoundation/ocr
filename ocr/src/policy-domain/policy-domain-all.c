@@ -753,7 +753,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
                 u64 h = sizeof(u64) * OCR_RUNTIME_HINT_GET_SIZE(rHint->hintMask); //count the set vals
                 hal_memCopy(hintValPtr, rHint->hintVal, h, false);
                 rHintBuf->hintMask = rHint->hintMask;
-                rHintBuf->hintVal = (fixupPtrs) ? (u64*)(((u64)(hintValPtr - startPtr)<<1) + isAddl) : (u64*)hintValPtr;
+                rHintBuf->hintVal = (fixupPtrs) ? (ocrHintVal_t*)(((u64)(hintValPtr - startPtr)<<1) + isAddl) : (ocrHintVal_t*)hintValPtr;
                 rtHintPtr += sizeof(ocrRuntimeHint_t);
                 hintValPtr += h;
             }
@@ -1198,7 +1198,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                 PD_MSG_FIELD_IO(hints)[i] = (u64*)((h&1?localAddlPtr:localMainPtr) + (h>>1));
                 ocrRuntimeHint_t *rtHint = (ocrRuntimeHint_t*)PD_MSG_FIELD_IO(hints)[i];
                 h = (u64)(rtHint->hintVal);
-                rtHint->hintVal = (u64*)((h&1?localAddlPtr:localMainPtr) + (h>>1));
+                rtHint->hintVal = (ocrHintVal_t*)((h&1?localAddlPtr:localMainPtr) + (h>>1));
             }
 #endif
         }
@@ -1225,7 +1225,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                 void * base = PD_MSG_FIELD_IO(guid.metaDataPtr);
                 ocrTaskTemplateHc_t * tpl = (ocrTaskTemplateHc_t *) base;
                 if (tpl->hint.hintVal != NULL) {
-                    tpl->hint.hintVal  = (u64*)((u64)base + sizeof(ocrTaskTemplateHc_t));
+                    tpl->hint.hintVal  = (ocrHintVal_t*)((u64)base + sizeof(ocrTaskTemplateHc_t));
                 }
             }
 #ifdef ENABLE_EXTENSION_LABELING
