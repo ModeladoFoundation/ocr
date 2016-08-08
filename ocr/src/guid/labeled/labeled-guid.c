@@ -768,6 +768,15 @@ ocrGuidProviderFactory_t *newGuidProviderFactoryLabeled(ocrParamList_t *typeArg,
     base->providerFcts.registerGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64), labeledGuidRegisterGuid);
     base->providerFcts.unregisterGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64**), labeledGuidUnregisterGuid);
     base->providerFcts.releaseGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrFatGuid_t, bool), labeledGuidReleaseGuid);
+#ifdef ENABLE_RESILIENCY
+    DPRINTF(DEBUG_LVL_WARN, "Resiliency not supported with the LABELED guid provider!\n");
+    ASSERT(0);
+    base->providerFcts.getSerializationSize = NULL;
+    base->providerFcts.serialize = NULL;
+    base->providerFcts.deserialize = NULL;
+    base->providerFcts.reset = NULL;
+    base->providerFcts.fixup = NULL;
+#endif
 
     return base;
 }

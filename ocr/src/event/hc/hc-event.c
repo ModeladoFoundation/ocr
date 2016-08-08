@@ -20,6 +20,10 @@
 #include "ocr-worker.h"
 #include "ocr-errors.h"
 
+#if defined (ENABLE_RESILIENCY) && defined (ENABLE_CHECKPOINT_VERIFICATION)
+#include "policy-domain/hc/hc-policy.h"
+#endif
+
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
 #include "ocr-statistics-callbacks.h"
@@ -179,7 +183,6 @@ static u8 createDbRegNode(ocrFatGuid_t * dbFatGuid, u32 nbElems, bool doRelease,
 static void destructEventHcPeers(ocrEvent_t *base, locNode_t * curHead);
 
 u8 destructEventHc(ocrEvent_t *base) {
-
     ocrEventHc_t *event = (ocrEventHc_t*)base;
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
@@ -1367,6 +1370,9 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
             ((ocrEventHcLatch_t*)event)->counter = 0;
         }
     }
+    event->mdClass.peers = NULL;
+    event->mdClass.satFromLoc = INVALID_LOCATION;
+    event->mdClass.delFromLoc = INVALID_LOCATION;
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
     if(eventType == OCR_EVENT_IDEM_T || eventType == OCR_EVENT_STICKY_T || eventType == OCR_EVENT_COUNTED_T) {
 #else
@@ -1377,9 +1383,6 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
             // For master-slave impl, we did a clone and the event was already satisfied
             event->waitersCount = STATE_CHECKED_OUT;
         }
-        event->mdClass.peers = NULL;
-        event->mdClass.satFromLoc = INVALID_LOCATION;
-        event->mdClass.delFromLoc = INVALID_LOCATION;
     }
 
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
@@ -1516,6 +1519,11 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
     // Set-up base structures
     resultGuid->guid = PD_MSG_FIELD_IO(guid.guid);
     resultGuid->metaDataPtr = PD_MSG_FIELD_IO(guid.metaDataPtr);
+#ifdef ENABLE_RESILIENCY
+    ocrEvent_t *evt = (ocrEvent_t*)resultGuid->metaDataPtr;
+    evt->base.kind = guidKind;
+    evt->base.size = (*sizeofMd) + hintc*sizeof(u64);
+#endif
 #undef PD_MSG
 #undef PD_TYPE
     return returnValue;
@@ -1927,6 +1935,292 @@ u8 mdSizeEventFactoryHc(ocrObject_t *dest, u64 mode, u64 * size) {
     return 0;
 }
 
+#ifdef ENABLE_RESILIENCY
+u8 getSerializationSizeEventHc(ocrEvent_t* self, u64* size) {
+    ocrEventHc_t *evtHc = (ocrEventHc_t*)self;
+    u32 numPeers = 0;
+    locNode_t * curHead;
+    for (curHead = evtHc->mdClass.peers; curHead != NULL; curHead = curHead->next)
+        numPeers++;
+
+    u64 evtSize = (evtHc->hint.hintVal ? OCR_HINT_COUNT_EVT_HC * sizeof(u64) : 0) +
+                  (numPeers * sizeof(locNode_t));
+    //NOTE: Waiters DB should be serialized as part of guid provider
+
+    switch(self->kind) {
+    case OCR_EVENT_ONCE_T:
+        evtSize += sizeof(ocrEventHc_t);
+        break;
+    case OCR_EVENT_IDEM_T:
+    case OCR_EVENT_STICKY_T:
+        evtSize += sizeof(ocrEventHcPersist_t);
+        break;
+    case OCR_EVENT_LATCH_T:
+        evtSize += sizeof(ocrEventHcLatch_t);
+        break;
+#ifdef ENABLE_EXTENSION_COUNTED_EVT
+    case OCR_EVENT_COUNTED_T:
+        evtSize += sizeof(ocrEventHcCounted_t);
+        break;
+#endif
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+    case OCR_EVENT_CHANNEL_T: {
+        ocrEventHcChannel_t * evtHcChannel = (ocrEventHcChannel_t*)self;
+        evtSize += sizeof(ocrEventHcChannel_t) +
+                   sizeof(ocrGuid_t) * evtHcChannel->satBufSz +
+                   sizeof(regNode_t) * evtHcChannel->waitBufSz;
+        break;
+        }
+#endif
+    default:
+        ASSERT(0);
+        break;
+    }
+    self->base.size = evtSize;
+    *size = evtSize;
+    return 0;
+}
+
+u8 serializeEventHc(ocrEvent_t* self, u8* buffer) {
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    ocrEventHc_t *evtHc = (ocrEventHc_t*)self;
+    ocrEventHc_t *evtHcBuf = (ocrEventHc_t*)buffer;
+
+    //First serialize the base
+    u64 len = 0;
+    switch(self->kind) {
+    case OCR_EVENT_ONCE_T:
+        len = sizeof(ocrEventHc_t);
+        break;
+    case OCR_EVENT_IDEM_T:
+    case OCR_EVENT_STICKY_T:
+        len = sizeof(ocrEventHcPersist_t);
+        break;
+    case OCR_EVENT_LATCH_T:
+        len = sizeof(ocrEventHcLatch_t);
+        break;
+#ifdef ENABLE_EXTENSION_COUNTED_EVT
+    case OCR_EVENT_COUNTED_T:
+        len = sizeof(ocrEventHcCounted_t);
+        break;
+#endif
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+    case OCR_EVENT_CHANNEL_T:
+        len = sizeof(ocrEventHcChannel_t);
+        break;
+#endif
+    default:
+        ASSERT(0);
+        break;
+    }
+    ASSERT(len > 0);
+    hal_memCopy(buffer, self, len, false);
+    buffer += len;
+
+    //Next serialize the HC event extras
+    if (evtHc->hint.hintVal && OCR_HINT_COUNT_EVT_HC) {
+        evtHcBuf->hint.hintVal = (u64*)buffer;
+        len = OCR_HINT_COUNT_EVT_HC * sizeof(u64);
+        hal_memCopy(buffer, evtHc->hint.hintVal, len, false);
+        buffer += len;
+    }
+
+    if (evtHc->mdClass.peers != NULL) {
+        evtHcBuf->mdClass.peers = (locNode_t*)buffer;
+        locNode_t * curHead;
+        len = sizeof(locNode_t);
+        for (curHead = evtHc->mdClass.peers; curHead != NULL; curHead = curHead->next) {
+            hal_memCopy(buffer, curHead, len, false);
+            locNode_t *peerBuf = (locNode_t*)buffer;
+            peerBuf->next = (curHead->next != NULL) ? (locNode_t*)(buffer + len) : NULL;
+            buffer += len;
+        }
+    }
+
+    //Finally serialize the derived event extras
+    switch(self->kind) {
+    case OCR_EVENT_ONCE_T:
+    case OCR_EVENT_IDEM_T:
+    case OCR_EVENT_STICKY_T:
+    case OCR_EVENT_LATCH_T:
+        break;
+#ifdef ENABLE_EXTENSION_COUNTED_EVT
+    case OCR_EVENT_COUNTED_T:
+        break;
+#endif
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+    case OCR_EVENT_CHANNEL_T:
+        {
+            ocrEventHcChannel_t * evtHcChannel = (ocrEventHcChannel_t*)self;
+            ocrEventHcChannel_t * evtHcChannelBuf = (ocrEventHcChannel_t*)evtHcBuf;
+            if (evtHcChannel->satBuffer) {
+                evtHcChannelBuf->satBuffer = (ocrGuid_t*)buffer;
+                len = sizeof(ocrGuid_t) * evtHcChannel->satBufSz;
+                hal_memCopy(buffer, evtHcChannel->satBuffer, len, false);
+                buffer += len;
+            }
+
+            if (evtHcChannel->waiters) {
+                evtHcChannelBuf->waiters = (regNode_t*)buffer;
+                len = sizeof(regNode_t) * evtHcChannel->waitBufSz;
+                hal_memCopy(buffer, evtHcChannel->waiters, len, false);
+                buffer += len;
+            }
+        }
+        break;
+#endif
+    default:
+        ASSERT(0);
+        break;
+    }
+    ASSERT((buffer - bufferHead) == self->base.size);
+    return 0;
+}
+
+//TODO: Need to handle waitersDb ptr
+u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
+    ASSERT(self);
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    ocrEvent_t *evtBuf = (ocrEvent_t*)buffer;
+    ocrEventHc_t *evtHcBuf = (ocrEventHc_t*)buffer;
+    u64 len = 0;
+    switch(evtBuf->kind) {
+    case OCR_EVENT_ONCE_T:
+        len = sizeof(ocrEventHc_t);
+        break;
+    case OCR_EVENT_IDEM_T:
+    case OCR_EVENT_STICKY_T:
+        len = sizeof(ocrEventHcPersist_t);
+        break;
+    case OCR_EVENT_LATCH_T:
+        len = sizeof(ocrEventHcLatch_t);
+        break;
+#ifdef ENABLE_EXTENSION_COUNTED_EVT
+    case OCR_EVENT_COUNTED_T:
+        len = sizeof(ocrEventHcCounted_t);
+        break;
+#endif
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+    case OCR_EVENT_CHANNEL_T:
+        len = sizeof(ocrEventHcChannel_t);
+        break;
+#endif
+    default:
+        ASSERT(0);
+        break;
+    }
+    ASSERT(len > 0);
+    u64 extra = (evtHcBuf->hint.hintVal ? OCR_HINT_COUNT_EVT_HC * sizeof(u64) : 0);
+    ocrEvent_t *evt = (ocrEvent_t*)pd->fcts.pdMalloc(pd, (len + extra));
+
+    u64 offset = 0;
+    hal_memCopy(evt, buffer, len, false);
+    buffer += len;
+    offset += len;
+
+    ocrEventHc_t *evtHc = (ocrEventHc_t*)evt;
+    if (evtHc->hint.hintVal && OCR_HINT_COUNT_EVT_HC) {
+        len = OCR_HINT_COUNT_EVT_HC * sizeof(u64);
+        evtHc->hint.hintVal = (u64*)((u8*)evtHc + offset);
+        hal_memCopy(evtHc->hint.hintVal, buffer, len, false);
+        buffer += len;
+        offset += len;
+    }
+
+    if ((s32)(evtHcBuf->waitersCount) >= 0 && evtHcBuf->mdClass.peers != NULL) {
+        len = sizeof(locNode_t);
+        locNode_t * prevNode = NULL;
+        bool doContinue = true;
+        while (doContinue) {
+            locNode_t * curNode = (locNode_t*)pd->fcts.pdMalloc(pd, len);
+            hal_memCopy(curNode, buffer, len, false);
+            curNode->next = NULL;
+            if (prevNode == NULL) {
+                evtHc->mdClass.peers = curNode;
+            } else {
+                prevNode->next = curNode;
+            }
+            prevNode = curNode;
+            doContinue = (((locNode_t*)buffer)->next != NULL);
+            buffer += len;
+        }
+    }
+
+    switch(evt->kind) {
+    case OCR_EVENT_ONCE_T:
+    case OCR_EVENT_IDEM_T:
+    case OCR_EVENT_STICKY_T:
+    case OCR_EVENT_LATCH_T:
+        break;
+#ifdef ENABLE_EXTENSION_COUNTED_EVT
+    case OCR_EVENT_COUNTED_T:
+        break;
+#endif
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+    case OCR_EVENT_CHANNEL_T:
+        {
+            ocrEventHcChannel_t * evtHcChannel = (ocrEventHcChannel_t*)evtHc;
+            if (evtHcChannel->satBuffer) {
+                len = sizeof(ocrGuid_t) * evtHcChannel->satBufSz;
+                evtHcChannel->satBuffer = (ocrGuid_t*)pd->fcts.pdMalloc(pd, len);
+                hal_memCopy(evtHcChannel->satBuffer, buffer, len, false);
+                buffer += len;
+            }
+            if (evtHcChannel->waiters) {
+                len = sizeof(regNode_t) * evtHcChannel->waitBufSz;
+                evtHcChannel->waiters = (regNode_t*)pd->fcts.pdMalloc(pd, len);
+                hal_memCopy(evtHcChannel->waiters, buffer, len, false);
+                buffer += len;
+            }
+        }
+        break;
+#endif
+    default:
+        ASSERT(0);
+        break;
+    }
+
+    *self = evt;
+    ASSERT((buffer - bufferHead) == (*self)->base.size);
+    return 0;
+}
+
+u8 fixupEventHc(ocrEvent_t *base) {
+    ocrEventHc_t *hcEvent = (ocrEventHc_t*)base;
+    if (hcEvent->waitersDb.metaDataPtr != NULL) {
+        ocrPolicyDomain_t *pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        //Fixup the DB pointer
+        ASSERT(!ocrGuidIsNull(hcEvent->waitersDb.guid));
+        ocrGuid_t dbGuid = hcEvent->waitersDb.guid;
+        ocrObject_t * ocrObj = NULL;
+        pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)&ocrObj, NULL, MD_LOCAL, NULL);
+        ASSERT(ocrObj != NULL && ocrObj->kind == OCR_GUID_DB);
+        ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
+        ASSERT(ocrGuidIsEq(dbGuid, db->guid));
+        hcEvent->waitersDb.metaDataPtr = db;
+    }
+    return 0;
+}
+
+u8 resetEventHc(ocrEvent_t *base) {
+#ifdef ENABLE_CHECKPOINT_VERIFICATION
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
+    if (hcPolicy->checkpointInProgress) {
+        pd->fcts.pdFree(pd, base);
+    }
+#endif
+    return 0;
+}
+#endif
+
 ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrEventFactoryHc_t), PERSISTENT_CHUNK);
@@ -1952,6 +2246,13 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     base->commonFcts.setHint = FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrHint_t*), setHintEventHc);
     base->commonFcts.getHint = FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrHint_t*), getHintEventHc);
     base->commonFcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrEvent_t*), getRuntimeHintEventHc);
+#ifdef ENABLE_RESILIENCY
+    base->commonFcts.getSerializationSize = FUNC_ADDR(u8 (*)(ocrEvent_t*, u64*), getSerializationSizeEventHc);
+    base->commonFcts.serialize = FUNC_ADDR(u8 (*)(ocrEvent_t*, u8*), serializeEventHc);
+    base->commonFcts.deserialize = FUNC_ADDR(u8 (*)(u8*, ocrEvent_t**), deserializeEventHc);
+    base->commonFcts.fixup = FUNC_ADDR(u8 (*)(ocrEvent_t*), fixupEventHc);
+    base->commonFcts.reset = FUNC_ADDR(u8 (*)(ocrEvent_t*), resetEventHc);
+#endif
 
     // Setup functions properly
     u32 i;

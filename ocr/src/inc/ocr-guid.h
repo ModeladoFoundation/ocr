@@ -53,6 +53,7 @@ struct _ocrPolicyDomain_t;
 
 #define REG_OPEN 0x1
 #define REG_CLOSED 0x0
+#define OCR_GUID_MD_PROXY 32
 
 struct _ocrPolicyMsg_t;
 
@@ -63,6 +64,10 @@ typedef struct _MdProxyNode_t {
 } MdProxyNode_t;
 
 typedef struct {
+#ifdef ENABLE_RESILIENCY
+    ocrObject_t base;
+    u32 numNodes;
+#endif
     MdProxyNode_t * queueHead;
     volatile u64 ptr;
 } MdProxy_t;
@@ -260,6 +265,52 @@ typedef struct _ocrGuidProviderFcts_t {
      * @return 0 on success or an error code
      */
     u8 (*releaseGuid)(struct _ocrGuidProvider_t *self, ocrFatGuid_t guid, bool releaseVal);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @param[out] size       Buffer size required to serialize GUID provider metadata
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrGuidProvider_t *self, u64 * size);
+
+    /**
+     * @brief Serialize GUID provider metadata into buffer
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrGuidProvider_t *self, u8 * buffer);
+
+    /**
+     * @brief Deserialize GUID provider from buffer
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @param[in] buffer      Buffer to deserialize from
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(struct _ocrGuidProvider_t *self, u8 * buffer);
+
+    /**
+     * @brief Reset GUID provider user program state by clearing
+     * all user program metadata
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrGuidProvider_t *self);
+
+    /**
+     * @brief Fixup GUID provider state after restore
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrGuidProvider_t *self);
+#endif
 } ocrGuidProviderFcts_t;
 
 /**
@@ -272,6 +323,7 @@ typedef struct _ocrGuidProviderFcts_t {
  * support different address spaces (in the future)
  */
 typedef struct _ocrGuidProvider_t {
+    ocrObject_t base;
     struct _ocrPolicyDomain_t *pd;  /**< Policy domain of this GUID provider */
     u32 id;                         /**< Function IDs for this GUID provider */
     ocrGuidProviderFcts_t fcts;     /**< Functions for this instance */

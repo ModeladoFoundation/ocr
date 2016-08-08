@@ -22,6 +22,10 @@
 #include "utils/ocr-utils.h"
 #include "extensions/ocr-hints.h"
 
+#if defined (ENABLE_RESILIENCY) && defined (ENABLE_CHECKPOINT_VERIFICATION)
+#include "policy-domain/hc/hc-policy.h"
+#endif
+
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
 #include "ocr-statistics-callbacks.h"
@@ -661,6 +665,10 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     ASSERT(result);
     // Initialize the base's base
     result->base.base.fctId = factory->factoryId;
+#ifdef ENABLE_RESILIENCY
+    result->base.base.kind = OCR_GUID_DB;
+    result->base.base.size = mSize;
+#endif
     result->base.allocator = allocator.guid;
     result->base.allocatingPD = allocPD.guid;
     result->base.size = size;
@@ -733,6 +741,201 @@ ocrRuntimeHint_t* getRuntimeHintDbLockable(ocrDataBlock_t* self) {
     return &(derived->hint);
 }
 
+#ifdef ENABLE_RESILIENCY
+u8 getSerializationSizeDataBlockLockable(ocrDataBlock_t* self, u64* size) {
+    ocrDataBlockLockable_t *derived = (ocrDataBlockLockable_t*)self;
+    u32 ewWaiterCount, itwWaiterCount, roWaiterCount;
+    dbWaiter_t *waiter;
+
+    for (waiter = derived->ewWaiterList,  ewWaiterCount  = 0; waiter != NULL; waiter = waiter->next, ewWaiterCount++ );
+    for (waiter = derived->itwWaiterList, itwWaiterCount = 0; waiter != NULL; waiter = waiter->next, itwWaiterCount++);
+    for (waiter = derived->roWaiterList,  roWaiterCount  = 0; waiter != NULL; waiter = waiter->next, roWaiterCount++ );
+
+    u64 dbSize =    sizeof(ocrDataBlockLockable_t) +
+                    (derived->hint.hintVal ? OCR_HINT_COUNT_DB_LOCKABLE*sizeof(u64) : 0) +
+                    (self->ptr ? self->size : 0) +
+                    ewWaiterCount*sizeof(dbWaiter_t) +
+                    itwWaiterCount*sizeof(dbWaiter_t) +
+                    roWaiterCount*sizeof(dbWaiter_t);
+
+    derived->ewWaiterCount = ewWaiterCount;
+    derived->itwWaiterCount = itwWaiterCount;
+    derived->roWaiterCount = roWaiterCount;
+
+    self->base.size = dbSize;
+    *size = dbSize;
+    return 0;
+}
+
+u8 serializeDataBlockLockable(ocrDataBlock_t* self, u8* buffer) {
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    ocrDataBlockLockable_t *derived = (ocrDataBlockLockable_t*)self;
+    ocrDataBlockLockable_t *dbBuf = (ocrDataBlockLockable_t*)buffer;
+    u64 len = sizeof(ocrDataBlockLockable_t);
+    hal_memCopy(buffer, self, len, false);
+    dbBuf->worker = (derived->worker != NULL) ? (ocrWorker_t*)derived->worker->id : (ocrWorker_t*)(-1);
+    buffer += len;
+
+    if (derived->hint.hintVal) {
+        dbBuf->hint.hintVal = (u64*)buffer;
+        len = OCR_HINT_COUNT_DB_LOCKABLE*sizeof(u64);
+        hal_memCopy(buffer, derived->hint.hintVal, len, false);
+        buffer += len;
+    }
+
+    if (self->ptr) {
+        dbBuf->base.ptr = (u64*)buffer;
+        len = self->size;
+        hal_memCopy(buffer, self->ptr, len, false);
+        buffer += len;
+    }
+
+    dbWaiter_t *waiter;
+    len = sizeof(dbWaiter_t);
+    if (derived->ewWaiterList) {
+        dbBuf->ewWaiterList = (dbWaiter_t*)buffer;
+        u32 ewWaiterCount = 0;
+        for (waiter = derived->ewWaiterList; waiter != NULL; waiter = waiter->next, buffer += len, ewWaiterCount++) {
+            hal_memCopy(buffer, waiter, len, false);
+            dbWaiter_t *waiterBuf = (dbWaiter_t*)buffer;
+            waiterBuf->next = waiter->next ? (dbWaiter_t*)(buffer + len) : NULL;
+        }
+        ASSERT(derived->ewWaiterCount == ewWaiterCount);
+    }
+    if (derived->itwWaiterList) {
+        dbBuf->itwWaiterList = (dbWaiter_t*)buffer;
+        u32 itwWaiterCount = 0;
+        for (waiter = derived->itwWaiterList; waiter != NULL; waiter = waiter->next, buffer += len, itwWaiterCount++) {
+            hal_memCopy(buffer, waiter, len, false);
+            dbWaiter_t *waiterBuf = (dbWaiter_t*)buffer;
+            waiterBuf->next = waiter->next ? (dbWaiter_t*)(buffer + len) : NULL;
+        }
+        ASSERT(derived->itwWaiterCount == itwWaiterCount);
+    }
+    if (derived->roWaiterList) {
+        dbBuf->roWaiterList = (dbWaiter_t*)buffer;
+        u32 roWaiterCount = 0;
+        for (waiter = derived->roWaiterList; waiter != NULL; waiter = waiter->next, buffer += len, roWaiterCount++) {
+            hal_memCopy(buffer, waiter, len, false);
+            dbWaiter_t *waiterBuf = (dbWaiter_t*)buffer;
+            waiterBuf->next = waiter->next ? (dbWaiter_t*)(buffer + len) : NULL;
+        }
+        ASSERT(derived->roWaiterCount == roWaiterCount);
+    }
+
+    ASSERT((buffer - bufferHead) == self->base.size);
+    return 0;
+}
+
+u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
+    ASSERT(self);
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    u32 i;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    ocrDataBlockLockable_t *dbLockableBuf = (ocrDataBlockLockable_t*)buffer;
+    u64 len = sizeof(ocrDataBlockLockable_t) +
+              (dbLockableBuf->hint.hintVal ? OCR_HINT_COUNT_DB_LOCKABLE*sizeof(u64) : 0);
+    ocrDataBlock_t *db = (ocrDataBlock_t*)pd->fcts.pdMalloc(pd, len);
+    ocrDataBlockLockable_t *dbLockable = (ocrDataBlockLockable_t*)db;
+
+    u64 offset = 0;
+    len = sizeof(ocrDataBlockLockable_t);
+    hal_memCopy(db, buffer, len, false);
+    u64 workerId = (u64)(dbLockable->worker);
+    dbLockable->worker = (workerId == ((u64)-1)) ? NULL : pd->workers[workerId];
+    buffer += len;
+    offset += len;
+
+    if (dbLockable->hint.hintVal != NULL) {
+        len = OCR_HINT_COUNT_DB_LOCKABLE*sizeof(u64);
+        dbLockable->hint.hintVal = (u64*)((u8*)db + offset);
+        hal_memCopy(dbLockable->hint.hintVal, buffer, len, false);
+        buffer += len;
+        offset += len;
+    }
+
+    if (db->ptr != NULL) {
+        len = db->size;
+        db->ptr = pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(db->ptr, buffer, len, false);
+        if (db->bkPtr != NULL) {
+            db->bkPtr = pd->fcts.pdMalloc(pd, len);
+            hal_memCopy(db->bkPtr, buffer, len, false);
+        }
+        buffer += len;
+    }
+
+    len = sizeof(dbWaiter_t);
+    dbWaiter_t *waiterPrev;
+    for (i = 0, waiterPrev = NULL; i < dbLockable->ewWaiterCount; i++, buffer += len) {
+        dbWaiter_t *waiter = (dbWaiter_t*)pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(waiter, buffer, len, false);
+        waiter->next = NULL;
+        if (waiterPrev != NULL) {
+            waiterPrev->next = waiter;
+        } else {
+            dbLockable->ewWaiterList = waiter;
+        }
+        waiterPrev = waiter;
+    }
+    for (i = 0, waiterPrev = NULL; i < dbLockable->itwWaiterCount; i++, buffer += len) {
+        dbWaiter_t *waiter = (dbWaiter_t*)pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(waiter, buffer, len, false);
+        waiter->next = NULL;
+        if (waiterPrev != NULL) {
+            waiterPrev->next = waiter;
+        } else {
+            dbLockable->itwWaiterList = waiter;
+        }
+        waiterPrev = waiter;
+    }
+    for (i = 0, waiterPrev = NULL; i < dbLockable->roWaiterCount; i++, buffer += len) {
+        dbWaiter_t *waiter = (dbWaiter_t*)pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(waiter, buffer, len, false);
+        waiter->next = NULL;
+        if (waiterPrev != NULL) {
+            waiterPrev->next = waiter;
+        } else {
+            dbLockable->roWaiterList = waiter;
+        }
+        waiterPrev = waiter;
+    }
+
+    *self = db;
+    ASSERT((buffer - bufferHead) == (*self)->base.size);
+    return 0;
+}
+
+u8 fixupDataBlockLockable(ocrDataBlock_t *self) {
+    //Nothing to fixup
+    return 0;
+}
+
+u8 resetDataBlockLockable(ocrDataBlock_t *self) {
+#ifdef ENABLE_CHECKPOINT_VERIFICATION
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
+    if (hcPolicy->checkpointInProgress) {
+        if(self->ptr) {
+            pd->fcts.pdFree(pd, self->ptr);
+            self->ptr = NULL;
+        }
+        if(self->bkPtr) {
+            pd->fcts.pdFree(pd, self->bkPtr);
+            self->bkPtr = NULL;
+        }
+        pd->fcts.pdFree(pd, self);
+    }
+#endif
+    return 0;
+}
+#endif
+
 /******************************************************/
 /* OCR DATABLOCK LOCKABLE FACTORY                      */
 /******************************************************/
@@ -770,6 +973,13 @@ ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrHint_t*), lockableSetHint);
     base->fcts.getHint = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrHint_t*), lockableGetHint);
     base->fcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrDataBlock_t*), getRuntimeHintDbLockable);
+#ifdef ENABLE_RESILIENCY
+    base->fcts.getSerializationSize = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, u64*), getSerializationSizeDataBlockLockable);
+    base->fcts.serialize = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, u8*), serializeDataBlockLockable);
+    base->fcts.deserialize = FUNC_ADDR(u8 (*)(u8*, ocrDataBlock_t**), deserializeDataBlockLockable);
+    base->fcts.fixup = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), fixupDataBlockLockable);
+    base->fcts.reset = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), resetDataBlockLockable);
+#endif
     base->factoryId = factoryId;
     //Setup hint framework
     base->hintPropMap = (u64*)runtimeChunkAlloc(sizeof(u64)*(OCR_HINT_DB_PROP_END - OCR_HINT_DB_PROP_START - 1), PERSISTENT_CHUNK);

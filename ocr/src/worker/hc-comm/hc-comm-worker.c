@@ -16,6 +16,18 @@
 #include "worker/hc-comm/hc-comm-worker.h"
 #include "ocr-errors.h"
 #include "ocr-policy-domain-tasks.h"
+#ifdef ENABLE_RESILIENCY
+#include "policy-domain/hc/hc-policy.h"
+#include "comm-platform/mpi/mpi-comm-platform.h"
+#include "ocr-scheduler-heuristic.h"
+#include "ocr-scheduler-object.h"
+#include "scheduler/common/common-scheduler.h"
+#include "scheduler-heuristic/hc/hc-comm-delegate-scheduler-heuristic.h"
+#include "scheduler-object/wst/wst-scheduler-object.h"
+#include "scheduler-object/deq/deq-scheduler-object.h"
+#include "worker/hc/hc-worker.h"
+#include "utils/deque.h"
+#endif
 
 // Load the affinities
 #include "experimental/ocr-platform-model.h"
@@ -179,7 +191,59 @@ static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd)
     return POLL_NO_MESSAGE;
 }
 
+#ifdef ENABLE_RESILIENCY
+static u64 pendingCommCount(ocrPolicyDomain_t *pd) {
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+    ocrCommPlatformMPI_t *mpiComm = (ocrCommPlatformMPI_t*)pd->commApis[0]->commPlatform;
+    ocrSchedulerHeuristicHcCommDelegate_t *heur = (ocrSchedulerHeuristicHcCommDelegate_t*)((ocrSchedulerCommon_t *)pd->schedulers[0])->schedulerHeuristics[2];
+    u32 i;
+    u32 inCount = 0;
+    for (i = 0; i < heur->inboxesCount; i++) {
+        deque_t *d = heur->inboxes[i];
+        inCount += (d->tail - d->head);
+    }
+    u32 outCount = 0;
+    for (i = 0; i < heur->outboxesCount; i++) {
+        deque_t *d = heur->outboxes[i];
+        outCount += (d->tail - d->head);
+    }
+    u64 sCount = pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
+    u32 activeCount = 0;
+    if (hcPolicy->checkpointInProgress) {
+        for (i = 1; i < pd->workerCount; i++) {
+            ocrWorker_t *worker = pd->workers[i];
+            if (!worker->checkpointMaster) {
+                activeCount += !worker->isIdle;
+            }
+        }
+    }
+    u64 commStateCount = hcPolicy->outstandingRequests + hcPolicy->outstandingResponses +
+                         mpiComm->sendPoolSz + mpiComm->recvPoolSz +
+                         sCount + inCount + outCount + activeCount;
+
+    if (hcPolicy->checkpointInProgress && mpiComm->recvFxdPoolSz != 1) {
+        DPRINTF(DEBUG_LVL_WARN, "OUT [%d : %d]\n", hcPolicy->outstandingRequests, hcPolicy->outstandingResponses);
+        DPRINTF(DEBUG_LVL_WARN, "COMMS [%d : %d : %d]\n", mpiComm->sendPoolSz, mpiComm->recvPoolSz, mpiComm->recvFxdPoolSz);
+        DPRINTF(DEBUG_LVL_WARN, "SCHED [%lu : %u : %u]\n\n", sCount, inCount, outCount);
+        ASSERT(0);
+    }
+    return commStateCount;
+}
+#endif
+
 static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd, ocrGuid_t processRequestTemplate, bool flushOutgoingComm) {
+    u8 retmask = POLL_NO_OUTGOING_MESSAGE;
+#ifdef ENABLE_RESILIENCY
+    ASSERT(worker->id == 0); //Current assumption
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+    u32 quiesceComms = hcPolicy->quiesceComms;
+    if (quiesceComms) {
+        DPRINTF(DEBUG_LVL_VERB, "Quiescing comms...\n");
+        flushOutgoingComm = true;
+        retmask = (POLL_NO_OUTGOING_MESSAGE | POLL_NO_INCOMING_MESSAGE);
+    }
+    do {
+#endif
     // In outgoing flush mode:
     // - Send all outgoing communications
     // - Loop until pollMessage says there's no more outgoing
@@ -303,7 +367,32 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
             }
         }
         EXIT_PROFILE;
-    } while (flushOutgoingComm && !((ret & POLL_NO_OUTGOING_MESSAGE) == POLL_NO_OUTGOING_MESSAGE));
+    } while (flushOutgoingComm && !((ret & retmask) == retmask));
+
+#ifdef ENABLE_RESILIENCY
+    } while (quiesceComms && pendingCommCount(pd) > 0);
+
+    if (quiesceComms) {
+        if (hcPolicy->checkpointInProgress) {
+            hcPolicy->commStopped = 1;
+            hal_fence();
+
+            ASSERT(pendingCommCount(pd) == 0);
+            hal_fence();
+
+            hcPolicy->quiesceComms = 0;
+            DPRINTF(DEBUG_LVL_VERB, "...Comms quiesced!\n");
+            hal_fence();
+            //Wait until checkpoint is over
+            while (hcPolicy->commStopped != 0)
+                ;
+        } else {
+            hal_fence();
+            hcPolicy->quiesceComms = 0;
+            DPRINTF(DEBUG_LVL_VERB, "...Comms quiesced!\n");
+        }
+    }
+#endif
 }
 
 static void workShiftHcComm(ocrWorker_t * worker) {

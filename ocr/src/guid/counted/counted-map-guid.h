@@ -35,6 +35,10 @@ typedef struct {
     // GUID 'id' counter, atomically incr when a new GUID is requested
     u64 guidCounter;
 #endif
+#ifdef ENABLE_RESILIENCY
+    u64 objectsCounted;
+    u64 objectsSerialized;
+#endif
 } ocrGuidProviderCountedMap_t;
 
 typedef struct {

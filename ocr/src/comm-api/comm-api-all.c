@@ -43,6 +43,9 @@ ocrCommApiFactory_t *newCommApiFactory(commApiType_t type, ocrParamList_t *typeA
 void initializeCommApiOcr(ocrCommApiFactory_t * factory, ocrCommApi_t * self, ocrParamList_t *perInstance) {
     self->pd = NULL;
     self->commPlatform = NULL;
+#ifdef ENABLE_RESILIENCY
+    self->syncCalTime = 0;
+#endif
     self->fcts = factory->apiFcts;
 }
 

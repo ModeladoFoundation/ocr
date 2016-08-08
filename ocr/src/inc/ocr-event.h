@@ -180,6 +180,51 @@ typedef struct _ocrEventCommonFcts_t {
      * @return pointer to hint structure
      */
     ocrRuntimeHint_t* (*getRuntimeHint)(struct _ocrEvent_t* self);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this event
+     * @param[out] size       Buffer size required to serialize event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrEvent_t* self, u64* size);
+
+    /**
+     * @brief Serialize event into buffer
+     *
+     * @param[in] self        Pointer to this event
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrEvent_t* self, u8* buffer);
+
+    /**
+     * @brief Deserialize event from buffer
+     *
+     * @param[in] buffer      Buffer to deserialize from
+     * @param[out] self       Pointer to deserialized event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(u8* buffer, struct _ocrEvent_t** self);
+
+    /**
+     * @brief Fixup event pointers after deserialization
+     *
+     * @param[in] self        Pointer to this event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrEvent_t* self);
+
+    /**
+     * @brief Deallocate event during PD reset
+     *
+     * @param[in] self        Pointer to this event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrEvent_t* self);
+#endif
 } ocrEventCommonFcts_t;
 
 /**

@@ -15,6 +15,9 @@
 #include "ocr-worker.h"
 #include "utils/ocr-utils.h"
 #include "mpi-comm-platform.h"
+#ifdef ENABLE_RESILIENCY
+#include "policy-domain/hc/hc-policy.h"
+#endif
 
 #ifdef DEBUG_MPI_HOSTNAMES
 // For gethostname
@@ -322,6 +325,17 @@ static u8 probeIncoming(ocrCommPlatform_t *self, int src, int tag, ocrPolicyMsg_
 #ifdef OCR_MONITOR_NETWORK
         (*msg)->rcvTime = salGetTime();
 #endif
+#ifdef ENABLE_RESILIENCY
+        ocrPolicyDomain_t * pd = self->pd;
+        ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+        ASSERT((hcPolicy->commStopped == 0) || (((*msg)->type & PD_MSG_TYPE_ONLY) == PD_MSG_RESILIENCY_CHECKPOINT));
+        if ((*msg)->type & PD_MSG_RESPONSE) {
+            hcPolicy->outstandingRequests--;
+        } else if ((*msg)->type & PD_MSG_REQ_RESPONSE) {
+            ASSERT((*msg)->type & PD_MSG_REQUEST);
+            hcPolicy->outstandingResponses++;
+        }
+#endif
 
         // Unmarshall the message. We check to make sure the size is OK
         // This should be true since MPI seems to make sure to send the whole message
@@ -579,6 +593,11 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
     START_PROFILE(commplt_MPICommSendMessage);
     u64 bufferSize = message->bufferSize;
     ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
+#ifdef ENABLE_RESILIENCY
+    ocrPolicyDomain_t * pd = self->pd;
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+    ASSERT(hcPolicy->commStopped == 0);
+#endif
 
     u64 baseSize = 0, marshalledSize = 0;
     ocrPolicyMsgGetMsgSize(message, &baseSize, &marshalledSize, MARSHALL_DBPTR | MARSHALL_NSADDR);
@@ -593,6 +612,10 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
     // If we're sending a request, set the message's msgId to this communication id
     if (message->type & PD_MSG_REQUEST) {
         message->msgId = mpiId;
+#ifdef ENABLE_RESILIENCY
+        if (message->type & PD_MSG_REQ_RESPONSE)
+            hcPolicy->outstandingRequests++;
+#endif
     } else {
         // For response in ASYNC set the message ID as any.
         ASSERT(message->type & PD_MSG_RESPONSE);
@@ -602,6 +625,9 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
         }
         // else, for regular responses, just keep the original
         // message's msgId the calling PD is waiting on.
+#ifdef ENABLE_RESILIENCY
+        hcPolicy->outstandingResponses--;
+#endif
     }
 
     ocrPolicyMsg_t * messageBuffer = message;
@@ -1338,7 +1364,25 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             PRINTF("MPI rank %"PRId32" on host %s\n", myRank, hostname);
 #endif
             // Runlevel barrier across policy-domains
+#ifdef ENABLE_RESILIENCY
+            u64 time = PD->commApis[0]->syncCalTime;
+            if (myRank == 0) {
+                if (time == 0)
+                    time = salGetCalTime();
+            } else {
+                ASSERT(time == 0);
+            }
+            MPI_Bcast((void*)(&time), 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
+            ASSERT(time != 0);
+            int i;
+            if (PD->commApis[0]->syncCalTime == 0) {
+                for (i = 0; i < PD->commApiCount; i++) {
+                    PD->commApis[i]->syncCalTime = time;
+                }
+            }
+#else
             MPI_Barrier(MPI_COMM_WORLD);
+#endif
         }
         if ((properties & RL_TEAR_DOWN) && RL_IS_FIRST_PHASE_DOWN(self->pd, RL_GUID_OK, phase)) {
             // There might still be one-way messages in flight that are

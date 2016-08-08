@@ -97,6 +97,9 @@ static void hcWorkShift(ocrWorker_t * worker) {
         // We got a response
         ocrFatGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
         if(!(ocrGuidIsNull(taskGuid.guid))){
+#ifdef ENABLE_RESILIENCY
+            worker->isIdle = 0;
+#endif
             ocrTask_t * curTask = (ocrTask_t*)taskGuid.metaDataPtr;
 #ifdef OCR_ASSERT
             if (GET_STATE_PHASE(worker->curState) < (RL_GET_PHASE_COUNT_DOWN(pd, RL_USER_OK)-1)) {
@@ -115,13 +118,6 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
             {
                 START_PROFILE(wo_hc_executeWork);
-#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
-                if ((curTask->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0) {
-                    hcWorker->edtDepth++;
-                    if (hcWorker->edtDepth > hcWorker->maxEdtDepth)
-                        hcWorker->maxEdtDepth = hcWorker->edtDepth;
-                }
-#endif
                 // Task sanity checks
                 ASSERT(taskGuid.metaDataPtr != NULL);
                 worker->curTask = curTask;
@@ -197,11 +193,6 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #ifdef OCR_ENABLE_EDT_NAMING
                 hcWorker->name = curTask->name;
 #endif
-#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
-                if ((curTask->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0) {
-                    hcWorker->edtDepth--;
-                }
-#endif
                 EXIT_PROFILE;
             }
 #ifndef ENABLE_OCR_API_DEFERRABLE_MT
@@ -223,6 +214,23 @@ static void hcWorkShift(ocrWorker_t * worker) {
 
             // Important for this to be the last
             worker->curTask = NULL;
+        } else {
+#ifdef ENABLE_RESILIENCY
+            if (worker->isIdle == 0 && worker->edtDepth == 0) {
+#if 0
+                worker->isIdle = 1;
+#else
+                //ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
+                //if (hcPolicy->stateOfCheckpoint) {
+                    if (pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0) {
+                        worker->isIdle = 1;
+                    }
+                //} else {
+                //    worker->isIdle = 1;
+                //}
+#endif
+            }
+#endif
         }
     } else {
         ASSERT(0); //Handle error code
@@ -396,7 +404,6 @@ static void workerLoop(ocrWorker_t * worker) {
     salPerfShutdown(hcWorker->perfCtrs);
 #endif
 
-    //DPRINTF(DEBUG_LVL_NONE, "Worker max edt depth reached with context switch: %lu\n", ((ocrWorkerHc_t*)worker)->maxEdtDepth);
     DPRINTF(DEBUG_LVL_VERB, "Finished worker loop ... waiting to be reapped\n");
 }
 
@@ -680,11 +687,6 @@ void initializeWorkerHc(ocrWorkerFactory_t * factory, ocrWorker_t* self, ocrPara
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     workerHc->isHelping = 0;
     workerHc->stealFirst = 0;
-    workerHc->edtDepth = 0;
-    workerHc->maxEdtDepth = 0;
-#endif
-#ifdef ENABLE_RESILIENCY
-    workerHc->checkpointInProgress = 0;
 #endif
 }
 

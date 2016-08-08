@@ -23,6 +23,10 @@
 #include "extensions/ocr-hints.h"
 #include "ocr-policy-domain-tasks.h"
 
+#if defined (ENABLE_RESILIENCY) && defined (ENABLE_CHECKPOINT_VERIFICATION)
+#include "policy-domain/hc/hc-policy.h"
+#endif
+
 #include "ocr-perfmon.h"
 
 #ifdef OCR_ENABLE_STATISTICS
@@ -173,6 +177,10 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
 #endif
     base->base.fctId = factory->factoryId;
     base->fctId = factory->factoryId;
+#ifdef ENABLE_RESILIENCY
+    base->base.kind = OCR_GUID_EDT_TEMPLATE;
+    base->base.size = sizeof(ocrTaskTemplateHc_t) + hintc*sizeof(u64);
+#endif
 
     ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)base;
     if (hintc == 0) {
@@ -222,6 +230,80 @@ void destructTaskTemplateFactoryHc(ocrObjectFactory_t* factory) {
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
 }
 
+#ifdef ENABLE_RESILIENCY
+u8 getSerializationSizeTaskTemplateHc(ocrTaskTemplate_t* self, u64* size) {
+    ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)self;
+    ASSERT(derived->hint.hintVal != NULL);
+    u64 tmplSize = sizeof(ocrTaskTemplateHc_t) + (OCR_HINT_COUNT_EDT_HC * sizeof(u64));
+    self->base.size = tmplSize;
+    *size = tmplSize;
+    return 0;
+}
+
+u8 serializeTaskTemplateHc(ocrTaskTemplate_t* self, u8* buffer) {
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    u64 len = sizeof(ocrTaskTemplateHc_t);
+    hal_memCopy(buffer, self, len, false);
+    ocrTaskTemplateHc_t *tmplBuf = (ocrTaskTemplateHc_t*)buffer;
+    buffer += len;
+
+    tmplBuf->hint.hintVal = (u64*)buffer;
+    len = OCR_HINT_COUNT_EDT_HC * sizeof(u64);
+    //TODO: Dropping template hints for now. Need to allocate only used size.
+    //ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)self;
+    //hal_memCopy(buffer, derived->hint.hintVal, len, false);
+    buffer += len;
+
+    ASSERT((buffer - bufferHead) == self->base.size);
+    return 0;
+}
+
+u8 deserializeTaskTemplateHc(u8* buffer, ocrTaskTemplate_t** self) {
+    ASSERT(self);
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    u64 len = sizeof(ocrTaskTemplateHc_t) + (OCR_HINT_COUNT_EDT_HC*sizeof(u64));
+    ocrTaskTemplateHc_t *tmplHc = (ocrTaskTemplateHc_t*)pd->fcts.pdMalloc(pd, len);
+
+    u64 offset = 0;
+    len = sizeof(ocrTaskTemplateHc_t);
+    hal_memCopy(tmplHc, buffer, len, false);
+    buffer += len;
+    offset += len;
+
+    tmplHc->hint.hintVal = (u64*)((u8*)tmplHc + offset);
+    len = OCR_HINT_COUNT_EDT_HC * sizeof(u64);
+    hal_memCopy(tmplHc->hint.hintVal, buffer, len, false);
+    buffer += len;
+    offset += len;
+
+    *self = (ocrTaskTemplate_t*)tmplHc;
+    ASSERT((buffer - bufferHead) == (*self)->base.size);
+    return 0;
+}
+
+u8 fixupTaskTemplateHc(ocrTaskTemplate_t *self) {
+    //Nothing to fixup
+    return 0;
+}
+
+u8 resetTaskTemplateHc(ocrTaskTemplate_t *self) {
+#ifdef ENABLE_CHECKPOINT_VERIFICATION
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
+    if (hcPolicy->checkpointInProgress) {
+        pd->fcts.pdFree(pd, self);
+    }
+#endif
+    return 0;
+}
+#endif
+
 ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32 factoryId) {
     ocrTaskTemplateFactory_t* base = (ocrTaskTemplateFactory_t*)runtimeChunkAlloc(sizeof(ocrTaskTemplateFactoryHc_t), PERSISTENT_CHUNK);
 
@@ -234,6 +316,13 @@ ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*, ocrHint_t*), setHintTaskTemplateHc);
     base->fcts.getHint = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*, ocrHint_t*), getHintTaskTemplateHc);
     base->fcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrTaskTemplate_t*), getRuntimeHintTaskTemplateHc);
+#ifdef ENABLE_RESILIENCY
+    base->fcts.getSerializationSize = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*, u64*), getSerializationSizeTaskTemplateHc);
+    base->fcts.serialize = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*, u8*), serializeTaskTemplateHc);
+    base->fcts.deserialize = FUNC_ADDR(u8 (*)(u8*, ocrTaskTemplate_t**), deserializeTaskTemplateHc);
+    base->fcts.fixup = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*), fixupTaskTemplateHc);
+    base->fcts.reset = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*), resetTaskTemplateHc);
+#endif
     //Setup hint framework
     base->hintPropMap = (u64*)runtimeChunkAlloc(sizeof(u64)*(OCR_HINT_EDT_PROP_END - OCR_HINT_EDT_PROP_START - 1), PERSISTENT_CHUNK);
     OCR_HINT_SETUP(base->hintPropMap, ocrHintPropTaskHc, OCR_HINT_COUNT_EDT_HC, OCR_HINT_EDT_PROP_START, OCR_HINT_EDT_PROP_END);
@@ -791,6 +880,10 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 
     // Set up the base's base
     self->base.fctId = factory->factoryId;
+#ifdef ENABLE_RESILIENCY
+    self->base.kind = OCR_GUID_EDT;
+    self->base.size = szMd;
+#endif
     // Set-up base structures
     self->templateGuid = edtTemplate.guid;
     ASSERT(edtTemplate.metaDataPtr); // For now we just assume it is passed whole
@@ -1801,9 +1894,15 @@ u8 taskExecute(ocrTask_t* base) {
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
             EXIT_PROFILE;
         } else {
+#ifdef ENABLE_RESILIENCY
+            curWorker->edtDepth++;
+#endif
             START_PROFILE(userCode);
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
             EXIT_PROFILE;
+#ifdef ENABLE_RESILIENCY
+            curWorker->edtDepth--;
+#endif
         }
 #else
         START_PROFILE(userCode);
@@ -2102,6 +2201,209 @@ u8 cloneTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t 
     return 0;
 }
 
+#ifdef ENABLE_RESILIENCY
+u8 getSerializationSizeTaskHc(ocrTask_t* self, u64* size) {
+    ASSERT((self->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0);
+    u64 taskSize =  0;
+#if 0
+    mdSizeTaskFactoryHc((ocrObject_t *) self, 0, &taskSize);
+#else
+    ocrTaskHc_t *derived = (ocrTaskHc_t*)self;
+    taskSize = sizeof(ocrTaskHc_t) +
+               (self->paramv ? self->paramc*sizeof(u64) : 0) +
+               (derived->signalers ? self->depc*sizeof(regNode_t) : 0) +
+               (derived->hint.hintVal ? OCR_HINT_COUNT_EDT_HC*sizeof(u64) : 0) +
+               (derived->resolvedDeps ? self->depc*sizeof(ocrEdtDep_t) : 0) +
+               (derived->unkDbs ? derived->countUnkDbs*sizeof(ocrGuid_t) : 0);
+#endif
+    self->base.size = taskSize;
+    *size = taskSize;
+    return 0;
+}
+
+u8 serializeTaskHc(ocrTask_t* self, u8* buffer) {
+    ASSERT((self->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0);
+    ASSERT(buffer);
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrTaskHc_t *derived = (ocrTaskHc_t*)self;
+
+#if 0
+    u64 destSize = self->base.size;
+    serializeTaskFactoryHc(pd->taskFactories[self->fctId], self->guid, (ocrObject_t*)self, NULL, pd->myLocation, &buffer, &destSize);
+#else
+
+    u8* bufferHead = buffer;
+    ocrTask_t *taskBuf = (ocrTask_t*)buffer;
+    ocrTaskHc_t *taskHcBuf = (ocrTaskHc_t*)buffer;
+
+    u64 len = sizeof(ocrTaskHc_t);
+    hal_memCopy(buffer, self, len, false);
+    buffer += len;
+
+    if (self->paramv) {
+        len = self->paramc*sizeof(u64);
+        hal_memCopy(buffer, self->paramv, len, false);
+        taskBuf->paramv = (u64*)buffer;
+        buffer += len;
+    }
+
+    if (derived->signalers) {
+        len = self->depc*sizeof(regNode_t);
+        hal_memCopy(buffer, derived->signalers, len, false);
+        taskHcBuf->signalers = (regNode_t*)buffer;
+        buffer += len;
+    }
+
+    if (derived->hint.hintVal) {
+        len = OCR_HINT_COUNT_EDT_HC * sizeof(u64);
+        hal_memCopy(buffer, derived->hint.hintVal, len, false);
+        taskHcBuf->hint.hintVal = (u64*)buffer;
+        buffer += len;
+    }
+
+    if (derived->resolvedDeps) {
+        len = self->depc*sizeof(ocrEdtDep_t);
+        hal_memCopy(buffer, derived->resolvedDeps, len, false);
+        taskHcBuf->resolvedDeps = (ocrEdtDep_t*)buffer;
+        buffer += len;
+    }
+
+    if (derived->unkDbs) {
+        len = derived->countUnkDbs*sizeof(ocrGuid_t);
+        hal_memCopy(buffer, derived->unkDbs, len, false);
+        taskHcBuf->unkDbs = (ocrGuid_t*)buffer;
+        taskHcBuf->maxUnkDbs = derived->countUnkDbs;
+        buffer += len;
+    }
+
+    ASSERT((buffer - bufferHead) == self->base.size);
+#endif
+    return 0;
+}
+
+u8 deserializeTaskHc(u8* buffer, ocrTask_t** self) {
+    ASSERT(self);
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    ocrTask_t *taskBuf = (ocrTask_t*)buffer;
+    ocrTaskHc_t *taskHcBuf = (ocrTaskHc_t*)buffer;
+    u64 len = sizeof(ocrTaskHc_t) +
+              (taskBuf->paramv ? taskBuf->paramc*sizeof(u64) : 0) +
+              (taskHcBuf->signalers ? taskBuf->depc*sizeof(regNode_t) : 0) +
+              (taskHcBuf->hint.hintVal ? OCR_HINT_COUNT_EDT_HC*sizeof(u64) : 0);
+    ocrTask_t *task = (ocrTask_t*)pd->fcts.pdMalloc(pd, len);
+    ocrTaskHc_t *taskHc = (ocrTaskHc_t*)task;
+
+    u64 offset = 0;
+    len = sizeof(ocrTaskHc_t);
+    hal_memCopy(task, buffer, len, false);
+    buffer += len;
+    offset += len;
+
+    if (task->paramv) {
+        len = task->paramc*sizeof(u64);
+        task->paramv = (u64*)((u8*)task + offset);
+        hal_memCopy(task->paramv, buffer, len, false);
+        buffer += len;
+        offset += len;
+    }
+
+    if (taskHc->signalers) {
+        len = task->depc*sizeof(regNode_t);
+        taskHc->signalers = (regNode_t*)((u8*)task + offset);
+        hal_memCopy(taskHc->signalers, buffer, len, false);
+        buffer += len;
+        offset += len;
+    }
+
+    if (taskHc->hint.hintVal) {
+        len = OCR_HINT_COUNT_EDT_HC*sizeof(u64);
+        taskHc->hint.hintVal = (u64*)((u8*)task + offset);
+        hal_memCopy(taskHc->hint.hintVal, buffer, len, false);
+        buffer += len;
+        offset += len;
+    }
+
+    if (taskHc->resolvedDeps) {
+        len = task->depc*sizeof(ocrEdtDep_t);
+        taskHc->resolvedDeps = (ocrEdtDep_t*)pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(taskHc->resolvedDeps, buffer, len, false);
+        buffer += len;
+    }
+
+    if (taskHc->unkDbs) {
+        len = taskHc->countUnkDbs*sizeof(ocrGuid_t);
+        taskHc->unkDbs = (ocrGuid_t*)pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(taskHc->unkDbs, buffer, len, false);
+        buffer += len;
+    }
+
+    ASSERT((task->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0);
+
+    *self = task;
+    ASSERT((buffer - bufferHead) == (*self)->base.size);
+    return 0;
+}
+
+extern void* getProxyDbPtr(void *value);
+
+u8 fixupTaskHc(ocrTask_t *task) {
+    ocrTaskHc_t *taskHc = (ocrTaskHc_t*)task;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    if (taskHc->resolvedDeps != NULL) {
+        u32 i;
+        for (i = 0; i < task->depc; i++) {
+            if (taskHc->resolvedDeps[i].ptr != NULL) {
+                ASSERT(!ocrGuidIsNull(taskHc->resolvedDeps[i].guid));
+                ocrGuid_t dbGuid = taskHc->resolvedDeps[i].guid;
+                //Fixup the DB pointers
+                taskHc->resolvedDeps[i].ptr = NULL;
+                ocrObject_t * ocrObj = NULL;
+                pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)&ocrObj, NULL, MD_LOCAL, NULL);
+                ASSERT(ocrObj != NULL);
+                if (ocrObj->kind == OCR_GUID_DB) {
+                    ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
+                    taskHc->resolvedDeps[i].ptr = db->ptr;
+                } else {
+                    taskHc->resolvedDeps[i].ptr = getProxyDbPtr((void*)ocrObj);
+                }
+                ASSERT(taskHc->resolvedDeps[i].ptr != NULL);
+            }
+        }
+    }
+    if (task->state == ALLACQ_EDTSTATE)
+        scheduleTask(task);
+    return 0;
+}
+
+u8 resetTaskHc(ocrTask_t *self) {
+#ifdef ENABLE_CHECKPOINT_VERIFICATION
+    ASSERT((self->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0);
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
+    if (hcPolicy->checkpointInProgress) {
+        ocrTaskHc_t* dself = (ocrTaskHc_t*)self;
+        if (dself->resolvedDeps != NULL) {
+            pd->fcts.pdFree(pd, dself->resolvedDeps);
+            dself->resolvedDeps = NULL;
+        }
+        if (dself->unkDbs != NULL) {
+            pd->fcts.pdFree(pd, dself->unkDbs);
+            dself->unkDbs = NULL;
+        }
+        pd->fcts.pdFree(pd, self);
+    }
+#endif
+    return 0;
+}
+#endif
+
 void destructTaskFactoryHc(ocrTaskFactory_t* factory) {
     runtimeChunkFree((u64)((ocrTaskFactory_t*)factory)->hintPropMap, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
@@ -2140,6 +2442,13 @@ ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) 
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrHint_t*), setHintTaskHc);
     base->fcts.getHint = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrHint_t*), getHintTaskHc);
     base->fcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrTask_t*), getRuntimeHintTaskHc);
+#ifdef ENABLE_RESILIENCY
+    base->fcts.getSerializationSize = FUNC_ADDR(u8 (*)(ocrTask_t*, u64*), getSerializationSizeTaskHc);
+    base->fcts.serialize = FUNC_ADDR(u8 (*)(ocrTask_t*, u8*), serializeTaskHc);
+    base->fcts.deserialize = FUNC_ADDR(u8 (*)(u8*, ocrTask_t**), deserializeTaskHc);
+    base->fcts.fixup = FUNC_ADDR(u8 (*)(ocrTask_t*), fixupTaskHc);
+    base->fcts.reset = FUNC_ADDR(u8 (*)(ocrTask_t*), resetTaskHc);
+#endif
     //Setup hint framework
     base->hintPropMap = (u64*)runtimeChunkAlloc(sizeof(u64)*(OCR_HINT_EDT_PROP_END - OCR_HINT_EDT_PROP_START - 1), PERSISTENT_CHUNK);
     OCR_HINT_SETUP(base->hintPropMap, ocrHintPropTaskHc, OCR_HINT_COUNT_EDT_HC, OCR_HINT_EDT_PROP_START, OCR_HINT_EDT_PROP_END);

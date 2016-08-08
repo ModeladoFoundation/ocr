@@ -333,7 +333,7 @@ typedef struct _ocrCommPlatformFcts_t {
 typedef struct _ocrCommPlatform_t {
     struct _ocrPolicyDomain_t *pd;  /**< Policy domain this comm-platform is used by */
     ocrLocation_t location;
-    ocrCommPlatformFcts_t fcts; /**< Functions for this instance */
+    ocrCommPlatformFcts_t fcts;     /**< Functions for this instance */
 } ocrCommPlatform_t;
 
 

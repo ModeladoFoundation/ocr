@@ -263,6 +263,17 @@ u8 deqSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact
     return OCR_ENOTSUP;
 }
 
+#ifdef ENABLE_RESILIENCY
+u8 deqSchedulerObjectReset(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
+    ocrSchedulerObjectDeq_t *schedObj = (ocrSchedulerObjectDeq_t*)self;
+#ifdef ENABLE_RUNTIME_OBJECT_DEQUE
+    schedObj->dequeRt->tail = schedObj->dequeRt->head;
+#endif
+    schedObj->deque->tail = schedObj->deque->head;
+    return 0;
+}
+#endif
+
 /******************************************************/
 /* OCR-DEQ SCHEDULER_OBJECT FACTORY FUNCTIONS         */
 /******************************************************/
@@ -299,6 +310,10 @@ ocrSchedulerObjectFactory_t * newOcrSchedulerObjectFactoryDeq(ocrParamList_t *pe
     schedObjFact->fcts.ocrPolicyMsgGetMsgSize = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrPolicyMsg_t*, u64*, u32), deqSchedulerObjectOcrPolicyMsgGetMsgSize);
     schedObjFact->fcts.ocrPolicyMsgMarshallMsg = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrPolicyMsg_t*, u8*, u32), deqSchedulerObjectOcrPolicyMsgMarshallMsg);
     schedObjFact->fcts.ocrPolicyMsgUnMarshallMsg = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrPolicyMsg_t*, u8*, u8*, u32), deqSchedulerObjectOcrPolicyMsgUnMarshallMsg);
+
+#ifdef ENABLE_RESILIENCY
+    schedObjFact->fcts.reset = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrSchedulerObject_t*, u32), deqSchedulerObjectReset);
+#endif
     return schedObjFact;
 }
 

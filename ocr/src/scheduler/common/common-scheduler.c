@@ -341,9 +341,28 @@ u8 commonSchedulerAnalyzeInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opAr
 }
 
 u8 commonSchedulerUpdate(ocrScheduler_t *self, u32 properties) {
+    switch(properties) {
+#ifdef ENABLE_RESILIENCY
+    case OCR_SCHEDULER_UPDATE_PROP_RESET:
+        { //This code assumes that all workers are quiesced
+            ocrSchedulerObject_t * rootObj = self->rootObj;
+            ocrSchedulerObjectFactory_t *sFact = self->pd->schedulerObjectFactories[rootObj->fctId];
+            return sFact->fcts.reset(sFact, rootObj, properties);
+        }
+        return 0;
+#endif
+    default:
+        break;
+    }
     ocrSchedulerCommon_t * dself = (ocrSchedulerCommon_t *) self;
     ocrSchedulerHeuristic_t *schedulerHeuristic = dself->schedulerHeuristics[self->masterHeuristicId];
     return schedulerHeuristic->fcts.update(schedulerHeuristic, properties);
+}
+
+u64 commonSchedulerCount(ocrScheduler_t *self, u32 properties) {
+    ocrSchedulerObject_t * rootObj = self->rootObj;
+    ocrSchedulerObjectFactory_t *sFact = self->pd->schedulerObjectFactories[rootObj->fctId];
+    return sFact->fcts.count(sFact, rootObj, properties);
 }
 
 ocrScheduler_t* newSchedulerCommon(ocrSchedulerFactory_t * factory, ocrParamList_t *perInstance) {
@@ -415,6 +434,7 @@ ocrSchedulerFactory_t * newOcrSchedulerFactoryCommon(ocrParamList_t *perType) {
 
     //Scheduler 1.0
     base->schedulerFcts.update = FUNC_ADDR(u8 (*)(ocrScheduler_t*, u32), commonSchedulerUpdate);
+    base->schedulerFcts.count = FUNC_ADDR(u64 (*)(ocrScheduler_t*, u32), commonSchedulerCount);
     base->schedulerFcts.op[OCR_SCHEDULER_OP_GET_WORK].invoke = FUNC_ADDR(u8 (*)(ocrScheduler_t*, ocrSchedulerOpArgs_t*, ocrRuntimeHint_t*), commonSchedulerGetWorkInvoke);
     base->schedulerFcts.op[OCR_SCHEDULER_OP_NOTIFY].invoke = FUNC_ADDR(u8 (*)(ocrScheduler_t*, ocrSchedulerOpArgs_t*, ocrRuntimeHint_t*), commonSchedulerNotifyInvoke);
     base->schedulerFcts.op[OCR_SCHEDULER_OP_TRANSACT].invoke = FUNC_ADDR(u8 (*)(ocrScheduler_t*, ocrSchedulerOpArgs_t*, ocrRuntimeHint_t*), commonSchedulerTransactInvoke);

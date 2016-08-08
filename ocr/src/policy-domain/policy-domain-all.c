@@ -1530,7 +1530,15 @@ ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[
         msg, msg->type, msg->msgId);
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
+#ifdef ENABLE_RESILIENCY
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    worker->edtDepth++;
+#endif
     processIncomingMsg(pd, msg);
+#ifdef ENABLE_RESILIENCY
+    worker->edtDepth--;
+#endif
     return NULL_GUID;
 }
 

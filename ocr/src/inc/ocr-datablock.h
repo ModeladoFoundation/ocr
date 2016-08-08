@@ -184,6 +184,51 @@ typedef struct _ocrDataBlockFcts_t {
      * @return pointer to hint structure
      */
     ocrRuntimeHint_t* (*getRuntimeHint)(struct _ocrDataBlock_t* self);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this datablock
+     * @param[out] size       Buffer size required to serialize datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrDataBlock_t* self, u64* size);
+
+    /**
+     * @brief Serialize datablock into buffer
+     *
+     * @param[in] self        Pointer to this datablock
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrDataBlock_t* self, u8* buffer);
+
+    /**
+     * @brief Deserialize datablock from buffer
+     *
+     * @param[in] buffer      Buffer to deserialize from
+     * @param[out] self       Pointer to deserialized datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(u8* buffer, struct _ocrDataBlock_t** self);
+
+    /**
+     * @brief Fixup datablock pointers after deserialization
+     *
+     * @param[in] self        Pointer to this datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrDataBlock_t* self);
+
+    /**
+     * @brief Deallocate datablock during PD reset
+     *
+     * @param[in] self        Pointer to this datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrDataBlock_t* self);
+#endif
 } ocrDataBlockFcts_t;
 
 /**

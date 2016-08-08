@@ -250,7 +250,7 @@ u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
             ocrPolicyDomain_t * pd;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
-            if (hcPolicy->checkpointInProgress != 0) {
+            if (hcPolicy->stateOfCheckpoint != 0) {
                 return 0; //When checkpoint is in progress, we will not pick up anymore user edts
             }
 #endif
@@ -282,6 +282,8 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     ocrTask_t *task = (ocrTask_t*)notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr;
     if ((task->flags & OCR_TASK_FLAG_RUNTIME_EDT) != 0) {
         edtObj.kind = OCR_SCHEDULER_OBJECT_RUNTIME_EDT;
+    } else {
+        ASSERT(task->state == ALLACQ_EDTSTATE);
     }
 #endif
 #ifdef OCR_MONITOR_SCHEDULER

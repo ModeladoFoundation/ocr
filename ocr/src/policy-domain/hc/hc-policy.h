@@ -18,7 +18,7 @@
 /******************************************************/
 
 #ifndef OCR_CHECKPOINT_INTERVAL
-#define OCR_CHECKPOINT_INTERVAL 1000000UL
+#define OCR_CHECKPOINT_INTERVAL   1000000000UL /* 1 second */
 #endif
 
 typedef struct {
@@ -47,9 +47,13 @@ typedef struct {
     hcPqrFlags pqrFlags;
 #ifdef ENABLE_RESILIENCY
     ocrFaultArgs_t faultArgs;
-    volatile u8 shutdownInProgress;
-    volatile u8 checkpointInProgress;
-    volatile u8 resumeAfterCheckpoint;
+    volatile u32 shutdownInProgress;
+    volatile u32 stateOfCheckpoint;
+    volatile u32 checkpointInProgress;
+    volatile u32 resumeAfterCheckpoint;
+    volatile u32 quiesceComms;
+    volatile u32 quiesceComps;
+    volatile u32 commStopped;
     volatile u32 fault;
     volatile u32 recover;
     u32 computeWorkerCount;
@@ -58,6 +62,11 @@ typedef struct {
     u32 checkpointPdMonitorCounter;
     u64 checkpointInterval;
     u64 timestamp;
+    u64 calTime;    // Calendar start time agreed by all PD's
+    char *currCheckpointName;
+    char *prevCheckpointName;
+    volatile s32 outstandingRequests;
+    volatile s32 outstandingResponses;
 #endif
 } ocrPolicyDomainHc_t;
 

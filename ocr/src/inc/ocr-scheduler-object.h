@@ -473,6 +473,20 @@ typedef struct _ocrSchedulerObjectFcts_t {
      */
     u8 (*ocrPolicyMsgUnMarshallMsg)(struct _ocrSchedulerObjectFactory_t *fact, struct _ocrPolicyMsg_t *msg, u8 *localMainPtr, u8 *localAddlPtr, u32 properties);
 
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Reset scheduler object state
+     *
+     * Assumes all threads are quiesced except calling thread
+     *
+     * @param self[in]          Pointer to this scheduler object
+     * @param properties[in]    Properties of the reset
+     *
+     * @return 0 on success and a non-zero value on failure
+     */
+    u8 (*reset)(struct _ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties);
+#endif
+
 } ocrSchedulerObjectFcts_t;
 
 /****************************************************/

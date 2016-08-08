@@ -281,13 +281,17 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_HINT_GET      0x00042400
 
 /**< Resiliency msgs */
-#define PD_MSG_RESILIENCY_OP        0x800
+#define PD_MSG_RESILIENCY_OP            0x800
 /**< Fault notification */
-#define PD_MSG_RESILIENCY_NOTIFY    0x1800
+#define PD_MSG_RESILIENCY_NOTIFY        0x1800
 /**< Proactive fault monitoring */
-#define PD_MSG_RESILIENCY_MONITOR   0x2800
+#define PD_MSG_RESILIENCY_MONITOR       0x2800
 /**< PD checkpoint msgs */
-#define PD_MSG_RESILIENCY_CHECKPOINT 0x3800
+#define PD_MSG_RESILIENCY_CHECKPOINT    0x3800
+/**< Restart PD from checkpoint */
+#define PD_MSG_RESILIENCY_RESTORE       0x4800
+/**< Reset PD to bring-up state */
+//#define PD_MSG_RESILIENCY_RESET         0x5800
 
 /**< And this to just get the type of the message (note that the number
  * of ocrFatGuid_t is part of the type as for a given type, this won't change)
@@ -1225,6 +1229,19 @@ typedef struct _ocrPolicyMsg_t {
                 } out;
             } inOrOut __attribute__ (( aligned(8) ));
         } PD_MSG_STRUCT_NAME(PD_MSG_RESILIENCY_CHECKPOINT);
+
+        struct {
+            union {
+                struct {
+                    u32 properties;                         /**< In: properties for the op */
+                    char *filename;
+                } in;
+                struct {
+                    u32 returnDetail;                       /**< Out: Success or error code */
+                } out;
+            } inOrOut __attribute__ (( aligned(8) ));
+        } PD_MSG_STRUCT_NAME(PD_MSG_RESILIENCY_RESTORE);
+
     } args;
 } ocrPolicyMsg_t;
 

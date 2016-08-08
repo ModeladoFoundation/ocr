@@ -23,6 +23,9 @@ static u8 masterHelper(ocrWorker_t * worker) {
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     ((ocrWorkerHc_t *) worker)->isHelping = 1;
 #endif
+#ifdef ENABLE_RESILIENCY
+    worker->edtDepth++;
+#endif
     // Save current worker context
     //BUG #204 this should be implemented in the worker
     ocrTask_t * suspendedTask = worker->curTask;
@@ -38,6 +41,9 @@ static u8 masterHelper(ocrWorker_t * worker) {
     DPRINTF(DEBUG_LVL_VERB, "Worker shifting back to EDT GUID "GUIDF"\n",
             GUIDA(suspendedTask->guid));
     worker->curTask = suspendedTask;
+#ifdef ENABLE_RESILIENCY
+    worker->edtDepth--;
+#endif
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     ((ocrWorkerHc_t *) worker)->isHelping = 0;
 #endif

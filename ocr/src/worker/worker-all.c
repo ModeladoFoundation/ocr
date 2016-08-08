@@ -84,6 +84,10 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
     self->isSeeking = false;
 #endif
 #ifdef ENABLE_RESILIENCY
+    self->stateOfCheckpoint = 0;
+    self->checkpointMaster = 0;
+    self->isIdle = 0;
+    self->edtDepth = 0;
     self->activeDepv = NULL;
     self->notifyLock = INIT_LOCK;
 #endif

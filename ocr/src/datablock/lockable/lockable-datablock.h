@@ -61,6 +61,9 @@ typedef struct _ocrDataBlockLockable_t {
     ocrLocation_t itwLocation;
     ocrWorker_t * worker; /**< worker currently owning the DB internal lock */
     ocrRuntimeHint_t hint;
+#ifdef ENABLE_RESILIENCY
+    u32 ewWaiterCount, itwWaiterCount, roWaiterCount;
+#endif
 } ocrDataBlockLockable_t;
 
 extern ocrDataBlockFactory_t* newDataBlockFactoryLockable(ocrParamList_t *perType, u32 factoryId);

@@ -143,6 +143,19 @@ void destructHashtable(hashtable_t * hashtable, deallocFct entryDeallocator, voi
     pd->fcts.pdFree(pd, hashtable);
 }
 
+void iterateHashtable(hashtable_t * hashtable, hashtableIterateFct iterate, void * args) {
+    u32 i = 0;
+    while(i < hashtable->nbBuckets) {
+        ocr_hashtable_entry * entry = hashtable->table[i];
+        while (entry != NULL) {
+            ocr_hashtable_entry * next = entry->nxt;
+            iterate(entry->key, entry->value, args);
+            entry = next;
+        }
+        i++;
+    }
+}
+
 /**
  * @brief Create a new hashtable bucket locked instance that uses the specified hashing function.
  */
@@ -236,6 +249,22 @@ void destructHashtableBucketLocked(hashtable_t * hashtable, deallocFct entryDeal
 #endif
 #endif
     destructHashtable(hashtable, entryDeallocator, deallocatorParam);
+}
+
+void iterateHashtableBucketLocked(hashtable_t * hashtable, hashtableIterateFct iterate, void * args) {
+    u32 i;
+    u32 nbBuckets = hashtable->nbBuckets;
+    hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
+    for (i = 0; i < nbBuckets; i++) {
+        hal_lock(&(rhashtable->bucketLock[i]));
+        ocr_hashtable_entry * entry = hashtable->table[i];
+        while (entry != NULL) {
+            ocr_hashtable_entry * next = entry->nxt;
+            iterate(entry->key, entry->value, args);
+            entry = next;
+        }
+        hal_unlock(&(rhashtable->bucketLock[i]));
+    }
 }
 
 /******************************************************/

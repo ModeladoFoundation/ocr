@@ -237,6 +237,7 @@ typedef struct _ocrSchedulerOpAnalyzeArgs_t {
 #define OCR_SCHEDULER_UPDATE_PROP_NONE                  0x0
 #define OCR_SCHEDULER_UPDATE_PROP_IDLE                  0x1
 #define OCR_SCHEDULER_UPDATE_PROP_SHUTDOWN              0x2
+#define OCR_SCHEDULER_UPDATE_PROP_RESET                 0x3
 
 /****************************************************/
 /* OCR SCHEDULER                                    */
@@ -383,6 +384,17 @@ typedef struct _ocrSchedulerFcts_t {
      * @return 0 on success and a non-zero value on failure
      */
     u8 (*update)(struct _ocrScheduler_t *self, u32 properties);
+
+    /**
+     * @brief Get count of objects held in the root scheduler object
+     *
+     * @param self[in]          Pointer to this scheduler
+     * @param properties[in]    Properties of this update
+     *                          (uses scheduler object properties)
+     *
+     * @return 0 on success and a non-zero value on failure
+     */
+    u64 (*count)(struct _ocrScheduler_t *self, u32 properties);
 
     /**
      * @brief Array of functions for scheduler ops

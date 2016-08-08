@@ -12,6 +12,7 @@
 #define __OCR_RUNTIME_TYPES_H__
 
 #include "ocr-types.h"
+#include "ocr-guid-kind.h"
 #include "utils/profiler/profiler.h"
 
 #define INVALID_LOCATION ((u64)(-1))
@@ -97,6 +98,10 @@ typedef u64 ocrLocation_t;
 typedef struct _ocrObject_t {
     ocrGuid_t guid;
     u32 fctId;              /**< Factory ID for this object */
+#ifdef ENABLE_RESILIENCY
+    ocrGuidKind kind;
+    u64 size;
+#endif
 } ocrObject_t;
 
 #define getObjectField(self, name) (((ocrObject_t *)(self))->name)

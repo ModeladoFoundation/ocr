@@ -96,10 +96,55 @@ typedef struct ocrTaskTemplateFcts_t {
      * starting with the mask and followed by the
      * hint values.
      *
-     * @param[in] self        Pointer to this task
+     * @param[in] self        Pointer to this task template
      * @return pointer to hint structure
      */
     ocrRuntimeHint_t* (*getRuntimeHint)(struct _ocrTaskTemplate_t* self);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this task template
+     * @param[out] size       Buffer size required to serialize task template
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrTaskTemplate_t* self, u64* size);
+
+    /**
+     * @brief Serialize task template into buffer
+     *
+     * @param[in] self        Pointer to this task template
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrTaskTemplate_t* self, u8* buffer);
+
+    /**
+     * @brief Deserialize task template from buffer
+     *
+     * @param[in] buffer      Buffer to deserialize from
+     * @param[out] self       Pointer to deserialized task template
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(u8* buffer, struct _ocrTaskTemplate_t** self);
+
+    /**
+     * @brief Fixup task template pointers after deserialization
+     *
+     * @param[in] self        Pointer to this task template
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrTaskTemplate_t* self);
+
+    /**
+     * @brief Deallocate task template during PD reset
+     *
+     * @param[in] self        Pointer to this task template
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrTaskTemplate_t* self);
+#endif
 } ocrTaskTemplateFcts_t;
 
 /** @brief Abstract class to represent OCR task templates.
@@ -315,6 +360,51 @@ typedef struct _ocrTaskFcts_t {
      * @return pointer to hint structure
      */
     ocrRuntimeHint_t* (*getRuntimeHint)(struct _ocrTask_t* self);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this task
+     * @param[out] size       Buffer size required to serialize task
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrTask_t* self, u64* size);
+
+    /**
+     * @brief Serialize task into buffer
+     *
+     * @param[in] self        Pointer to this task
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrTask_t* self, u8* buffer);
+
+    /**
+     * @brief Deserialize task from buffer
+     *
+     * @param[in] buffer      Buffer to deserialize from
+     * @param[out] self       Pointer to deserialized task
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(u8* buffer, struct _ocrTask_t** self);
+
+    /**
+     * @brief Fixup task pointers after deserialization
+     *
+     * @param[in] self        Pointer to this task
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrTask_t* self);
+
+    /**
+     * @brief Deallocate task during PD reset
+     *
+     * @param[in] self        Pointer to this task
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrTask_t* self);
+#endif
 } ocrTaskFcts_t;
 
 #define ELS_RUNTIME_SIZE 0

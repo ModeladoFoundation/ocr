@@ -132,6 +132,10 @@ typedef struct _ocrWorker_t {
     bool isSeeking;
 #endif
 #ifdef ENABLE_RESILIENCY
+    volatile u32 stateOfCheckpoint;
+    volatile u32 checkpointMaster;
+    volatile u32 isIdle;
+    volatile u32 edtDepth;
     volatile ocrEdtDep_t *activeDepv;
     lock_t notifyLock;
 #endif

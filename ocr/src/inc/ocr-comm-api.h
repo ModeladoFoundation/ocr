@@ -271,6 +271,9 @@ typedef struct _ocrCommApiFcts_t {
 typedef struct _ocrCommApi_t {
     struct _ocrPolicyDomain_t *pd;  /**< Policy domain this comm-platform is used by */
     struct _ocrCommPlatform_t *commPlatform; /**< Communication platform to use */
+#ifdef ENABLE_RESILIENCY
+    u64 syncCalTime;                /**< Calendar based globally synchronized start time (YYYYMMDDHHMMSS) */
+#endif
     ocrCommApiFcts_t fcts; /**< Functions for this instance */
 } ocrCommApi_t;
 

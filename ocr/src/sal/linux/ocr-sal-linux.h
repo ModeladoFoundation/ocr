@@ -54,6 +54,14 @@ u64 salPerfInit(salPerfCounter* perfCtr);
 u64 salPerfStart(salPerfCounter* perfCtr);
 u64 salPerfStop(salPerfCounter* perfCtr);
 u64 salPerfShutdown(salPerfCounter *perfCtr);
+
+#endif
+
+#ifdef ENABLE_RESILIENCY
+u64 salGetCalTime();
+u8* salOpenPdCheckpoint(char **name, u64 size);
+u8  salClosePdCheckpoint(u8 *buffer, u64 size);
+u8  salRemovePdCheckpoint(char *name);
 #endif
 
 #endif /* __OCR_SAL_LINUX_H__ */

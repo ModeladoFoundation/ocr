@@ -12,7 +12,24 @@
 #include "ocr-types.h"
 #include "ocr-errors.h"
 
-#define DEBUG_TYPE SAL
+//Including platform specific headers for fault injection
+#ifdef ENABLE_RESILIENCY
+#include "policy-domain/hc/hc-policy.h"
+#include "task/hc/hc-task.h"
+#endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+#include <time.h>
+
+#if defined(linux)
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>        /* For mode constants */
+#include <fcntl.h>           /* For O_* constants */
+#endif
 
 #ifdef __MACH__
 
@@ -123,16 +140,181 @@ u64 salPerfShutdown(salPerfCounter *perfCtr) {
 
 #endif
 
+#ifdef ENABLE_RESILIENCY
+
+#define FD_CHKPT_INITVAL -1
+int fdChkpt = FD_CHKPT_INITVAL;
+
+typedef enum {
+    YEAR,
+    MONTH,
+    DAY,
+    HOUR,
+    MINUTE,
+    SECOND,
+    NUM_TIME_UNITS
+} timeUnits;
+
+u64 salGetCalTime() {
+    int i;
+    char fname[PATH_MAX];
+    fname[0] = '\0';
+    time_t t = time(NULL);
+    struct tm curTime = *(localtime(&t));
+    for (i = 0; i < NUM_TIME_UNITS; i++) {
+        int t = 0;
+        switch(i) {
+        case YEAR:
+            t = 1900 + curTime.tm_year;
+            break;
+        case MONTH:
+            t = 1 + curTime.tm_mon;
+            break;
+        case DAY:
+            t = curTime.tm_mday;
+            break;
+        case HOUR:
+            t = curTime.tm_hour;
+            break;
+        case MINUTE:
+            t = curTime.tm_min;
+            break;
+        case SECOND:
+            t = curTime.tm_sec;
+            break;
+        default:
+            break;
+        }
+        if (t < 10) sprintf(fname, "%s0%d", fname, t);
+        else        sprintf(fname, "%s%d", fname, t);
+    }
+    return atol(fname);
+}
+
+const char* salGetExecutableName() {
+    static char *execName = NULL;
+    if (execName == NULL) {
+        ocrPolicyDomain_t *pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        char filenameBuf[4096];
+        u64 filenameBufSize = readlink("/proc/self/exe", filenameBuf, 4096);
+        if (filenameBufSize <= 0) {
+            fprintf(stderr, "readlink failed\n");
+            ASSERT(0);
+            return NULL;
+        }
+        char *filename = pd->fcts.pdMalloc(pd, filenameBufSize + 1);
+        strncpy(filename, filenameBuf, filenameBufSize);
+        filename[filenameBufSize] = '\0';
+        execName = filename;
+    }
+    return (const char*)execName;
+}
+
+u8* salOpenPdCheckpoint(char **name, u64 size) {
+    ASSERT(name);
+    static u64 chkptPhase = 0;
+
+    if (fdChkpt >= 0) {
+        fprintf(stderr, "Cannot open new checkpoint buffer. Previously buffer has not been closed yet. \n");
+        ASSERT(0);
+        return NULL;
+    }
+
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+
+    char filenameBuf[4096];
+    const char* execName = salGetExecutableName();
+    sprintf(filenameBuf, "%s.%lu.%lu.%lu.chkpt", execName, hcPolicy->calTime, ++chkptPhase, pd->myLocation);
+    u64 filenameBufSize = strlen(filenameBuf);
+    char *filename = pd->fcts.pdMalloc(pd, filenameBufSize + 1);
+    strncpy(filename, filenameBuf, filenameBufSize);
+    filename[filenameBufSize] = '\0';
+
+    int fd = open(filename, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return NULL;
+    }
+
+    if (fd>=0) {
+        int rc = ftruncate(fd, size);
+        if (rc) {
+            fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", filename, fd);
+            ASSERT(0);
+            return NULL;
+        }
+    }
+
+    u8 *ptr = (u8*)mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    if (ptr == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, filename, fd);
+        ASSERT(0);
+        return NULL;
+    }
+
+    *name = filename;
+    fdChkpt = fd;
+    return ptr;
+}
+
+u8 salClosePdCheckpoint(u8 *buffer, u64 size) {
+    ASSERT(buffer);
+    if (fdChkpt < 0) {
+        fprintf(stderr, "Invalid buffer %p. No checkpoint buffer found. \n", buffer);
+        ASSERT(0);
+        return 1;
+    }
+
+    int rc = msync(buffer, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buffer, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = munmap(buffer, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buffer, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = close(fdChkpt);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fdChkpt);
+        ASSERT(0);
+        return 1;
+    }
+
+    fdChkpt = FD_CHKPT_INITVAL;
+    return 0;
+}
+
+u8 salRemovePdCheckpoint(char *name) {
+    if (name == NULL)
+        return 0;
+    int rc = unlink(name);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", name);
+        ASSERT(0);
+        return 1;
+    }
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    pd->fcts.pdFree(pd, name);
+    return 0;
+}
+
+#endif
+
 #ifdef ENABLE_EXTENSION_PAUSE
 
 #include <signal.h>
 #include "utils/pqr-utils.h"
-
-//Including platform specific headers for fault injection
-#ifdef ENABLE_RESILIENCY
-#include "policy-domain/hc/hc-policy.h"
-#include "task/hc/hc-task.h"
-#endif
 
 /* NOTE: Below is an optional interface allowing users to
  *       send SIGUSR1 and SIGUSR2 to control pause/query/resume

@@ -336,10 +336,15 @@ typedef enum {
 //Default proxy DB internal queue size
 #define PROXY_DB_QUEUE_SIZE_DEFAULT 4
 
+#define OCR_GUID_DB_PROXY 33
+
 /**
  * @brief Data-structure to store foreign DB information
  */
 typedef struct {
+#ifdef ENABLE_RESILIENCY
+    ocrObject_t base;
+#endif
     ProxyDbState_t state;
     u32 nbUsers;
     u32 refCount;
@@ -357,6 +362,10 @@ typedef struct {
  */
 static ProxyDb_t * createProxyDb(ocrPolicyDomain_t * pd) {
     ProxyDb_t * proxyDb = pd->fcts.pdMalloc(pd, sizeof(ProxyDb_t));
+#ifdef ENABLE_RESILIENCY
+    proxyDb->base.kind = OCR_GUID_DB_PROXY;
+    proxyDb->base.size = sizeof(ProxyDb_t);
+#endif
     proxyDb->state = PROXY_DB_CREATED;
     proxyDb->nbUsers = 0;
     proxyDb->refCount = 0;
@@ -506,6 +515,140 @@ static void updateAcquireMessage(ocrPolicyMsg_t * msg, ProxyDb_t * proxyDb) {
 #undef PD_MSG
 #undef PD_TYPE
 }
+
+#ifdef ENABLE_RESILIENCY
+
+void getSerializationSizeProxyDb(void *value, u64 *size) {
+    ProxyDb_t *proxyDb = (ProxyDb_t*)value;
+    ASSERT(proxyDb->base.kind == OCR_GUID_DB_PROXY);
+    u64 proxyDbSize = sizeof(ProxyDb_t) + ((proxyDb->ptr != NULL) ? proxyDb->size : 0);
+    if (proxyDb->acquireQueue != NULL) {
+        proxyDbSize += sizeof(Queue_t);
+        u32 i;
+        u32 size = queueGetSize(proxyDb->acquireQueue);
+        for (i = 0; i < size; i++) {
+            ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)queueGet(proxyDb->acquireQueue, i);
+            ASSERT((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE);
+            proxyDbSize += sizeof(ocrPolicyMsg_t);
+        }
+    }
+    proxyDb->base.size = proxyDbSize;
+    *size = proxyDbSize;
+}
+
+u8 serializeProxyDb(void *value, u8* buffer) {
+    ASSERT(value);
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    ProxyDb_t *proxyDb = (ProxyDb_t*)value;
+    ASSERT(proxyDb->base.kind == OCR_GUID_DB_PROXY);
+    ProxyDb_t *proxyDbBuf = (ProxyDb_t*)buffer;
+    u64 len = sizeof(ProxyDb_t);
+    hal_memCopy(buffer, proxyDb, len, false);
+    buffer += len;
+
+    if (proxyDb->ptr != NULL) {
+        proxyDbBuf->ptr = (u64*)buffer;
+        len = proxyDb->size;
+        hal_memCopy(buffer, proxyDb->ptr, len, false);
+        buffer += len;
+    }
+
+    if (proxyDb->acquireQueue != NULL) {
+        proxyDbBuf->acquireQueue = (Queue_t*)buffer;
+        len = sizeof(Queue_t);
+        hal_memCopy(buffer, proxyDb->acquireQueue, len, false);
+        buffer += len;
+
+        u32 i;
+        u32 size = queueGetSize(proxyDb->acquireQueue);
+        len = sizeof(ocrPolicyMsg_t);
+        for (i = 0; i < size; i++) {
+            ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)queueGet(proxyDb->acquireQueue, i);
+            hal_memCopy(buffer, msg, len, false);
+            buffer += len;
+        }
+    }
+
+    ASSERT((buffer - bufferHead) == proxyDb->base.size);
+    return 0;
+}
+
+u8 deserializeProxyDb(u8* buffer, void **value) {
+    ASSERT(value);
+    ASSERT(buffer);
+    u8* bufferHead = buffer;
+    ProxyDb_t *proxyDbBuf = (ProxyDb_t*)buffer;
+    ASSERT(proxyDbBuf->base.kind == OCR_GUID_DB_PROXY);
+    ocrPolicyDomain_t * pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    u64 len = sizeof(ProxyDb_t);
+    ProxyDb_t *proxyDb = (ProxyDb_t*)pd->fcts.pdMalloc(pd, len);
+    hal_memCopy(proxyDb, buffer, len, false);
+    buffer += len;
+
+    if (proxyDb->ptr != NULL) {
+        len = proxyDb->size;
+        proxyDb->ptr = pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(proxyDb->ptr, buffer, len, false);
+        buffer += len;
+    }
+
+    if (proxyDb->acquireQueue != NULL) {
+        Queue_t *queueBuf = (Queue_t*)buffer;
+        proxyDb->acquireQueue = newBoundedQueue(pd, queueBuf->size);
+        len = sizeof(Queue_t);
+        buffer += len;
+
+        u32 i;
+        len = sizeof(ocrPolicyMsg_t);
+        u32 size = queueGetSize(queueBuf);
+        for (i = 0; i < size; i++) {
+            ocrPolicyMsg_t *msg = pd->fcts.pdMalloc(pd, len);
+            initializePolicyMessage(msg, len);
+            hal_memCopy(msg, buffer, len, false);
+            queueAddLast(proxyDb->acquireQueue, msg);
+            buffer += len;
+        }
+    }
+
+    ASSERT((buffer - bufferHead) == proxyDb->base.size);
+    *value = (void*)proxyDb;
+    return 0;
+}
+
+u8 fixupProxyDb(void *value) {
+    //Nothing to fixup
+    return 0;
+}
+
+u8 destructProxyDb(void *value) {
+    ProxyDb_t *proxyDb = (ProxyDb_t*)value;
+    ASSERT(proxyDb->base.kind == OCR_GUID_DB_PROXY);
+    ocrPolicyDomain_t * pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    if (proxyDb->ptr != NULL) {
+        pd->fcts.pdFree(pd, proxyDb->ptr);
+    }
+    if (proxyDb->acquireQueue != NULL) {
+        while (!queueIsEmpty(proxyDb->acquireQueue)) {
+            ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)queueRemoveLast(proxyDb->acquireQueue);
+            ASSERT(msg);
+            pd->fcts.pdFree(pd, msg);
+        }
+        queueDestroy(proxyDb->acquireQueue);
+    }
+    pd->fcts.pdFree(pd, proxyDb);
+    return 0;
+}
+
+void* getProxyDbPtr(void *value) {
+    ProxyDb_t *proxyDb = (ProxyDb_t*)value;
+    ASSERT(proxyDb->base.kind == OCR_GUID_DB_PROXY);
+    return proxyDb->ptr;
+}
+
+#endif
 
 void getTemplateParamcDepc(ocrPolicyDomain_t * self, ocrFatGuid_t * fatGuid, u32 * paramc, u32 * depc) {
     // Need to deguidify the edtTemplate to know how many elements we're really expecting
@@ -997,6 +1140,10 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 if (tpl->hint.hintVal != NULL) {
                     tpl->hint.hintVal  = (u64*)((u64)base + sizeof(ocrTaskTemplateHc_t));
                 }
+#ifdef ENABLE_RESILIENCY
+                tpl->base.base.kind = OCR_GUID_EDT_TEMPLATE;
+                tpl->base.base.size = metaDataSize;
+#endif
 
 #ifdef ENABLE_EXTENSION_PERF
                 tpl->base.taskPerfsEntry = NULL;
@@ -1548,6 +1695,11 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     case PD_MSG_RESILIENCY_CHECKPOINT: {
         // Resiliency manager sets dest location
         DPRINTF(DEBUG_LVL_VVERB, "RESILIENCY_CHECKPOINT: target is %"PRId32"\n", (u32)msg->destLocation);
+        break;
+    }
+    case PD_MSG_RESILIENCY_RESTORE: {
+        // Resiliency manager sets dest location
+        DPRINTF(DEBUG_LVL_VVERB, "RESILIENCY_RESTORE: target is %"PRId32"\n", (u32)msg->destLocation);
         break;
     }
     case PD_MSG_DEP_UNREGSIGNALER: {
