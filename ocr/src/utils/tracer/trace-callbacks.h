@@ -53,12 +53,14 @@ void traceTaskCreate(u64 location, bool evtType, ocrTraceType_t objType,
  * @param workerId      Id of OCR worker where trace occured
  * @param timestamp     Timestamp when trace occured (ns)
  * @param parent        Parent task executing when trace occured
- * @param edtGuid       GUID of EDT bieng destroyed
+ * @param edtGuid       GUID of EDT being destroyed
+ * @param fctPtr        Function pointer of code associated with the EDT
  */
 
 void traceTaskDestroy(u64 location, bool evtType, ocrTraceType_t objType,
                       ocrTraceAction_t actionType, u64 workerId,
-                      u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid);
+                      u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                      ocrEdt_t fctPtr);
 
 
 /**
@@ -73,11 +75,13 @@ void traceTaskDestroy(u64 location, bool evtType, ocrTraceType_t objType,
  * @param timestamp     Timestamp when trace occured (ns)
  * @param parent        Parent task executing when trace occured
  * @param edtGuid       GUID of EDT that became runnable
+ * @param fctPtr        Function pointer of code associated with the EDT
  */
 
 void traceTaskRunnable(u64 location, bool evtType, ocrTraceType_t objType,
                        ocrTraceAction_t actionType, u64 workerId,
-                       u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid);
+                       u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                       ocrEdt_t fctPtr);
 
 
 /**

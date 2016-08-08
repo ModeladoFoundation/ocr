@@ -507,7 +507,7 @@ static u8 scheduleSatisfiedTask(ocrTask_t *self) {
  */
 static u8 taskAllDepvSatisfied(ocrTask_t *self) {
     DPRINTF(DEBUG_LVL_INFO, "All dependences satisfied for task "GUIDF"\n", GUIDA(self->guid));
-    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_RUNNABLE, traceTaskRunnable, self->guid);
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_RUNNABLE, traceTaskRunnable, self->guid, self->funcPtr);
     // Now check if there's anything to do before scheduling
     // In this implementation we want to acquire locks for DBs in EW mode
     ocrTaskHc_t * rself = (ocrTaskHc_t *) self;
@@ -567,7 +567,7 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
 u8 destructTaskHc(ocrTask_t* base) {
     DPRINTF(DEBUG_LVL_INFO,
             "Destroy "GUIDF"\n", GUIDA(base->guid));
-    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DESTROY, traceTaskDestroy, base->guid);
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DESTROY, traceTaskDestroy, base->guid, base->funcPtr);
 
     ocrPolicyDomain_t *pd = NULL;
     // If we are above ALLDEPS_EDTSTATE it's hard to determine exactly

@@ -26,7 +26,8 @@ void __attribute__ ((weak)) traceTaskCreate(u64 location, bool evtType, ocrTrace
 
 void __attribute__ ((weak)) traceTaskRunnable(u64 location, bool evtType, ocrTraceType_t objType,
                                               ocrTraceAction_t actionType, u64 workerId,
-                                              u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid){
+                                              u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                                              ocrEdt_t fctPtr){
 
     //TRACING CALLBACKS - Task Runnable
     INIT_TRACE_OBJECT();
@@ -114,7 +115,8 @@ void __attribute__ ((weak)) traceTaskDataRelease(u64 location, bool evtType, ocr
 
 void __attribute__ ((weak)) traceTaskDestroy(u64 location, bool evtType, ocrTraceType_t objType,
                                              ocrTraceAction_t actionType, u64 workerId,
-                                             u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid){
+                                             u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                                             ocrEdt_t fctPtr){
 
     //TRACING CALLBACKS - Task Destroy
     INIT_TRACE_OBJECT();
