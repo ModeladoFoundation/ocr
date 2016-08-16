@@ -162,13 +162,15 @@ paste ${TMPDIR}/tmp-core-scaling ${TMPDIR}/tmp-agg-results-throughput ${TMPDIR}/
 
 # This is going over the perf dump and chunk it up to inject text
 let l=0
-for nodes in `echo "${NODE_SCALING}"`; do
-    echo "#N=$nodes Nodes Scaling Results"
-    more +${l} ${TMPDIR}/tmp-results | head -n ${w}
-    let l=${l}+${w}
-    let l=${l}+1
-done
 
+IFS=' ' read -r -a arrayNodes <<< "${NODE_SCALING}"
+IFS=$'\n'
+let i=0
+for lines in `cat "${TMPDIR}/tmp-results"`; do
+    echo "#N=${arrayNodes[$i]} Nodes Scaling Results"
+    echo "$lines"
+    let i=$i+1
+done
 
 # delete left-over temporary file
 deleteFiles ${TMPDIR}

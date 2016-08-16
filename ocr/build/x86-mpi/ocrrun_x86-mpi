@@ -83,7 +83,7 @@ if [[ "$RES" != "" ]]; then
 
     if [[ "${OCR_NODEFILE}" != "" ]]; then
         # count words since hostnames shouldn't have spaces (-l only counts new lines)
-        NODECOUNT=`more ${OCR_NODEFILE} | wc -w`
+        NODECOUNT=`cat ${OCR_NODEFILE} | wc -w`
         if [[ "${OCR_NUM_NODES}" != "${NODECOUNT}" ]]; then
             OLD_VALUE=${OCR_NUM_NODES}
             OCR_NUM_NODES=${NODECOUNT}

@@ -4,8 +4,8 @@
 REPORT1=$1
 REPORT2=$2
 
-COL1=`more $REPORT1 | grep "^[0-9]" | sed -e "s/ \+/ /g" | cut -d' ' -f 2-2 | tr '\n' ' '`
-COL2=`more $REPORT2 | grep "^[0-9]" | sed -e "s/ \+/ /g" | cut -d' ' -f 2-2 | tr '\n' ' '`
+COL1=`cat $REPORT1 | grep "^[0-9]" | sed -e "s/ \+/ /g" | cut -d' ' -f 2-2 | tr '\n' ' '`
+COL2=`cat $REPORT2 | grep "^[0-9]" | sed -e "s/ \+/ /g" | cut -d' ' -f 2-2 | tr '\n' ' '`
 
 echo "$COL1"
 

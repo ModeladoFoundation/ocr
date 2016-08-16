@@ -82,15 +82,15 @@ export EXT="-${OCR_TYPE}.std"
 runAll
 
 export NO_DEBUG=yes
-export CFLAGS_USER="-DREG_ASYNC"
+export CFLAGS_USER="-DNEWREG"
 buildOcr
-export EXT="-${OCR_TYPE}.async2way"
+export EXT="-${OCR_TYPE}.newreg"
 runAll
 
 export NO_DEBUG=yes
-export CFLAGS_USER="-DREG_ASYNC_SGL
+export CFLAGS_USER="-DNEWREG_MODE"
 buildOcr
-export EXT="-${OCR_TYPE}.async1way"
+export EXT="-${OCR_TYPE}.newreg_mode"
 runAll
 
 ${SCRIPT_ROOT}/plotCoreScalingMultiRun.sh ${LOGDIR}/report-*

@@ -4,8 +4,8 @@
 REPORT1=$1
 REPORT2=$2
 
-COL1=`more $REPORT1 | tr '\n' ' '`
-COL2=`more $REPORT2 | tr '\n' ' '`
+COL1=`cat $REPORT1 | tr '\n' ' '`
+COL2=`cat $REPORT2 | tr '\n' ' '`
 
 IFS=' ' read -r -a ARRAY1 <<< "$COL1"
 IFS=' ' read -r -a ARRAY2 <<< "$COL2"

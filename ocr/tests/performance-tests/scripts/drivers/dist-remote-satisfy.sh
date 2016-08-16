@@ -88,7 +88,7 @@ runProg
 
 #
 # -DCOMMWRK_PROCESS_SATISFY
-export EXT="-cwProcess"
+export EXT="-inplcProcess"
 export NO_DEBUG=yes
 export CFLAGS_USER="-DCOMMWRK_PROCESS_SATISFY"
 buildOcr
@@ -98,7 +98,7 @@ export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff${EXT}"
 runProg
 
 # Experiment 3b: add mpi msg to
-export EXT="-cwProcess-mpimsg"
+export EXT="-inplcProcess-mpimsg"
 export NO_DEBUG=yes
 export CFLAGS_USER="-DCOMMWRK_PROCESS_SATISFY -DMPI_MSG"
 buildOcr
@@ -122,7 +122,7 @@ export NAME=remoteLatchSatisfy
 export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff-scaling"
 runProg
 
-export EXT="-cwProcess"
+export EXT="-inplcProcess"
 unset CFLAGS_USER
 export NO_DEBUG=yes
 buildOcr
@@ -132,7 +132,7 @@ export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff-scaling${EXT}"
 runProg
 
 
-export EXT="-cwProcess-mpimsg"
+export EXT="-inplcProcess-mpimsg"
 unset CFLAGS_USER
 export NO_DEBUG=yes
 buildOcr

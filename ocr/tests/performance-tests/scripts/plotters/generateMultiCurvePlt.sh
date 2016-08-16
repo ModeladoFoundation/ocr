@@ -23,7 +23,7 @@ TMPL=${SCRIPT_ROOT}/plotters/multicurves_template.plt
 #
 
 CURVES_DEFS=""
-NB_CURVES=`more ${CURVETITLE_FILE} |wc -l`
+NB_CURVES=`cat ${CURVETITLE_FILE} |wc -l`
 while read -r line
 do
     INPUT="\'$DATA_FILE\' using ${COL_IDX}:xticlabels(1) title \"$line\" with lines"
@@ -36,7 +36,7 @@ do
 done < "${CURVETITLE_FILE}"
 
 # Convert XLABELS_FILE data to a comma separated list
-XTICKS=`more $XLABELS_FILE | tr '\n' ',' | sed  s/,$//g`
+XTICKS=`cat $XLABELS_FILE | tr '\n' ',' | sed  s/,$//g`
 
 sed -e "s|TITLE_VAR|${TITLE}|g"  \
     -e "s|XLABEL_VAR|${XLABEL}|g" \

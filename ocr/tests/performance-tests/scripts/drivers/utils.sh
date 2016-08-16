@@ -2,21 +2,33 @@
 # Bunch of utility functions for drivers scripts
 #
 
+SCRIPT_NAME=${0##*/}
 
 #
 # Build OCR and run programs
 #
 function buildOcr() {
+    local ocr_root="${OCR_ROOT}"
+
+    if [[ -z "${ocr_root}" ]]; then
+        if [[ -f ../../build/${OCR_TYPE}/Makefile ]]; then
+            export ocr_root="${PWD}/../.."
+        else
+            echo "error: ${SCRIPT_NAME} environment ocr_root is not defined"
+            exit 1
+        fi
+    fi
     SAVE=$PWD
     export RES=0
     if [[ -z "${OCR_NOCLEAN}" ]]; then
-        cd ../..; make squeaky; cd -
+        cd ${ocr_root}; make squeaky; cd -
     fi
     export MAKE_THREADS=${MAKE_THREADS-1}
-    cd ../../build/${OCR_TYPE}; make -j${MAKE_THREADS} && make -j${MAKE_THREADS} install; RES=$?; cd -
+    cd ${ocr_root}/build/${OCR_TYPE}; make -j${MAKE_THREADS} && make -j${MAKE_THREADS} install; RES=$?; cd -
     if [[ $RES -ne 0 ]]; then
         exit 1
     fi
+    unset ocr_root
     cd $SAVE
 }
 
@@ -37,7 +49,7 @@ function runProg() {
 function extractSingleThroughput() {
     local file=$1
     local  __resultvar=$2
-    res=`more ${file} | grep "^[0-9]" | sed -e "s/  / /g" | cut -d' ' -f2-2`
+    res=`cat ${file} | grep "^[0-9]" | sed -e "s/  / /g" | cut -d' ' -f2-2`
     lines=`echo "$res" | wc -l`
     if [[ ${lines} -eq 1 ]]; then
         eval $__resultvar="'$res'"
