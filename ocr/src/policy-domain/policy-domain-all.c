@@ -270,14 +270,14 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
 #define PD_TYPE PD_MSG_COMM_GIVE
         *marshalledSize = sizeof(ocrFatGuid_t)*PD_MSG_FIELD_IO(guidCount);
 #ifdef ENABLE_HINTS
-        *marshalledSize += sizeof(u64*) * PD_MSG_FIELD_IO(guidCount); //Size of the hint array
+        *marshalledSize += sizeof(ocrHintVal_t*) * PD_MSG_FIELD_IO(guidCount); //Size of the hint array
         *marshalledSize += sizeof(ocrRuntimeHint_t) * PD_MSG_FIELD_IO(guidCount); //Runtime hint structs
         u32 i, hintSize;
         for (i = 0, hintSize = 0; i < PD_MSG_FIELD_IO(guidCount); i++) {
             ocrRuntimeHint_t *rHint = (ocrRuntimeHint_t*)(PD_MSG_FIELD_IO(hints)[i]);
             hintSize += OCR_RUNTIME_HINT_GET_SIZE(rHint->hintMask); //count the set vals
         }
-        *marshalledSize += sizeof(u64) * hintSize; //Runtime hint vals
+        *marshalledSize += sizeof(ocrHintVal_t) * hintSize; //Runtime hint vals
 #endif
         break;
 #undef PD_TYPE
@@ -740,17 +740,17 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
             curPtr += s;
 
 #ifdef ENABLE_HINTS
-            u64 **hintArr = (u64**)curPtr;
+            ocrHintVal_t **hintArr = (ocrHintVal_t**)curPtr;
             u64 sizeHintArr = sizeof(u64*)*PD_MSG_FIELD_IO(guidCount);
             u8 *rtHintPtr = curPtr + sizeHintArr;
             u64 sizeRtHints = sizeof(ocrRuntimeHint_t)*PD_MSG_FIELD_IO(guidCount);
             u8 *hintValPtr = curPtr + sizeHintArr + sizeRtHints;
             u32 i;
             for (i = 0; i < PD_MSG_FIELD_IO(guidCount); i++) {
-                hintArr[i] = (fixupPtrs) ? (u64*)(((u64)(rtHintPtr - startPtr)<<1) + isAddl) : (u64*)rtHintPtr;
+                hintArr[i] = (fixupPtrs) ? (ocrHintVal_t*)(((u64)(rtHintPtr - startPtr)<<1) + isAddl) : (ocrHintVal_t*)rtHintPtr;
                 ocrRuntimeHint_t *rHintBuf = (ocrRuntimeHint_t*)rtHintPtr;
                 ocrRuntimeHint_t *rHint = (ocrRuntimeHint_t*)(PD_MSG_FIELD_IO(hints)[i]);
-                u64 h = sizeof(u64) * OCR_RUNTIME_HINT_GET_SIZE(rHint->hintMask); //count the set vals
+                u64 h = sizeof(ocrHintVal_t) * OCR_RUNTIME_HINT_GET_SIZE(rHint->hintMask); //count the set vals
                 hal_memCopy(hintValPtr, rHint->hintVal, h, false);
                 rHintBuf->hintMask = rHint->hintMask;
                 rHintBuf->hintVal = (fixupPtrs) ? (ocrHintVal_t*)(((u64)(hintValPtr - startPtr)<<1) + isAddl) : (ocrHintVal_t*)hintValPtr;
@@ -762,11 +762,11 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
             if(fixupPtrs) {
                 DPRINTF(DEBUG_LVL_VVERB, "Converting hints (0x%"PRIx64") to 0x%"PRIx64"\n",
                         (u64)PD_MSG_FIELD_IO(hints), ((u64)(curPtr - startPtr)<<1) + isAddl);
-                PD_MSG_FIELD_IO(hints) = (u64**)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                PD_MSG_FIELD_IO(hints) = (ocrHintVal_t**)(((u64)(curPtr - startPtr)<<1) + isAddl);
             } else {
                 DPRINTF(DEBUG_LVL_VVERB, "Copying hints (0x%"PRIx64") to %p\n",
                         (u64)PD_MSG_FIELD_IO(hints), curPtr);
-                PD_MSG_FIELD_IO(hints) = (u64**)curPtr;
+                PD_MSG_FIELD_IO(hints) = (ocrHintVal_t**)curPtr;
             }
             // Finally move the curPtr for the next object (none as of now)
             curPtr = hintValPtr;
@@ -1189,13 +1189,13 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 
 #ifdef ENABLE_HINTS
             u64 h = (u64)(PD_MSG_FIELD_IO(hints));
-            PD_MSG_FIELD_IO(hints) = (u64**)((h&1?localAddlPtr:localMainPtr) + (h>>1));
+            PD_MSG_FIELD_IO(hints) = (ocrHintVal_t**)((h&1?localAddlPtr:localMainPtr) + (h>>1));
             DPRINTF(DEBUG_LVL_VVERB, "Converted field hints from 0x%"PRIx64" to 0x%"PRIx64"\n",
                     h, (u64)PD_MSG_FIELD_IO(hints));
             u32 i;
             for (i = 0; i < PD_MSG_FIELD_IO(guidCount); i++) {
                 h = (u64)(PD_MSG_FIELD_IO(hints)[i]);
-                PD_MSG_FIELD_IO(hints)[i] = (u64*)((h&1?localAddlPtr:localMainPtr) + (h>>1));
+                PD_MSG_FIELD_IO(hints)[i] = (ocrHintVal_t*)((h&1?localAddlPtr:localMainPtr) + (h>>1));
                 ocrRuntimeHint_t *rtHint = (ocrRuntimeHint_t*)PD_MSG_FIELD_IO(hints)[i];
                 h = (u64)(rtHint->hintVal);
                 rtHint->hintVal = (ocrHintVal_t*)((h&1?localAddlPtr:localMainPtr) + (h>>1));

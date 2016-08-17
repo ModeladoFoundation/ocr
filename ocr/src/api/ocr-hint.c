@@ -79,12 +79,12 @@ u8 ocrHintInit(ocrHint_t *hint, ocrHintType_t hintType) {
 #endif
 }
 
-u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value) {
+u8 ocrHintSetValue(ocrHint_t *hint, ocrHintProp_t hintProp, ocrHintVal_t value) {
     START_PROFILE(api_ocrSetHintValue);
 #ifdef ENABLE_HINTS
     OCR_HINT_CHECK(hint, hintProp);
     hint->propMask |= OCR_HINT_BIT_MASK(hint, hintProp);
-    OCR_HINT_FIELD(hint, hintProp).u64Val = value;
+    OCR_HINT_FIELD(hint, hintProp) = value;
     RETURN_PROFILE(0);
 #else
     DPRINTF(DEBUG_LVL_WARN, HINT_DBG_WARN_MSG);
@@ -92,7 +92,12 @@ u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value) {
 #endif
 }
 
-u8 ocrUnsetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp) {
+// DEPRECATED
+u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value) {
+    return ocrHintSetValue(hint, hintProp, (ocrHintVal_t){ .u64Val = value });
+}
+
+u8 ocrHintUnsetValue(ocrHint_t *hint, ocrHintProp_t hintProp) {
     START_PROFILE(api_ocrUnsetHintValue);
 #ifdef ENABLE_HINTS
     OCR_HINT_CHECK(hint, hintProp);
@@ -104,18 +109,31 @@ u8 ocrUnsetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp) {
 #endif
 }
 
-u8 ocrGetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 *value) {
+// DEPRECATED
+u8 ocrUnsetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp) {
+    return ocrHintUnsetValue(hint, hintProp);
+}
+
+u8 ocrHintGetValue(ocrHint_t *hint, ocrHintProp_t hintProp, ocrHintVal_t *value) {
     START_PROFILE(api_ocrGetHintValue);
 #ifdef ENABLE_HINTS
     OCR_HINT_CHECK(hint, hintProp);
     if ((hint->propMask & OCR_HINT_BIT_MASK(hint, hintProp)) == 0)
         RETURN_PROFILE(OCR_ENOENT);
-    *value = OCR_HINT_FIELD(hint, hintProp).u64Val;
+    *value = OCR_HINT_FIELD(hint, hintProp);
     RETURN_PROFILE(0);
 #else
     DPRINTF(DEBUG_LVL_WARN, HINT_DBG_WARN_MSG);
     RETURN_PROFILE(OCR_EINVAL);
 #endif
+}
+
+// DEPRECATED
+u8 ocrGetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 *value) {
+    ocrHintVal_t v = { .u64Val = *value };
+    u8 res = ocrHintGetValue(hint, hintProp, &v);
+    *value = v.u64Val;
+    return res;
 }
 
 u8 ocrSetHint(ocrGuid_t guid, ocrHint_t *hint) {

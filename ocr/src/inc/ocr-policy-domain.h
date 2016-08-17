@@ -794,8 +794,8 @@ typedef struct _ocrPolicyMsg_t {
                                   * In: Number of GUIDs the caller wants to hand-off
                                   * Out: Number of GUIDs rejected (in guids) */
 #ifdef ENABLE_HINTS
-            u64 **hints;         /**< In/Out: Array of pointers to hints for the guids.
-                                  * The array length should be equal to guidCount */
+            ocrHintVal_t **hints; /**< In/Out: Array of pointers to hints for the guids.
+                                   * The array length should be equal to guidCount */
 #endif
             union {
                 struct {

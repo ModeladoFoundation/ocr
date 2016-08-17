@@ -70,7 +70,7 @@ u8 ocrHintInit(ocrHint_t *hint, ocrHintType_t hintType);
  *     - 0: successful
  *     - EINVAL: If property is invalid for the hint type.
  **/
-u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value);
+u8 ocrHintSetValue(ocrHint_t *hint, ocrHintProp_t hintProp, ocrHintVal_t value);
 
 /**
  * @brief Unsets the value of a specific hint property
@@ -82,7 +82,7 @@ u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value);
  *     - 0: successful
  *     - EINVAL: If property is invalid for the hint type.
  **/
-u8 ocrUnsetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp);
+u8 ocrHintUnsetValue(ocrHint_t *hint, ocrHintProp_t hintProp);
 
 /**
  * @brief Gets the value of a specific hint property
@@ -99,7 +99,28 @@ u8 ocrUnsetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp);
  *     - EINVAL: If property is invalid for this hint type
  *     - ENOENT: If property is not set on this hint object
  **/
-u8 ocrGetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 *value);
+u8 ocrHintGetValue(ocrHint_t *hint, ocrHintProp_t hintProp, ocrHintVal_t *value);
+
+/**
+ * Deprecated.
+ * @see ocrHintSetValue
+ **/
+u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value)
+__attribute__((deprecated("Function ocrSetHintValue was removed in OCR v1.2.0. Please use ocrHintSetValue instead.")));
+
+/**
+ * Deprecated.
+ * @see ocrHintUnsetValue
+ **/
+u8 ocrUnsetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp)
+__attribute__((deprecated("Function ocrUnsetHintValue was removed in OCR v1.2.0. Please use ocrHintUnsetValue instead.")));
+
+/**
+ * Deprecated.
+ * @see ocrHintGetValue
+ **/
+u8 ocrGetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 *value)
+__attribute__((deprecated("Function ocrGetHintValue was removed in OCR v1.2.0. Please use ocrHintGetValue instead.")));
 
 /**
  * @brief Sets all hints in the hint object to the target guid
