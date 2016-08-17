@@ -426,11 +426,11 @@ static void acquireEdtDeps(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicC
     //Get the EDT's dependence vector
     ASSERT(task);
 #if VERIFY_TASK_TIME
-    u64 time = 0;
+    ocrHintVal_t hintVal;
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx])->fcts.getHint(task, &edtHint), ==, 0);
-    RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &time), ==, 0);
+    RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &hintVal), ==, 0);
 #endif
 
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[task->fctId]))->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
@@ -447,11 +447,12 @@ static void scheduleEdtDeps(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristic
     getCurrentEnv(&pd, NULL, NULL, NULL);
 
     //Get the schedule time of this EDT
-    u64 time = 0;
     ocrHint_t edtHint;
+    ocrHintVal_t hintVal = {};
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
-    RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &time), ==, 0);
+    RESULT_ASSERT(ocrHintGetValue(&edtHint, OCR_HINT_EDT_TIME, &hintVal), ==, 0);
+    u64 time = hintVal.u64Val;
 
     //Get the EDT's dependence vector
     ocrTaskHc_t *hcTask = (ocrTaskHc_t*)task; //BUG #926:This is temporary until we get proper introspection support
@@ -1545,15 +1546,17 @@ u8 stSchedulerHeuristicGetWorkSimulate(ocrSchedulerHeuristic_t *self, ocrSchedul
 /******************************************************************************/
 
 static u8 stDbCreate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrDataBlock_t *db) {
-    u64 time = 0;
+    u64 time;
     ocrPolicyDomain_t *pd;
     ocrTask_t *task;
     getCurrentEnv(&pd, NULL, &task, NULL);
     if (task) {
+        ocrHintVal_t hintVal = {};
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
         RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
-        RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &time), ==, 0);
+        RESULT_ASSERT(ocrHintGetValue(&edtHint, OCR_HINT_EDT_TIME, &hintVal), ==, 0);
+        time = hintVal.u64Val;
     } else {
         time = 1;
     }
@@ -1605,8 +1608,11 @@ static u8 stSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
     if ((task->flags & OCR_TASK_FLAG_USES_AFFINITY) != 0 && task->depc == 0) {
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-        RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_SPACE, pd->myLocation), ==, 0);
-        RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_TIME, 1), ==, 0);
+        ocrHintVal_t hintVal = {};
+        hintVal.u64Val = pd->myLocation;
+        RESULT_ASSERT(ocrHintSetValue(&edtHint, OCR_HINT_EDT_SPACE, hintVal), ==, 0);
+        hintVal.u64Val = 1;
+        RESULT_ASSERT(ocrHintSetValue(&edtHint, OCR_HINT_EDT_TIME, hintVal), ==, 0);
         RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.setHint(task, &edtHint), ==, 0);
         return OCR_ENOP;
     }
@@ -1846,12 +1852,13 @@ static u8 stSchedulerHeuristicTransactEdt(ocrSchedulerHeuristic_t *self, ocrSche
     ASSERT(task);
 
     //Check the scheduled space of the EDT
-    ocrLocation_t space = pd->myLocation;
+    ocrHintVal_t hintVal = {};
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
-    RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_SPACE, &space), ==, 0);
-    ASSERT(space == pd->myLocation);
+    RESULT_ASSERT(ocrHintGetValue(&edtHint, OCR_HINT_EDT_SPACE, &hintVal), ==, 0);
+    //space hint value should be the current location
+    ASSERT(hintVal.u64Val == pd->myLocation);
 
     DPRINTF(DEBUG_LVL_INFO, "SCHED_TRANSACT: Received EDT: "GUIDF" from %"PRIu64"\n", GUIDA(task->guid), transactArgs->base.location);
 
@@ -1980,9 +1987,12 @@ u8 stSchedulerHeuristicAnalyzeSpaceTimeEdtResponse(ocrSchedulerHeuristic_t *self
 
     //Set space and time as runtime hints on task
     ocrHint_t edtHint;
+    ocrHintVal_t hintVal = {};
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-    RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_SPACE, space), ==, 0);
-    RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_TIME, time), ==, 0);
+    hintVal.u64Val = space;
+    RESULT_ASSERT(ocrHintSetValue(&edtHint, OCR_HINT_EDT_SPACE, hintVal), ==, 0);
+    hintVal.u64Val = time;
+    RESULT_ASSERT(ocrHintSetValue(&edtHint, OCR_HINT_EDT_TIME, hintVal), ==, 0);
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.setHint(task, &edtHint), ==, 0);
 
     //Schedule EDT onto the space determined by the heuristic

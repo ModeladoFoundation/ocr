@@ -90,15 +90,17 @@ u8 binHeapSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerO
     ASSERT(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(element->kind));
     binHeap_t * heap = schedObj->binHeap;
     ocrGuid_t edtGuid = element->guid.guid;
-    // FIXME: should default to ZERO, but that doesn't play well with OCR_TASK_FLAG_RUNTIME_EDT,
-    // since none of the runtime EDTs execute when you expect...
-    s64 priority = INT64_MAX;
+    s64 priority;
     { // read EDT hint
         ASSERT(element->kind == OCR_SCHEDULER_OBJECT_EDT);
         ocrHint_t edtHints;
         ocrHintInit(&edtHints, OCR_HINT_EDT_T);
         ocrGetHint(edtGuid, &edtHints);
-        ocrGetHintValue(&edtHints, OCR_HINT_EDT_PRIORITY, (u64*)&priority);
+        // FIXME: should default to ZERO, but that doesn't play well with OCR_TASK_FLAG_RUNTIME_EDT,
+        // since none of the runtime EDTs execute when you expect...
+        ocrHintVal_t hintVal = { .s64Val = INT64_MAX };
+        ocrHintGetValue(&edtHints, OCR_HINT_EDT_PRIORITY, &hintVal);
+        priority = hintVal.s64Val;
     }
 
     // See BUG #928 on GUID issues

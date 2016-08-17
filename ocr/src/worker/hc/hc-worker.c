@@ -141,6 +141,7 @@ static void workerLoop(ocrWorker_t * worker) {
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
     if (worker->amBlessed) {
+        ocrHintVal_t hintVal;
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
         // There should be a single master PD
@@ -160,12 +161,13 @@ static void workerLoop(ocrWorker_t * worker) {
         ocrHint_t dbHint;
         ocrHintInit( &dbHint, OCR_HINT_DB_T );
 #if GUID_BIT_COUNT == 64
-            ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.guid );
+        hintVal.u64Val = affinityMasterPD.guid;
 #elif GUID_BIT_COUNT == 128
-            ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.lower );
+        hintVal.u64Val = affinityMasterPD.lower;
 #else
 #error Unknown GUID type
 #endif
+        ocrHintSetValue( & dbHint, OCR_HINT_DB_AFFINITY, hintVal);
         ocrDbCreate(&dbGuid, &dbPtr, totalLength,
                     DB_PROP_IGNORE_WARN, &dbHint, NO_ALLOC);
         // copy packed args to DB
@@ -193,12 +195,13 @@ static void workerLoop(ocrWorker_t * worker) {
         ocrHint_t edtHint;
         ocrHintInit( &edtHint, OCR_HINT_EDT_T );
 #if GUID_BIT_COUNT == 64
-            ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.guid );
+        hintVal.u64Val = affinityMasterPD.guid;
 #elif GUID_BIT_COUNT == 128
-            ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.lower );
+        hintVal.u64Val = affinityMasterPD.lower;
 #else
 #error Unknown GUID type
 #endif
+        ocrHintSetValue(&edtHint, OCR_HINT_EDT_AFFINITY, hintVal);
         ocrEdtCreate(&edtGuid, edtTemplateGuid, EDT_PARAM_DEF, /* paramv = */ NULL,
                      /* depc = */ EDT_PARAM_DEF, /* depv = */ &dbGuid,
                      EDT_PROP_NONE, &edtHint, NULL);

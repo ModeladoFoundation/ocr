@@ -241,9 +241,11 @@ static u8 staticSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *
     getCurrentEnv(&pd, NULL, NULL, NULL);
     u64 contextId = (u64)(-1);
     ocrHint_t edtHint;
+    ocrHintVal_t hintVal = {};
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
-    if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SPACE, &contextId) == 0) {
+    if (ocrHintGetValue(&edtHint, OCR_HINT_EDT_SPACE, &hintVal) == 0) {
+        contextId = hintVal.u64Val;
         ASSERT(contextId < self->contextCount);
         ocrSchedulerHeuristicContextStatic_t *staticContext = (ocrSchedulerHeuristicContextStatic_t*)self->contexts[contextId];
         schedObj = staticContext->mySchedulerObject;
@@ -289,13 +291,15 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                 ASSERT((msg->type & PD_MSG_REQUEST) && (msg->srcLocation == pd->myLocation) && (msg->destLocation == pd->myLocation));
                 u64 workerId = ((u64)-1);
                 ocrHint_t *edtHint = NULL;
+                ocrHintVal_t hintVal = {};
                 if (PD_MSG_FIELD_I(hint) != NULL_HINT) {
                     ASSERT(PD_MSG_FIELD_I(hint->type) == OCR_HINT_EDT_T);
                     edtHint = PD_MSG_FIELD_I(hint);
 
                     //Read the affinity hint if any
                     u64 userAffinity = ((u64)-1);
-                    bool usesAffinity = (ocrGetHintValue(edtHint, OCR_HINT_EDT_AFFINITY, &userAffinity) == 0);
+                    bool usesAffinity = (ocrHintGetValue(edtHint, OCR_HINT_EDT_AFFINITY, &hintVal) == 0);
+                    userAffinity = hintVal.u64Val;
                     if (usesAffinity && dself->isDistributed) {
                         ocrGuid_t affGuid = NULL_GUID;
 #if GUID_BIT_COUNT == 64
@@ -310,7 +314,8 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                     //Check if the disperse hint is set
                     //Set the msg destination and worker hint accordingly
                     u64 val = 0;
-                    if (ocrGetHintValue(edtHint, OCR_HINT_EDT_DISPERSE, &val) == 0) {
+                    if (ocrHintGetValue(edtHint, OCR_HINT_EDT_DISPERSE, &hintVal) == 0) {
+                        val = hintVal.u64Val;
                         u64 contextId = hal_xadd64(&dself->rrCounter, 1);
                         if (dself->isDistributed) {
                             if (!usesAffinity && val != OCR_HINT_EDT_DISPERSE_NEAR) {
@@ -319,7 +324,8 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                                 ocrLocation_t dstLoc = (contextId / (self->contextCount - 1)) % platformModel->pdLocAffinitiesSize; //Note: Assume worker 0 is comm worker
                                 ASSERT(dstLoc < platformModel->pdLocAffinitiesSize);
                                 ocrGuid_t affGuid = platformModel->pdLocAffinities[dstLoc];
-                                RESULT_ASSERT(ocrSetHintValue(edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(affGuid)), ==, 0);
+                                hintVal.u64Val = ocrAffinityToHintValue(affGuid);
+                                RESULT_ASSERT(ocrHintSetValue(edtHint, OCR_HINT_EDT_AFFINITY, hintVal), ==, 0);
                                 msg->destLocation = dstLoc;
                             }
 
@@ -347,7 +353,8 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                     PD_MSG_FIELD_I(properties) |= EDT_PROP_RT_HINT_ALLOC;
                 }
                 ASSERT(edtHint);
-                RESULT_ASSERT(ocrSetHintValue(edtHint, OCR_HINT_EDT_SPACE, workerId), ==, 0);
+                hintVal.u64Val = workerId;
+                RESULT_ASSERT(ocrHintSetValue(edtHint, OCR_HINT_EDT_SPACE, hintVal), ==, 0);
                 DPRINTF(DEBUG_LVL_VERB, "WORK_CREATE: msg: %p msgId: %"PRIx64" Affinity (PD: %"PRIx64" Worker: %"PRIx64")\n", msg, msg->msgId, msg->destLocation, workerId);
             }
 #undef PD_MSG
@@ -362,9 +369,11 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
             if (PD_MSG_FIELD_I(dbType) == USER_DBTYPE && PD_MSG_FIELD_I(hint) != NULL_HINT && dself->isDistributed) {
                 ASSERT(PD_MSG_FIELD_I(hint->type) == OCR_HINT_DB_T);
                 ocrHint_t *dbHint = PD_MSG_FIELD_I(hint);
+                ocrHintVal_t hintVal = {};
                 //Read the affinity hint if any
                 u64 userAffinity = (u64)(-1);
-                if (ocrGetHintValue(dbHint, OCR_HINT_DB_AFFINITY, &userAffinity) == 0) {
+                if (ocrHintGetValue(dbHint, OCR_HINT_DB_AFFINITY, &hintVal) == 0) {
+                    userAffinity = hintVal.u64Val;
                     ocrGuid_t affGuid = NULL_GUID;
 #if GUID_BIT_COUNT == 64
                     affGuid.guid = userAffinity;

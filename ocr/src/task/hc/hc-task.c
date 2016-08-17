@@ -862,8 +862,8 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         }
     }
 
-    u64 val = 0;
-    if (hint != NULL_HINT && (ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &val) == 0)) {
+    ocrHintVal_t val = {};
+    if (hint != NULL_HINT && (ocrHintGetValue(hint, OCR_HINT_EDT_AFFINITY, &val) == 0)) {
       base->flags |= OCR_TASK_FLAG_USES_AFFINITY;
     }
 
