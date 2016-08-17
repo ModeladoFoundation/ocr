@@ -17,7 +17,7 @@
 #include "ocr-policy-domain.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
-
+#include "comm-platform/fsim-common/fsim-common.h"
 
 typedef struct {
     ocrCommPlatformFactory_t base;
@@ -27,7 +27,7 @@ typedef struct {
     ocrCommPlatform_t base;
 
     u64 N;                      // Agent bits from our tuple
-    u64 * rq;                   // CE stage for this XE
+    fsimCommSlot_t * rq;        // CE stage for this XE
 } ocrCommPlatformXe_t;
 
 typedef struct {

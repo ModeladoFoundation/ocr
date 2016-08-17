@@ -1136,7 +1136,7 @@ typedef struct _ocrPolicyMsg_t {
             } inOrOut __attribute__ (( aligned(8) ));
         } PD_MSG_STRUCT_NAME(PD_MSG_HINT_GET);
     } args;
-    char _padding[64]; // REC: HACK to be able to fit everything in messages!!
+    char _padding[80]; // REC: HACK to be able to fit everything in messages!!
 } ocrPolicyMsg_t;
 
 /**

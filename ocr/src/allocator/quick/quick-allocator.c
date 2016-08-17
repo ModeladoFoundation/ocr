@@ -1068,23 +1068,34 @@ static void quickInsertFree(poolHdr_t *pool,u64 *p, u64 size, u32 flIndex, u32 s
 #ifdef FINE_LOCKING
     hal_lock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
+    DPRINTF(DEBUG_LVL_VVERB, "REC: InsertFree MARK1: pool: %p, p: %p [0x%"PRIu64"], size: %"PRIu64" flIndex: %"PRIu32", slIndex: %"PRIu32"\n",
+            pool, p, *p, size, flIndex, slIndex);
     if (pool->sl[flIndex].freeList[slIndex] != -1) {
+        DPRINTF(DEBUG_LVL_VVERB, "REC: In If\n");
         u64 *q = pool->glebeStart + pool->sl[flIndex].freeList[slIndex];
 
         VALGRIND_CHUNK_OPEN(q);
+        DPRINTF(DEBUG_LVL_VVERB, "REC: 0\n");
         u64 *r = PREV(q)+(pool->glebeStart);
+        DPRINTF(DEBUG_LVL_VVERB, "REC: 1\n");
         VALGRIND_CHUNK_OPEN_COND(q, r);
+        DPRINTF(DEBUG_LVL_VVERB, "REC: 2\n");
         NEXT(r) = p-(pool->glebeStart);
+        DPRINTF(DEBUG_LVL_VVERB, "REC: InsertFree MARK1.1\n");
         VALGRIND_CHUNK_CLOSE_COND(q, r);
         NEXT(p) = q-(pool->glebeStart);
         PREV(p) = PREV(q);
+        DPRINTF(DEBUG_LVL_VVERB, "REC: InsertFree MARK1.2\n");
         PREV(q) = p-(pool->glebeStart);
         VALGRIND_CHUNK_CLOSE(q);
+        DPRINTF(DEBUG_LVL_VVERB, "REC: InsertFree MARK1.3\n");
     } else {
+        DPRINTF(DEBUG_LVL_VVERB, "REC: Iin else\n");
         NEXT(p) = p-(pool->glebeStart);
         PREV(p) = p-(pool->glebeStart);
         setFreeList(pool, size, p, flIndex, slIndex);
     }
+    DPRINTF(DEBUG_LVL_VVERB, "REC: InsertFree MARK2\n");
 #ifdef FINE_LOCKING
     hal_unlock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
@@ -1223,6 +1234,7 @@ static blkPayload_t *quickMallocInternal(poolHdr_t *pool,u64 size, struct _ocrPo
 #endif
 
     VALGRIND_POOL_OPEN(pool);
+    DPRINTF(DEBUG_LVL_VVERB, "REC: MARK1\n");
 #ifndef FINE_LOCKING
     hal_lock(&(pool->lock));
 #endif
@@ -1264,6 +1276,7 @@ retry:
     ASSERT(pool->sl[fli].freeList[sli] != -1);
 #endif
     p = pool->glebeStart + pool->sl[fli].freeList[sli];
+    DPRINTF(DEBUG_LVL_VVERB, "REC: MARK3\n");
 
     VALGRIND_CHUNK_OPEN(p);
     ASSERT_BLOCK_BEGIN( GET_SIZE(HEAD(p)) >= size )  // always true on tlsf
@@ -1286,15 +1299,15 @@ retry:
         }
     } while(ret);
     }
-
     struct bmapOp bmap_op;
     bmap_op.count = 1;
     bmap_op.fli[0] = fli;
     bmap_op.sli[0] = sli;
     bmap_op.delta[0] = -1;
 #endif
-
+    DPRINTF(DEBUG_LVL_VVERB, "REC: MARK4\n");
     quickDeleteFree1(pool, p, fli, sli);
+    DPRINTF(DEBUG_LVL_VVERB, "REC: MARK4.1\n");
 #ifdef FINE_LOCKING
     hal_unlock(&pool->sl[fli].listLock[sli]);
 #endif
@@ -1318,6 +1331,7 @@ retry:
 
         u64 *right = &PEER_RIGHT(p, size);
         u32 flIndex, slIndex;
+        DPRINTF(DEBUG_LVL_VVERB, "REC: MARK4.2\n");
         mappingInsert(remain - ALLOC_OVERHEAD, &flIndex, &slIndex);
 
         VALGRIND_CHUNK_OPEN_INIT(right, remain);
@@ -1333,8 +1347,9 @@ retry:
         hal_unlock(&TAIL_LOCK(right, remain));
 #endif
         // do I need barrier?
-
+        DPRINTF(DEBUG_LVL_VVERB, "REC: MARK 4.2.1\n");
         quickInsertFree(pool, right, remain, flIndex, slIndex);
+        DPRINTF(DEBUG_LVL_VVERB, "REC: MARK4.3\n");
         VALGRIND_CHUNK_CLOSE(right);
 #ifdef FINE_LOCKING
         hal_unlock(&HEAD_LOCK(right));
@@ -1347,6 +1362,7 @@ retry:
         HEAD(p) |= FLAG_INUSE;         // in-use mark
         VALGRIND_CHUNK_CLOSE(p);
     }
+    DPRINTF(DEBUG_LVL_VVERB, "REC: MARK5\n");
 #ifdef FINE_LOCKING
     hal_unlock(&HEAD_LOCK(p));
     doBmapOp(pool, &bmap_op);
@@ -1369,7 +1385,7 @@ retry:
 
 //    DPRINTF(DEBUG_LVL_WARN, "QuickAlloc : malloc : called\n");
 //    quickPrintCounters(pool);
-
+    DPRINTF(DEBUG_LVL_VVERB, "REC: MARK6\n");
     VALGRIND_CHUNK_CLOSE(p);
 #ifndef FINE_LOCKING
     VALGRIND_POOL_OPEN(pool);
@@ -1381,6 +1397,7 @@ retry:
     VALGRIND_MAKE_MEM_DEFINED(ret, size_orig);
 //    DPRINTF(DEBUG_LVL_WARN, "mempool_alloc, pool %p, ret %p, size %8ld\n", pool, ret, size_orig);
 #endif
+    DPRINTF(DEBUG_LVL_VVERB, "REC: MARK7\n");
     return ret;
 }
 

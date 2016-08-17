@@ -701,6 +701,7 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 
             // Before we switch any of the inert components, set up the tables
             COMPILE_ASSERT(PDSTT_COMM <= 2);
+            DPRINTF(DEBUG_LVL_VVERB, "Policy is at %p and pdMalloc @ %p\n", policy, &(policy->fcts.pdMalloc));
             policy->strandTables[PDSTT_EVT - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
             policy->strandTables[PDSTT_COMM - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
 
@@ -1857,6 +1858,8 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(!(PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED));
             ocrGuid_t temp;
             DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (exist) for value %p\n", PD_MSG_FIELD_IO(guid.metaDataPtr));
+            DPRINTF(DEBUG_LVL_VVERB, "GuidProvider @ %p with fcts @ %p and spec func @ %p\n",
+                    self->guidProviders[0], &(self->guidProviders[0]->fcts), &(self->guidProviders[0]->fcts.getGuid));
             PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.getGuid(
                 self->guidProviders[0], &temp, (u64)PD_MSG_FIELD_IO(guid.metaDataPtr),
                 PD_MSG_FIELD_I(kind));
@@ -2835,11 +2838,14 @@ void* cePdMalloc(ocrPolicyDomain_t *self, u64 size) {
         levelIndex = prescription & PRESCRIPTION_LEVEL_MASK;
         prescription >>= PRESCRIPTION_LEVEL_NUMBITS;
         allocatorIndex = self->allocatorIndexLookup[engineIndex*NUM_MEM_LEVELS_SUPPORTED+levelIndex]; // Lookup index of allocator to use for requesting engine (aka agent) at prescribed memory hierarchy level.
+        DPRINTF(DEBUG_LVL_VERB, "Got allocator idx %"PRIu32" for max of %"PRIu64"\n", (u32)allocatorIndex, self->allocatorCount);
         if ((allocatorIndex < 0) ||
             (allocatorIndex >= self->allocatorCount) ||
             (self->allocators[allocatorIndex] == NULL)) continue;  // Skip this allocator if it doesn't exist.
+        DPRINTF(DEBUG_LVL_VERB, "Trying allocator (func @ %p)\n", &(self->allocators[allocatorIndex]->fcts.allocate));
         result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, allocatorHints | OCR_ALLOC_HINT_RUNTIME);
         if (result) {
+            DPRINTF(DEBUG_LVL_VERB, "Returning %p\n", result);
             return result;
         }
     } while (prescription != 0);
