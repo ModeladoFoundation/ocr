@@ -69,6 +69,7 @@ static bool isLocalGuid(ocrGuidProvider_t* self, ocrGuid_t guid) {
  * @brief Utility function to generate a new GUID.
  */
 static u64 generateNextGuid(ocrGuidProvider_t* self, ocrGuidKind kind, ocrLocation_t targetLoc, u64 card) {
+    RSELF_TYPE* rself = (RSELF_TYPE*)self;
     u64 shLocHome = LSHIFT(LOCHOME, locationToLocId(targetLoc));
     u64 shKind = LSHIFT(KIND, kind);
     u64 guid = (shLocHome | shKind);
@@ -85,9 +86,9 @@ static u64 generateNextGuid(ocrGuidProvider_t* self, ocrGuidKind kind, ocrLocati
     u64 wid = ((worker == NULL) ? 0 : worker->id);
     u64 shWid = LSHIFT(LOCWID, wid);
     guid |= shWid;
-    u64 newCount = guidCounters[wid*CACHE_SIZE]+=card;
+    u64 newCount = rself->guidCounters[wid*GUID_WID_CACHE_SIZE]+=card;
 #else
-    u64 newCount = hal_xadd64(&guidCounter, card);
+    u64 newCount = hal_xadd64(&(rself->guidCounter), card);
 #endif
     // double check if we overflow the guid's counter size
     //TODO this doesn't check properly now

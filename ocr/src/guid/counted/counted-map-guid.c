@@ -50,13 +50,7 @@
 #define GP_HASHTABLE_DEL(hashtable, key, valueBack) hashtableConcBucketLockedRemove(GP_RESOLVE_HASHTABLE(hashtable,key), key, valueBack)
 #endif
 
-#ifdef GUID_PROVIDER_WID_INGUID
-#define CACHE_SIZE 8
-static u64 guidCounters[(((u64)1)<<GUID_LOCWID_SIZE)*CACHE_SIZE];
-#else
-// GUID 'id' counter, atomically incr when a new GUID is requested
-static u64 guidCounter = 0;
-#endif
+#define RSELF_TYPE ocrGuidProviderCountedMap_t
 
 // Utils for bitmap-based GUID implementations
 #include "guid/guid-bitmap-based.c"
@@ -106,15 +100,16 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
         if ((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_PD_OK, phase)) {
             self->pd = PD;
 #ifdef GUID_PROVIDER_WID_INGUID
-        u32 i = 0, ub = PD->workerCount;
-        u64 max = MAX_VAL(COUNTER);
-        u64 incr = (max/ub);
-        while (i < ub) {
-            // Initialize to 'i' to distribute the count over the buckets. Helps with scalability.
-            // This is knowing we use a modulo hash but is not hurting generally speaking...
-            guidCounters[i*CACHE_SIZE] = incr*i;
-            i++;
-        }
+            ocrGuidProviderCountedMap_t *rself = (ocrGuidProviderCountedMap_t*)self;
+            u32 i = 0, ub = PD->workerCount;
+            u64 max = MAX_VAL(COUNTER);
+            u64 incr = (max/ub);
+            while (i < ub) {
+                // Initialize to 'i' to distribute the count over the buckets. Helps with scalability.
+                // This is knowing we use a modulo hash but is not hurting generally speaking...
+                rself->guidCounters[i*GUID_WID_CACHE_SIZE] = incr*i;
+                i++;
+            }
 #endif
         }
         break;
@@ -518,9 +513,20 @@ u8 countedMapReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool rel
 static ocrGuidProvider_t* newGuidProviderCountedMap(ocrGuidProviderFactory_t *factory,
         ocrParamList_t *perInstance) {
     ocrGuidProvider_t *base = (ocrGuidProvider_t*) runtimeChunkAlloc(sizeof(ocrGuidProviderCountedMap_t), PERSISTENT_CHUNK);
+    ocrGuidProviderCountedMap_t *rself = (ocrGuidProviderCountedMap_t*)base;
     base->fcts = factory->providerFcts;
     base->pd = NULL;
     base->id = factory->factoryId;
+#ifdef GUID_PROVIDER_WID_INGUID
+    {
+        u32 i = 0;
+        for(; i < ((u64)1<<GUID_WID_SIZE)*GUID_WID_CACHE_SIZE; ++i) {
+            rself->guidCounters[0] = 0;
+        }
+    }
+#else
+    rself->guidCounter = 0;
+#endif
     return base;
 }
 

@@ -64,15 +64,7 @@
 #define GP_HASHTABLE_DEL(hashtable, key, valueBack) hashtableConcBucketLockedRemove(GP_RESOLVE_HASHTABLE(hashtable,key), key, valueBack)
 #endif
 
-#ifdef GUID_PROVIDER_WID_INGUID
-#define CACHE_SIZE 8
-static u64 guidCounters[(((u64)1)<<GUID_WID_SIZE)*CACHE_SIZE];
-#else
-// GUID 'id' counter, atomically incr when a new GUID is requested
-static u64 guidCounter = 0;
-#endif
-// Counter for the reserved part of the GUIDs
-static u64 guidReservedCounter = 0;
+#define RSELF_TYPE ocrGuidProviderLabeled_t
 
 // Utils for bitmap-based GUID implementations
 #include "guid/guid-bitmap-based.c"
@@ -124,15 +116,16 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
         if ((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_PD_OK, phase)) {
             self->pd = PD;
 #ifdef GUID_PROVIDER_WID_INGUID
-        u32 i = 0, ub = PD->workerCount;
-        u64 max = MAX_VAL(COUNTER);
-        u64 incr = (max/ub);
-        while (i < ub) {
-            // Initialize to 'i' to distribute the count over the buckets. Helps with scalability.
-            // This is knowing we use a modulo hash but is not hurting generally speaking...
-            guidCounters[i*CACHE_SIZE] = incr*i;
-            i++;
-        }
+            ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
+            u32 i = 0, ub = PD->workerCount;
+            u64 max = MAX_VAL(COUNTER)
+            u64 incr = (max/ub);
+            while (i < ub) {
+                // Initialize to 'i' to distribute the count over the buckets. Helps with scalability.
+                // This is knowing we use a modulo hash but is not hurting generally speaking...
+                rself->guidCounters[i*GUID_WID_CACHE_SIZE] = incr*i;
+                i++;
+            }
 #endif
         }
         break;
@@ -200,6 +193,7 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
 
 u8 labeledGuidReserve(ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGuid,
                       u64 numberGuids, ocrGuidKind guidType) {
+    ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
     // We just return a range using our "header" (location, etc) just like for
     // generateNextGuid
     // ocrGuidType_t and ocrGuidKind should be the same (there are more GuidKind but
@@ -218,8 +212,8 @@ u8 labeledGuidReserve(ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGu
 #endif
 
     *skipGuid = 1; // Each GUID will just increment by 1
-    u64 firstCount = hal_xadd64(&guidReservedCounter, numberGuids);
-    ASSERT((firstCount  + numberGuids) < (MAX_VAL(COUNTER)));
+    u64 firstCount = hal_xadd64(&(rself->guidReservedCounter), numberGuids);
+    ASSERT(firstCount  + numberGuids < (MAX_VAL(COUNTER)));
 
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
@@ -265,6 +259,8 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
 }
 
 u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
+
+    ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
     if(properties & GUID_PROP_IS_LABELED) {
         // We need to use the GUID provided; make sure it is non null and reserved
         ASSERT((!(ocrGuidIsNull(fguid->guid))) && (IS_RESERVED_GUID(fguid->guid)));
@@ -280,9 +276,9 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
         ASSERT(getKindFromGuid(fguid->guid) == kind); // Kind properly encoded
         // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-        ASSERT((RSHIFT(COUNTER, fguid->guid.guid)) < guidReservedCounter); // Range actually reserved
+        ASSERT((RSHIFT(COUNTER, fguid->guid.guid)) < rself->guidReservedCounter); // Range actually reserved
 #elif GUID_BIT_COUNT == 128
-        ASSERT((RSHIFT(COUNTER, fguid->guid.lower)) < guidReservedCounter); // Range actually reserved
+        ASSERT((RSHIFT(COUNTER, fguid->guid.lower)) < rself->guidReservedCounter); // Range actually reserved
 #endif
     }
     ocrPolicyDomain_t *policy = NULL;
@@ -667,9 +663,21 @@ u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool re
 static ocrGuidProvider_t* newGuidProviderLabeled(ocrGuidProviderFactory_t *factory,
                                                  ocrParamList_t *perInstance) {
     ocrGuidProvider_t *base = (ocrGuidProvider_t*) runtimeChunkAlloc(sizeof(ocrGuidProviderLabeled_t), PERSISTENT_CHUNK);
+    ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)base;
     base->fcts = factory->providerFcts;
     base->pd = NULL;
     base->id = factory->factoryId;
+#ifdef GUID_PROVIDER_WID_INGUID
+    {
+        u32 i = 0;
+        for(; i < ((u64)1<<GUID_WID_SIZE)*GUID_WID_CACHE_SIZE; ++i) {
+            rself->guidCounters[0] = 0;
+        }
+    }
+#else
+    rself->guidCounter = 0;
+#endif
+    rself->guidReservedCounter = 0;
     return base;
 }
 
