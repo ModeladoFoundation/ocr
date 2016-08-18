@@ -701,6 +701,7 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 
             // Before we switch any of the inert components, set up the tables
             COMPILE_ASSERT(PDSTT_COMM <= 2);
+            DPRINTF(DEBUG_LVL_VVERB, "Policy is at %p and pdMalloc @ %p\n", policy, &(policy->fcts.pdMalloc));
             policy->strandTables[PDSTT_EVT - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
             policy->strandTables[PDSTT_COMM - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
 
@@ -1222,10 +1223,10 @@ static u8 ceCreateEdtTemplate(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
 }
 
 static u8 ceCreateEvent(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
-                        ocrEventTypes_t type, u32 properties) {
+                        ocrEventTypes_t type, u32 properties, ocrParamList_t *params) {
 
     return ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->instantiate(
-        (ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]), guid, type, properties, NULL);
+        (ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]), guid, type, properties, params);
 }
 
 static u8 convertDepAddToSatisfy(ocrPolicyDomain_t *self, ocrFatGuid_t dbGuid,
@@ -1610,9 +1611,15 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrEventTypes_t type = PD_MSG_FIELD_I(type);
         DPRINTF(DEBUG_LVL_VERB, "Processing EVT_CREATE request of type %"PRIu32"\n",
                 type);
-
+        ocrParamList_t * paramList = NULL;
+#ifdef ENABLE_EXTENSION_PARAMS_EVT
+        if (PD_MSG_FIELD_I(params) != NULL) {
+            // Forcefully convert ocrEventParams_t to ocrParamList_t
+            paramList = (ocrParamList_t *) PD_MSG_FIELD_I(params);
+        }
+#endif
         PD_MSG_FIELD_O(returnDetail) = ceCreateEvent(self, &(PD_MSG_FIELD_IO(guid)),
-                                                     type, PD_MSG_FIELD_I(properties));
+                                                     type, PD_MSG_FIELD_I(properties), paramList);
         DPRINTF(DEBUG_LVL_VERB, "EVT_CREATE response for type %"PRIu32": GUID: "GUIDF"\n",
                 type, GUIDA(PD_MSG_FIELD_IO(guid.guid)));
         returnCode = ceProcessResponse(self, msg, 0);
@@ -1851,6 +1858,8 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(!(PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED));
             ocrGuid_t temp;
             DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (exist) for value %p\n", PD_MSG_FIELD_IO(guid.metaDataPtr));
+            DPRINTF(DEBUG_LVL_VVERB, "GuidProvider @ %p with fcts @ %p and spec func @ %p\n",
+                    self->guidProviders[0], &(self->guidProviders[0]->fcts), &(self->guidProviders[0]->fcts.getGuid));
             PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.getGuid(
                 self->guidProviders[0], &temp, (u64)PD_MSG_FIELD_IO(guid.metaDataPtr),
                 PD_MSG_FIELD_I(kind), self->myLocation, GUID_PROP_TORECORD);
@@ -2287,6 +2296,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t src = PD_MSG_FIELD_I(source);
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
         ocrDbAccessMode_t mode = (PD_MSG_FIELD_IO(properties) & DB_ACCESS_MODE_MASK);
+        u32 slot = PD_MSG_FIELD_I(slot);
         if (srcKind == OCR_GUID_NONE) {
             DPRINTF(DEBUG_LVL_VVERB, "Src is NULL, transforming to satisfy\n");
             //NOTE: Handle 'NULL_GUID' case here to be safe although
@@ -2329,23 +2339,100 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_DEP_ADD
             }
         } else {
-            // Is it ok not to use messages here ?
-
-            if (dstKind == OCR_GUID_EDT) {
-                DPRINTF(DEBUG_LVL_VVERB, "EVT -> EDT; registering the event as a signaler of the EDT\n");
-                ocrTask_t *task = (ocrTask_t*)(dest.metaDataPtr);
-                ASSERT(task->fctId == ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->factoryId);
-                ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->fcts.registerSignaler(task, src, PD_MSG_FIELD_I(slot),
-                    PD_MSG_FIELD_IO(properties) & DB_ACCESS_MODE_MASK, true);
+            // We are handling the following dependences (event, event|edt) and do
+            // things differently depending on the type of events:
+            // (non-persistent event, edt)  => REG_SIGNALER (event on edt), then REG_WAITER (edt on event)
+            // (persistent event, edt)      => REG_SIGNALER (event on edt, edt does late registration)
+            // ((any) event, (any) event)   => REG_WAITER
+            //
+            // Are we revealing too much of the underlying implementation here ?
+            //
+            // We omit counted events here since it won't be destroyed until the addDependence happens.
+            if(!(srcKind & OCR_GUID_EVENT)) {
+                DPRINTF(DEBUG_LVL_WARN, "Attempting to add a dependence with a GUID of type 0x%"PRIx32", "
+                        "expected Event\n", srcKind);
             }
+            ASSERT(srcKind & OCR_GUID_EVENT);
+
             bool srcIsNonPersistent = ((srcKind == OCR_GUID_EVENT_ONCE) ||
-                                        (srcKind == OCR_GUID_EVENT_LATCH));
-            if (srcIsNonPersistent || (dstKind & OCR_GUID_EVENT)) {
-                DPRINTF(DEBUG_LVL_VVERB, "Non persistent source or destination event, registering destination as waiter on event\n");
-                ocrEvent_t *evt = (ocrEvent_t*)(src.metaDataPtr);
-                ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
-                ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerWaiter(
-                    evt, dest, PD_MSG_FIELD_I(slot), true);
+                                       (srcKind == OCR_GUID_EVENT_LATCH)
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+                                       || (srcKind == OCR_GUID_EVENT_CHANNEL)
+#endif
+                                    );
+
+            // The registration is always necessary when the destination is an EDT.
+            // It allows to record the mode of the dependence as well as the type of
+            // event the EDT should be expecting
+            bool needPullMode = (dstKind == OCR_GUID_EDT);
+            // 'Push' registration when source is non-persistent and/or destination is another event.
+            bool needPushMode = (srcIsNonPersistent || (dstKind & OCR_GUID_EVENT));
+
+            // NOTE: Important to do the signaler registration before the waiter one
+            // when the dependence is of the form (non-persistent event, edt)
+            // Otherwise there's a race between the once event being destroyed and
+            // the edt processing the registerSignaler call (which may read into the
+            // destroyed event metadata).
+            if(needPullMode) {
+                ASSERT_BLOCK_BEGIN(dstKind == OCR_GUID_EDT);
+                    DPRINTF(DEBUG_LVL_WARN, "Runtime error expect REGSIGNALER dest to be an EDT GUID\n");
+                ASSERT_BLOCK_END;
+                PD_MSG_STACK(registerMsg);
+                getCurrentEnv(NULL, NULL, NULL, &registerMsg);
+                // 'Pull' registration left with persistent event as source and EDT as destination
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&registerMsg)
+#define PD_TYPE PD_MSG_DEP_REGSIGNALER
+                registerMsg.type = PD_MSG_DEP_REGSIGNALER | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                // Registers sourceGuid (signaler) onto destGuid
+                PD_MSG_FIELD_I(signaler) = src;
+                PD_MSG_FIELD_I(dest) = dest;
+                PD_MSG_FIELD_I(slot) = slot;
+                PD_MSG_FIELD_I(mode) = mode;
+                PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
+
+                u8 returnCode = self->fcts.processMessage(self, &registerMsg, true);
+                u8 returnDetail = (returnCode == 0) ? PD_MSG_FIELD_O(returnDetail) : returnCode;
+
+                DPRINTF(DEBUG_LVL_INFO,
+                        "Dependence added (src: "GUIDF", dest: "GUIDF") -> %"PRIu32"\n", GUIDA(src.guid), GUIDA(dest.guid), returnCode);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DEP_ADD
+                PD_MSG_FIELD_O(returnDetail) = returnDetail;
+                RESULT_PROPAGATE(returnCode);
+#undef PD_MSG
+#undef PD_TYPE
+            }
+            if (needPushMode) {
+                //OK if srcKind is at current location
+                PD_MSG_STACK(registerMsg);
+                getCurrentEnv(NULL, NULL, NULL, &registerMsg);
+#define PD_MSG (&registerMsg)
+#define PD_TYPE PD_MSG_DEP_REGWAITER
+                // Registration with non-persistent events is two-way
+                // to enforce message ordering constraints.
+                registerMsg.type = PD_MSG_DEP_REGWAITER | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                // Registers destGuid (waiter) onto sourceGuid
+                PD_MSG_FIELD_I(waiter) = dest;
+                PD_MSG_FIELD_I(dest) = src;
+                PD_MSG_FIELD_I(slot) = slot;
+                PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
+                u8 returnCode = self->fcts.processMessage(self, &registerMsg, true);
+                u8 returnDetail = (returnCode == 0) ? PD_MSG_FIELD_O(returnDetail) : returnCode;
+                DPRINTF(DEBUG_LVL_INFO,
+                        "Dependence added (src: "GUIDF", dest: "GUIDF") -> %"PRIu32"\n", GUIDA(src.guid),
+                        GUIDA(dest.guid), returnCode);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DEP_ADD
+                PD_MSG_FIELD_O(returnDetail) = returnDetail;
+                RESULT_PROPAGATE(returnCode);
+#undef PD_MSG
+#undef PD_TYPE
             }
         }
 

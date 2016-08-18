@@ -18,7 +18,7 @@
 u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properties, ocrEventParams_t * params) {
 
     START_PROFILE(api_ocrEventCreate);
-    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventCreate(*guid="GUIDF", eventType=%"PRIu32", properties=%"PRIu32")\n", GUIDA(*guid),
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventCreateParams(*guid="GUIDF", eventType=%"PRIu32", properties=%"PRIu32")\n", GUIDA(*guid),
             (u32)eventType, (u32)properties);
 
     PD_MSG_STACK(msg);
@@ -63,7 +63,7 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
 #undef PD_MSG
 #undef PD_TYPE
     DPRINTF_COND_LVL(((returnCode != 0) && (returnCode != OCR_EGUIDEXISTS)), DEBUG_LVL_WARN, DEBUG_LVL_INFO,
-                     "EXIT ocrEventCreate -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
+                     "EXIT ocrEventCreateParams -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
     if(returnCode == 0)
         OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EVENT, OCR_ACTION_CREATE, traceEventCreate, *guid);
 
