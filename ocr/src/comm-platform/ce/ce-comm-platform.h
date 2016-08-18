@@ -17,11 +17,8 @@
 #include "ocr-policy-domain.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
+#include "comm-platform/fsim-common/fsim-common.h"
 
-/* CE-XE communication buffers */
-#define MAX_NUM_XE 8
-#define MSG_QUEUE_OFFT  (0x0)
-#define MSG_QUEUE_SIZE  (0x100)
 
 /* CE-CE communication buffers */
 /* Number of messages that other CEs can send to me */
@@ -42,9 +39,9 @@ typedef struct {
 
 typedef struct {
     ocrCommPlatform_t base;
-    u64 * rq[MAX_NUM_XE];       // Remote stages for this block's XEs
-    u64 * lq[MAX_NUM_XE];       // Local stages for this block's XEs
-    u64 pollq;                  // Round-robin queue to poll next
+    fsimCommSlot_t* rq[MAX_NUM_XE];      // Remote stages for this block's XEs
+    fsimCommSlot_t* lq[MAX_NUM_XE];      // Local stages for this block's XEs
+    u64 pollq;                           // Round-robin queue to poll next
 } ocrCommPlatformCe_t;
 
 typedef struct {
