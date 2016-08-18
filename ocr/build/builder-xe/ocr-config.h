@@ -94,6 +94,7 @@
 // Workpile
 #define ENABLE_WORKPILE_XE
 
+// Extensions
 #define ENABLE_EXTENSION_LABELING
 // Build OCR legacy support
 //#define ENABLE_EXTENSION_LEGACY
@@ -101,7 +102,13 @@
 // Build pause/resume support
 //#define ENABLE_EXTENSION_PAUSE
 
-// Affinity support
-#define ENABLE_EXTENSION_AFFINITY
+// Event creation with parameter
+#define ENABLE_EXTENSION_PARAMS_EVT
+
+//Counted Events support
+#define ENABLE_EXTENSION_COUNTED_EVT
+
+//Channel Events support
+#define ENABLE_EXTENSION_CHANNEL_EVT
 
 #endif /* __OCR_CONFIG_H__ */
