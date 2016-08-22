@@ -27,7 +27,7 @@ CFLAGS  := -fxstg-extensions -fno-builtin -Wno-typedef-redefinition -I $(TG_INST
 
 # Uncomment the following line to move the strings used in DPRINTF to another section
 # which can then be moved to L2 or DRAM
-# CFLAGS  += -DOCR_PRINTF_SECTION=.dprintf_str
+# CFLAGS  += -DOCR_DPRINTF_SECTION=.dprintf_str
 
 RM      := rm
 RMFLAGS := -rf
