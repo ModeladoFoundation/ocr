@@ -130,9 +130,10 @@ typedef struct _ocrWorker_t {
 #ifdef OCR_MONITOR_SCHEDULER
     bool isSeeking;
 #endif
-
+    u64 workerTime;
 } ocrWorker_t;
 
+#define OCR_SIM_ALLOW_PROGRESS (((u64)1)<<63)
 
 /****************************************************/
 /* OCR WORKER FACTORY                               */

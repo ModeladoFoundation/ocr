@@ -938,7 +938,6 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
 #ifdef OCR_MONITOR_NETWORK
     outputMsg->marshTime = salGetTime();
 #endif
-
     return 0;
 }
 

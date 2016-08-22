@@ -307,6 +307,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
 
+    worker->workerTime = 0;
     if (worker->amBlessed) {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;

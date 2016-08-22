@@ -45,6 +45,8 @@
 /* OCR-HC WORKER                                      */
 /******************************************************/
 
+#define MAX_TIME (((u64)1)<<62)
+
 static void hcWorkShift(ocrWorker_t * worker) {
 
     START_PROFILE(wo_hc_workShift);
@@ -53,6 +55,15 @@ static void hcWorkShift(ocrWorker_t * worker) {
     getCurrentEnv(&pd, NULL, NULL, &msg);
 
     ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *) worker;
+
+    //u32 kount = 0;
+    // Wait until global time catches up
+    while((pd->pdTime != MAX_TIME) && ((worker->workerTime & OCR_SIM_ALLOW_PROGRESS) != OCR_SIM_ALLOW_PROGRESS)
+                                   && (worker->workerTime > pd->pdTime)) {
+    //    if(kount++ == 100000) { PRINTF("PD %ld worker %ld spinning because %ld > %ld; slowest worker %d time %ld\n", pd->myLocation, worker->id, worker->workerTime, pd->pdTime, pd->slowestWorker, pd->workers[pd->slowestWorker]->workerTime);}
+        hal_pause();
+    }
+
 #if defined(UTASK_COMM) || defined(UTASK_COMM2)
     RESULT_ASSERT(pdProcessStrands(pd, NP_WORK, 0), ==, 0);
 #endif
@@ -101,6 +112,9 @@ static void hcWorkShift(ocrWorker_t * worker) {
                     salPerfStart(hcWorker->perfCtrs);
                 else DPRINTF(DEBUG_LVL_VERB, "Steady state reached\n");
 #endif
+// Am I the slowest worker?
+if(hcWorker->worker.workerTime <= pd->pdTime) hal_cmpswap32(&pd->slowestWorker, pd->slowestWorker, worker->id);
+u64 edtTime = salGetTime(NULL);
                 ((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask);
 #ifdef ENABLE_EXTENSION_PERF
                 if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
@@ -148,11 +162,16 @@ static void hcWorkShift(ocrWorker_t * worker) {
                     }
                 }
 #endif
+edtTime = salGetTime(NULL)-edtTime;
                 //Store state at worker level to report most recent state on pause.
                 hcWorker->edtGuid = curTask->guid;
 #ifdef OCR_ENABLE_EDT_NAMING
                 hcWorker->name = curTask->name;
 #endif
+// This is the slowest worker currently
+if((pd->slowestWorker == worker->id) && (pd->pdTime != MAX_TIME)) pd->pdTime = worker->workerTime+edtTime;
+//    hal_cmpswap64(&pd->pdTime, worker->workerTime, worker->workerTime+edtTime);
+worker->workerTime += edtTime;
                 EXIT_PROFILE;
 #undef PD_TYPE
             }
@@ -201,6 +220,7 @@ static void workerLoop(ocrWorker_t * worker) {
     // At this stage, we are in the USER_OK runlevel
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
+    worker->workerTime = 0;
     if (worker->amBlessed) {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
@@ -508,6 +528,10 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                 //while(self->curState != GET_STATE(RL_USER_OK, (phase+1))){
                 while(self->curState != GET_STATE(RL_USER_OK, (phase+1)));
                 ASSERT(self->curState == GET_STATE(RL_USER_OK, (phase+1)));
+                if(self->pd->pdTime != MAX_TIME) {
+PRINTF("Overall time at shutdown %ld\n", self->pd->pdTime & ~OCR_SIM_ALLOW_PROGRESS);
+                    self->pd->pdTime = MAX_TIME;
+                }
             }
 
             // Transition to the next phase

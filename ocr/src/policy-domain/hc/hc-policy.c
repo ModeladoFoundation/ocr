@@ -555,6 +555,8 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             rself->rlSwitch.properties = properties;
             phaseCount = RL_GET_PHASE_COUNT_UP(policy, RL_USER_OK);
             maxCount = policy->workerCount;
+            policy->pdTime = 0;
+            policy->slowestWorker = policy->workerCount;
             for(i = 0; i < phaseCount - 1; ++i) {
                 if(toReturn) break;
                 toReturn |= helperSwitchInert(policy, runlevel, i, masterWorkerProperties);

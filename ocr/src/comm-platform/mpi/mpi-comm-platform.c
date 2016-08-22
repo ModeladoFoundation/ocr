@@ -719,7 +719,16 @@ static u8 MPICommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRIu64"] Illegal runlevel[%"PRId32"] reached in MPI-comm-platform pollMessage\n",
             mpiRankToLocation(self->pd->myLocation), (mpiComm->curState >> 4));
     ASSERT_BLOCK_END
-    return MPICommPollMessageInternal(self, msg, properties, mask);
+    u8 retval;
+    retval = MPICommPollMessageInternal(self, msg, properties, mask);
+
+if(*msg) {
+//    PRINTF("%ld Recvd %ld type %x, my time %ld\t", self->pd->myLocation, (*msg)->msgTime, (*msg)->type, self->pd->pdTime);
+//u32 i; for(i =1; i<self->pd->workerCount; i++) PRINTF(":%ld:\t", self->pd->workers[i]->workerTime); PRINTF("\n");
+    if((*msg)->msgTime > self->pd->pdTime) self->pd->pdTime = (*msg)->msgTime;
+}
+
+    return retval;
 }
 
 static u8 MPICommWaitMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,

@@ -412,6 +412,7 @@ typedef struct _ocrPolicyMsg_t {
     u64 rcvTime;
     u64 unMarshTime;
 #endif
+    u64 msgTime;
 
     /* The following rules apply to all fields in the message:
      *     - All ocrFatGuid_t are in/out parameters in the sense
@@ -1520,6 +1521,8 @@ typedef struct _ocrPolicyDomain_t {
     u64 *junk_statsObject;                      /**< Placeholder, to assure consistency of PD structure length */
 #endif
 
+    volatile u64 pdTime;
+    volatile u32 slowestWorker;
 } ocrPolicyDomain_t;
 
 /****************************************************/
