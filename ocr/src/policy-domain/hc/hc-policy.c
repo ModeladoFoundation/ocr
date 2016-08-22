@@ -406,7 +406,9 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 // There should be a single master PD
                 ASSERT(!ocrAffinityCount(AFFINITY_PD_MASTER, &count) && (count == 1));
                 ocrAffinityGet(AFFINITY_PD_MASTER, &count, &affinityMasterPD);
-                u16 blessed = ((policy->myLocation == affinityToLocation(affinityMasterPD)) ? RL_BLESSED : 0);
+                ocrLocation_t masterLocation;
+                affinityToLocation(&masterLocation, affinityMasterPD);
+                u16 blessed = ((policy->myLocation == masterLocation) ? RL_BLESSED : 0);
                 toReturn |= policy->workers[0]->fcts.switchRunlevel(
                     policy->workers[0], policy, runlevel, i, masterWorkerProperties | blessed,
                     &hcWorkerCallback, RL_COMPUTE_OK << 16);

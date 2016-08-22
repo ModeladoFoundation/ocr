@@ -75,7 +75,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                             affGuid.lower = hintValue;
     #endif
                             ASSERT(!ocrGuidIsNull(affGuid));
-                            msg->destLocation = affinityToLocation(affGuid);
+                            affinityToLocation(&(msg->destLocation), affGuid);
                             doAutoPlace = false;
                         }
                     }
@@ -104,7 +104,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                         affGuid.lower = hintValue;
 #endif
                         ASSERT(!ocrGuidIsNull(affGuid));
-                        msg->destLocation = affinityToLocation(affGuid);
+                        affinityToLocation(&(msg->destLocation), affGuid);
                         return 0;
                     }
                 }
@@ -126,7 +126,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                 placer->edtLastPlacementIndex = 0;
             }
             hal_unlock(&(placer->lock));
-            msg->destLocation = affinityToLocation(pdLocAffinity);
+            affinityToLocation(&(msg->destLocation), pdLocAffinity);
             DPRINTF(DEBUG_LVL_VVERB,"Auto-Placement for msg %p, type 0x%"PRIx64", at location %"PRId32"\n",
                     msg, msgType, (u32)placementIndex);
         }

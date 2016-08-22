@@ -48,14 +48,15 @@ static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
 }
 #endif
 
-ocrLocation_t affinityToLocation(ocrGuid_t affinityGuid) {
+u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
     ocrFatGuid_t fguid;
     fguid.guid = affinityGuid;
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     resolveRemoteMetaData(pd, &fguid, NULL, true);
     ASSERT((fguid.metaDataPtr != NULL) && "ERROR: cannot deguidify affinity GUID");
-    return ((ocrAffinity_t *) fguid.metaDataPtr)->place;
+    *result = ((ocrAffinity_t *) fguid.metaDataPtr)->place;
+    return 0;
 }
 
 
@@ -126,5 +127,22 @@ void destroyPlatformModelAffinity(ocrPolicyDomain_t *pd) {
 //
 // End platform model based on affinities
 //
+
+#else
+
+#include "debug.h"
+
+#include "ocr-errors.h"
+#include "ocr-policy-domain.h"
+#include "ocr-types.h"
+#include "experimental/ocr-platform-model.h"
+#include "experimental/ocr-placer.h"
+#include "extensions/ocr-affinity.h"
+
+// Stubs
+u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
+
+    return OCR_ENOTSUP;
+}
 
 #endif /* ENABLE_EXTENSION_AFFINITY */

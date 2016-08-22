@@ -243,7 +243,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
             affGuid.lower = hintValue;
 #endif
             ASSERT(!ocrGuidIsNull(affGuid));
-            targetLoc = affinityToLocation(affGuid);
+            affinityToLocation(&targetLoc, affGuid);
         }
     }
 

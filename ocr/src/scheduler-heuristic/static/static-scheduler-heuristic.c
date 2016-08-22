@@ -304,7 +304,7 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                         affGuid.upper = 0ULL;
                         affGuid.lower = userAffinity;
 #endif
-                        msg->destLocation = affinityToLocation(affGuid);
+                        affinityToLocation(&(msg->destLocation), affGuid);
                     }
 
                     //Check if the disperse hint is set
@@ -372,7 +372,7 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                     affGuid.upper = 0ULL;
                     affGuid.lower = userAffinity;
 #endif
-                    msg->destLocation = affinityToLocation(affGuid);
+                    affinityToLocation(&(msg->destLocation), affGuid);
                 }
             }
 #undef PD_MSG

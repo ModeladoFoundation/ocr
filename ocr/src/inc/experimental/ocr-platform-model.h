@@ -12,6 +12,8 @@
 #ifndef __OCR_PLATFORM_MODEL_H__
 #define __OCR_PLATFORM_MODEL_H__
 
+#include "ocr-config.h"
+
 #include "ocr-types.h"
 #include "ocr-runtime-types.h"
 
@@ -32,7 +34,7 @@ typedef struct _ocrPlatformModelAffinity_t {
 
 struct _ocrPolicyDomain_t;
 
-ocrLocation_t affinityToLocation(ocrGuid_t affinityGuid);
+u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid);
 ocrPlatformModel_t * createPlatformModelAffinity(struct _ocrPolicyDomain_t * pd);
 void destroyPlatformModelAffinity(struct _ocrPolicyDomain_t * pd);
 
