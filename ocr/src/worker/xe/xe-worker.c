@@ -255,12 +255,13 @@ void* xeRunWorker(ocrWorker_t * worker) {
         packedUserArgv = userArgsGet();
         ocrEdt_t mainEdt = mainEdtGet();
 #endif
-
+        DPRINTF(DEBUG_LVL_VERB, "Blessed worker going to read arguments @ %p\n", packedUserArgv);
         u64 totalLength = ((u64*) packedUserArgv)[0]; // already exclude this first arg
         // strip off the 'totalLength first argument'
         packedUserArgv = (void *) (((u64)packedUserArgv) + sizeof(u64)); // skip first totalLength argument
         ocrGuid_t dbGuid;
         void* dbPtr;
+        DPRINTF(DEBUG_LVL_VVERB, "Got arguments of length 0x%"PRIx64" @ %p\n", totalLength, packedUserArgv);
         ocrDbCreate(&dbGuid, &dbPtr, totalLength,
                     DB_PROP_IGNORE_WARN, NULL_HINT, NO_ALLOC);
 
