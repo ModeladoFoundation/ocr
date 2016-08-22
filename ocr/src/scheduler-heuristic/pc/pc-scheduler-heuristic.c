@@ -196,7 +196,7 @@ static u8 pcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
         ocrTask_t *currentEdt = (ocrTask_t*)edtObj.guid.metaDataPtr;
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-        RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_PHASE, 0), ==, 0);
+        RESULT_ASSERT(ocrHintSetValue(&edtHint, OCR_HINT_EDT_PHASE, (ocrHintVal_t){ .u64Val = 0 }), ==, 0);
         (ocrTaskFactory_t*)(fact->pd->factories[pd->taskFactoryIdx])->fcts.setHint(currentEdt, &edtHint);
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
     }
@@ -300,6 +300,7 @@ static u8 pcSchedulerHeuristicNotifyDbCreateInvoke(ocrSchedulerHeuristic_t *self
 
     //Inherit current phase from currently executing EDT
     u64 currentPhase = 0;
+    ocrHintVal_t hintVal;
     ocrTask_t *currentEdt = NULL;
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, &currentEdt, NULL);
@@ -307,7 +308,8 @@ static u8 pcSchedulerHeuristicNotifyDbCreateInvoke(ocrSchedulerHeuristic_t *self
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
         (ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx])->fcts.getHint(currentEdt, &edtHint);
-        RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_PHASE, &currentPhase), ==, 0);
+        RESULT_ASSERT(ocrHintGetValue(&edtHint, OCR_HINT_EDT_PHASE, &hintVal), ==, 0);
+        currentPhase = hintVal.u64Val;
     } else {
         //ASSERT(0); //TODO: We should assert if ocrDbCreate is called outside an EDT. We need identify user vs runtime calls.
     }

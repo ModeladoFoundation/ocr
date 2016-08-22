@@ -332,9 +332,11 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     ocrSchedulerHeuristicContext_t *insertContext = context;
     u64 affinitySlot = ((u64)-1);
     ocrHint_t edtHint;
+    ocrHintVal_t hintVal;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT(ocrGetHint(task->guid, &edtHint), ==, 0);
-    if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SLOT_MAX_ACCESS, &affinitySlot) == 0) {
+    if (ocrHintGetValue(&edtHint, OCR_HINT_EDT_SLOT_MAX_ACCESS, &hintVal) == 0) {
+        affinitySlot = hintVal.u64Val;
         ASSERT(affinitySlot < task->depc);
         ocrTaskHc_t *hcTask = (ocrTaskHc_t*)task; //TODO:This is temporary until we get proper introspection support
         ocrEdtDep_t *depv = hcTask->resolvedDeps;
@@ -346,7 +348,8 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
         ocrHint_t dbHint;
         ocrHintInit(&dbHint, OCR_HINT_DB_T);
         RESULT_ASSERT(ocrGetHint(dbGuid, &dbHint), ==, 0);
-        if (ocrGetHintValue(&dbHint, OCR_HINT_DB_AFFINITY, &dbMemAffinity) == 0) {
+        if (ocrHintGetValue(&dbHint, OCR_HINT_DB_AFFINITY, &hintVal) == 0) {
+            dbMemAffinity = hintVal.u64Val;
             ocrLocation_t myLoc = pd->myLocation;
             ocrLocation_t dbLoc = dbMemAffinity;
             ocrLocation_t affinityLoc = dbLoc;

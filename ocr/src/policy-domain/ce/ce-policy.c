@@ -1105,13 +1105,13 @@ static u8 ceAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
 
     u64 idx;
     int preferredLevel = 0;
-    u64 hintValue = 0ULL;
+    ocrHintVal_t hintValue = {};
     if (hint != NULL_HINT) {
-        if (ocrGetHintValue(hint, OCR_HINT_DB_NEAR, &hintValue) == 0 && hintValue) {
+        if (ocrHintGetValue(hint, OCR_HINT_DB_NEAR, &hintValue) == 0 && hintValue.u64Val) {
             preferredLevel = 1;
-        } else if (ocrGetHintValue(hint, OCR_HINT_DB_INTER, &hintValue) == 0 && hintValue) {
+        } else if (ocrHintGetValue(hint, OCR_HINT_DB_INTER, &hintValue) == 0 && hintValue.u64Val) {
             preferredLevel = 2;
-        } else if (ocrGetHintValue(hint, OCR_HINT_DB_FAR, &hintValue) == 0 && hintValue) {
+        } else if (ocrHintGetValue(hint, OCR_HINT_DB_FAR, &hintValue) == 0 && hintValue.u64Val) {
             preferredLevel = 3;
         }
         DPRINTF(DEBUG_LVL_VERB, "ceAllocateDb preferredLevel set to %"PRId32"\n", preferredLevel);
@@ -1362,7 +1362,8 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             if (msg->srcLocation != self->myLocation) {
                 ocrHint_t hintVar;
                 RESULT_ASSERT(ocrHintInit(&hintVar, OCR_HINT_DB_T), ==, 0);
-                RESULT_ASSERT(ocrSetHintValue(&hintVar, OCR_HINT_DB_AFFINITY, (u64)(msg->srcLocation)), ==, 0);
+                ocrHintVal_t hintVal = { .u64Val = (u64)(msg->srcLocation) };
+                RESULT_ASSERT(ocrHintSetValue(&hintVar, OCR_HINT_DB_AFFINITY, hintVal), ==, 0);
                 RESULT_ASSERT(ocrSetHint(db->guid, &hintVar), ==, 0);
             }
 

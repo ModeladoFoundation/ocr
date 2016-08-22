@@ -111,9 +111,9 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
         ocrHint_t dbHint;
         ocrHintInit( &dbHint, OCR_HINT_DB_T );
 #if GUID_BIT_COUNT == 64
-        ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.guid );
+        ocrHintSetValue( & dbHint, OCR_HINT_DB_AFFINITY, (ocrHintVal_t){ .u64Val = affinityMasterPD.guid });
 #elif GUID_BIT_COUNT == 128
-        ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.lower );
+        ocrHintSetValue( & dbHint, OCR_HINT_DB_AFFINITY, (ocrHintVal_t){ .u64Val = affinityMasterPD.lower });
 #else
 #error Unknown GUID type
 #endif
@@ -147,9 +147,9 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
         ocrHint_t edtHint;
         ocrHintInit( &edtHint, OCR_HINT_EDT_T );
 #if GUID_BIT_COUNT == 64
-        ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.guid );
+        ocrHintSetValue( & edtHint, OCR_HINT_EDT_AFFINITY, (ocrHintVal_t){ .u64Val = affinityMasterPD.guid });
 #elif GUID_BIT_COUNT == 128
-        ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.lower );
+        ocrHintSetValue( & edtHint, OCR_HINT_EDT_AFFINITY, (ocrHintVal_t){ .u64Val = affinityMasterPD.lower });
 #else
 #error Unknown GUID type
 #endif

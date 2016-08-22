@@ -699,13 +699,13 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
 //    void* result = allocateDddatablock (self, size, engineIndex, prescription, &idx);
 
     int preferredLevel = 0;
-    u64 hintValue = 0ULL;
+    ocrHintVal_t hintValue = {};
     if (hint != NULL_HINT) {
-        if (ocrGetHintValue(hint, OCR_HINT_DB_NEAR, &hintValue) == 0 && hintValue) {
+        if (ocrHintGetValue(hint, OCR_HINT_DB_NEAR, &hintValue) == 0 && hintValue.u64Val) {
             preferredLevel = 1;
-        } else if (ocrGetHintValue(hint, OCR_HINT_DB_INTER, &hintValue) == 0 && hintValue) {
+        } else if (ocrHintGetValue(hint, OCR_HINT_DB_INTER, &hintValue) == 0 && hintValue.u64Val) {
             preferredLevel = 2;
-        } else if (ocrGetHintValue(hint, OCR_HINT_DB_FAR, &hintValue) == 0 && hintValue) {
+        } else if (ocrHintGetValue(hint, OCR_HINT_DB_FAR, &hintValue) == 0 && hintValue.u64Val) {
             preferredLevel = 3;
         }
         DPRINTF(DEBUG_LVL_VERB, "xeAllocateDb preferredLevel set to %"PRId32"\n", preferredLevel);

@@ -135,14 +135,14 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
                     doAutoPlace = true;
                     if (PD_MSG_FIELD_I(hint) != NULL_HINT) {
                         ocrHint_t *hint = PD_MSG_FIELD_I(hint);
-                        u64 hintValue = 0ULL;
-                        if ((ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
+                        ocrHintVal_t hintValue = {};
+                        if ((ocrHintGetValue(hint, OCR_HINT_EDT_AFFINITY, &hintValue) == 0) && (hintValue.u64Val != 0)) {
                             ocrGuid_t affGuid;
 #if GUID_BIT_COUNT == 64
-                            affGuid.guid = hintValue;
+                            affGuid.guid = hintValue.u64Val;
 #elif GUID_BIT_COUNT == 128
                             affGuid.upper = 0ULL;
-                            affGuid.lower = hintValue;
+                            affGuid.lower = hintValue.u64Val;
 #endif
                             ASSERT(!ocrGuidIsNull(affGuid));
                             msg->destLocation = affinityToLocation(affGuid);
@@ -164,14 +164,14 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
                 // it has an affinity specified (i.e. no auto-placement)
                 if (PD_MSG_FIELD_I(hint) != NULL_HINT) {
                     ocrHint_t *hint = PD_MSG_FIELD_I(hint);
-                    u64 hintValue = 0ULL;
-                    if ((ocrGetHintValue(hint, OCR_HINT_DB_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
+                    ocrHintVal_t hintValue = {};
+                    if ((ocrHintGetValue(hint, OCR_HINT_DB_AFFINITY, &hintValue) == 0) && (hintValue.u64Val != 0)) {
                         ocrGuid_t affGuid;
 #if GUID_BIT_COUNT == 64
-                        affGuid.guid = hintValue;
+                        affGuid.guid = hintValue.u64Val;
 #elif GUID_BIT_COUNT == 128
                         affGuid.upper = 0ULL;
-                        affGuid.lower = hintValue;
+                        affGuid.lower = hintValue.u64Val;
 #endif
                         ASSERT(!ocrGuidIsNull(affGuid));
                         msg->destLocation = affinityToLocation(affGuid);

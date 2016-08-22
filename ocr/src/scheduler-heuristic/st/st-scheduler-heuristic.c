@@ -430,7 +430,7 @@ static void acquireEdtDeps(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicC
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx])->fcts.getHint(task, &edtHint), ==, 0);
-    RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &hintVal), ==, 0);
+    RESULT_ASSERT(ocrHintGetValue(&edtHint, OCR_HINT_EDT_TIME, &hintVal), ==, 0);
 #endif
 
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[task->fctId]))->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
