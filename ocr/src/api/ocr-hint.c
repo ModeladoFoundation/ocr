@@ -80,7 +80,7 @@ u8 ocrHintInit(ocrHint_t *hint, ocrHintType_t hintType) {
 }
 
 u8 ocrHintSetValue(ocrHint_t *hint, ocrHintProp_t hintProp, ocrHintVal_t value) {
-    START_PROFILE(api_ocrSetHintValue);
+    START_PROFILE(api_ocrHintSetValue);
 #ifdef ENABLE_HINTS
     OCR_HINT_CHECK(hint, hintProp);
     hint->propMask |= OCR_HINT_BIT_MASK(hint, hintProp);
@@ -98,7 +98,7 @@ u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value) {
 }
 
 u8 ocrHintUnsetValue(ocrHint_t *hint, ocrHintProp_t hintProp) {
-    START_PROFILE(api_ocrUnsetHintValue);
+    START_PROFILE(api_ocrHintUnsetValue);
 #ifdef ENABLE_HINTS
     OCR_HINT_CHECK(hint, hintProp);
     hint->propMask &= ~OCR_HINT_BIT_MASK(hint, hintProp);
@@ -115,7 +115,7 @@ u8 ocrUnsetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp) {
 }
 
 u8 ocrHintGetValue(ocrHint_t *hint, ocrHintProp_t hintProp, ocrHintVal_t *value) {
-    START_PROFILE(api_ocrGetHintValue);
+    START_PROFILE(api_ocrHintGetValue);
 #ifdef ENABLE_HINTS
     OCR_HINT_CHECK(hint, hintProp);
     if ((hint->propMask & OCR_HINT_BIT_MASK(hint, hintProp)) == 0)
