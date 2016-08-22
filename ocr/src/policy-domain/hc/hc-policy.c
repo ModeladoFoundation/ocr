@@ -1367,7 +1367,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
             if(db == NULL) {
                 DPRINTF(DEBUG_LVL_WARN, "DB Create failed for size %"PRIx64"\n", PD_MSG_FIELD_IO(size));
+<<<<<<< HEAD
             } else{
+=======
+            } else {
+>>>>>>> OCR: Minor fix to logging levels on 2 messages
                 DPRINTF(DEBUG_LVL_VERB, "Creating a datablock of size %"PRIu64" @ %p (GUID: "GUIDF") (edt GUID: "GUIDF")\n",
                         db->size, db->ptr, GUIDA(db->guid), GUIDA(tEdt.guid));
                 OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_DATABLOCK, OCR_ACTION_CREATE, traceDataCreate, db->guid, db->size);
@@ -2433,6 +2437,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerSignaler(
                 evt, signaler, PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode), isAddDep);
         } else if (dstKind == OCR_GUID_EDT) {
+            DPRINTF(DEBUG_LVL_VERB, "Add Dep to EDT (GUID: "GUIDF")\n", GUIDA(dest.guid));
             ocrTask_t *edt = (ocrTask_t*)(dest.metaDataPtr);
             ASSERT(edt->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
             PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.registerSignaler(
