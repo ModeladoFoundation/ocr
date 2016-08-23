@@ -141,7 +141,7 @@ let u=0
 
 for nodes in `echo "${NODE_SCALING}"`; do
     let u=${l}+${w};
-    AVG=`echo "${array[@]:${l}:${u}}"`
+    AVG=`echo "${array[@]:${l}:${w}}"`
     SPUP+=`${SCRIPT_ROOT}/utils/speedup.sh "${AVG}"`
     SPUP+=" "
     let l=${u}
