@@ -9,7 +9,7 @@ jobtype_ocr_init = {
     'param-cmd': '${JJOB_INITDIR_OCR}/jenkins/scripts/empty-cmd.sh',
     'keywords': ('ocr',),
     'timeout': 60,
-    'sandbox': ('local', 'shared', 'emptyShared', 'shareOK'),
+    'sandbox': ('local', 'shared', 'emptyLocal', 'emptyShared', 'shareOK'),
     'req-repos': ('ocr',)
 }
 
@@ -39,7 +39,7 @@ jobtype_ocr_build_tg = {
     'sandbox': ('local', 'shared', 'shareOK'),
     'req-repos': ('ocr', 'tg'),
     'env-vars': {'TG_INSTALL': '${JJOB_ENVDIR}',
-                 'TG_ROOT': '${JJOB_INITDIR_tg}/tg',
+                 'TG_ROOT': '${JJOB_INITDIR_TG}/tg',
                  'OCR_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr',
                  'OCR_BUILD_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr/build',
                  'OCR_INSTALL': '${JJOB_SHARED_HOME}/ocr/ocr/install'}
