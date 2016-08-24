@@ -263,7 +263,7 @@ void* xeRunWorker(ocrWorker_t * worker) {
         void* dbPtr;
         DPRINTF(DEBUG_LVL_VVERB, "Got arguments of length 0x%"PRIx64" @ %p\n", totalLength, packedUserArgv);
         ocrDbCreate(&dbGuid, &dbPtr, totalLength,
-                    DB_PROP_IGNORE_WARN, NULL_HINT, NO_ALLOC);
+                    DB_PROP_IGNORE_WARN, NULL_HINT, 1234);
 
         // copy packed args to DB
         hal_memCopy(dbPtr, packedUserArgv, totalLength, 0);

@@ -93,7 +93,7 @@ ocrGuid_t hcQueryNextEdts(ocrPolicyDomainHc_t *rself, void **result, u32 *qSize)
     ocrGuid_t dataDb;
 
     ocrDbCreate(&dataDb, (void **)&deqGuids, sizeof(ocrGuid_t)*(rself->base.workerCount), 0,
-                NULL_HINT, NO_ALLOC);
+                NULL_HINT, 1234);
 
     for(i = 0; i < rself->base.workerCount; i++){
         u32 wrkrSize;
@@ -134,7 +134,7 @@ ocrGuid_t hcQueryAllEdts(ocrPolicyDomainHc_t *rself, void **result, u32 *qsize){
     u32 idxOffset = -1;
 
     ocrDbCreate(&dataDb, (void **)&deqGuids, sizeof(ocrGuid_t)*(dataBlockSize), 0,
-                NULL_HINT, NO_ALLOC);
+                NULL_HINT, 1234);
 
     //Populate datablock with workpile EDTs.
     for(i = 0; i < rself->base.workerCount; i++){
@@ -190,7 +190,7 @@ ocrGuid_t hcQueryPreviousDatablock(ocrPolicyDomainHc_t *self, void **result, u32
     ocrGuid_t dataDb;
 
     ocrDbCreate(&dataDb, (void **)&prevDb, sizeof(ocrGuid_t), 0,
-                NULL_HINT, NO_ALLOC);
+                NULL_HINT, 1234);
     prevDb[0] = self->pqrFlags.prevDb;
 
     *qSize = 1;

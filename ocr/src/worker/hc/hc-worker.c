@@ -167,7 +167,7 @@ static void workerLoop(ocrWorker_t * worker) {
 #error Unknown GUID type
 #endif
         ocrDbCreate(&dbGuid, &dbPtr, totalLength,
-                    DB_PROP_IGNORE_WARN, &dbHint, NO_ALLOC);
+                    DB_PROP_IGNORE_WARN, &dbHint, 1234);
         // copy packed args to DB
         hal_memCopy(dbPtr, packedUserArgv, totalLength, 0);
         PD_MSG_STACK(msg);

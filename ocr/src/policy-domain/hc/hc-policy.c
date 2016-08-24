@@ -740,7 +740,12 @@ static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     // variable, which has been added to this argument list.  The prescription indicates an order in
     // which to attempt to allocate the block to a pool.
     u64 idx;
-    void *result = allocateDatablock (self, size, prescription, &idx);
+    void *result;
+    if (dbType == USER_DBTYPE) {
+        result = (void *)0x987654321;
+    } else {
+        result = allocateDatablock (self, size, prescription, &idx);
+    }
     if (result) {
         u8 returnValue = 0;
         returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(

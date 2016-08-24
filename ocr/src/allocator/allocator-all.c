@@ -75,6 +75,8 @@ void initializeAllocatorOcr(ocrAllocatorFactory_t * factory, ocrAllocator_t * se
 }
 
 void allocatorFreeFunction(void* blockPayloadAddr) {
+if (blockPayloadAddr == (void *)0x987654321) return;
+
     u8 * pPoolHeaderDescr = ((u8 *)(((u64) blockPayloadAddr)-sizeof(u64)));
     DPRINTF(DEBUG_LVL_VERB, "allocatorFreeFunction:  PoolHeaderDescr at 0x%"PRIx64" is 0x%"PRIx32"\n",
         (u64) pPoolHeaderDescr, *pPoolHeaderDescr);

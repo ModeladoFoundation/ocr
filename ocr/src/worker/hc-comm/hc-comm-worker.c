@@ -335,7 +335,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
 #endif
 
         ocrDbCreate(&dbGuid, &dbPtr, totalLength,
-                    DB_PROP_IGNORE_WARN, &dbHint, NO_ALLOC);
+                    DB_PROP_IGNORE_WARN, &dbHint, 1234);
 
         // copy packed args to DB
         hal_memCopy(dbPtr, packedUserArgv, totalLength, 0);
