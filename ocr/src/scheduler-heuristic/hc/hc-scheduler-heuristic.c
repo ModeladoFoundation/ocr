@@ -217,7 +217,7 @@ static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
         // heuristic is not called to end up doing the same kind of checks
         ocrHint_t edtHints;
         ocrHintInit(&edtHints, OCR_HINT_EDT_T);
-        u8 noHint = pd->taskFactories[0]->fcts.getHint(edt, &edtHints);
+        u8 noHint = ((ocrTaskFactory_t*)pd->factories[pd->taskFactoryIdx])->fcts.getHint(edt, &edtHints);
         u64 edtAff;
         u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
         bool loadBalance = ((edt->funcPtr != &processRequestEdt) && noPlcHint);

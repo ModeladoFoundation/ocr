@@ -1615,7 +1615,6 @@ u8 taskExecute(ocrTask_t* base) {
         TPRINTF("EDT End: 0x%"PRIx64" 0x%"PRIx64" in %s\n",
                 base->funcPtr, base->guid, location);
 #endif
-        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, base->guid);
 #ifdef OCR_ENABLE_VISUALIZER
         u64 endTime = salGetTime();
         DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" FctName: %s Start: %"PRIu64" End: %"PRIu64"\n", GUIDA(base->guid), base->name, startTime, endTime);

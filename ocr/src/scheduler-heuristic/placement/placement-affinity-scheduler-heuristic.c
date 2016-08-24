@@ -252,7 +252,7 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
     // Do not try to move the EDT if there's already a hint placement.
     ocrHint_t edtHints;
     ocrHintInit(&edtHints, OCR_HINT_EDT_T);
-    u8 noHint = pd->taskFactories[0]->fcts.getHint(edt, &edtHints);
+    u8 noHint = ((ocrTaskFactory_t*)pd->factories[pd->taskFactoryIdx])->fcts.getHint(edt, &edtHints);
     u64 edtAff;
     u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
     //TODO-MT need micro-tasking activated here to avoid redistributing RT work
@@ -273,18 +273,19 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
         if(noHint) {
             ocrHintInit(&edtHints, OCR_HINT_EDT_T);
         }
-        ocrLocation_t dstLocation = affinityToLocation(pdLocAffinity);
+        ocrLocation_t dstLocation;
+        affinityToLocation(&dstLocation, pdLocAffinity);
         ocrSetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(pdLocAffinity));
-        RESULT_ASSERT(pd->taskFactories[0]->fcts.setHint(edt, &edtHints), ==, 0);
+        RESULT_ASSERT(((ocrTaskFactory_t*)pd->factories[pd->taskFactoryIdx])->fcts.setHint(edt, &edtHints), ==, 0);
 #ifdef OCR_ASSERT
-        RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(edt, &edtHints), ==, 0);
+        RESULT_ASSERT(((ocrTaskFactory_t*)pd->factories[pd->taskFactoryIdx])->fcts.getHint(edt, &edtHints), ==, 0);
         u8 hasHint = !ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff);
         ASSERT(hasHint);
 #endif
         if (dstLocation != pd->myLocation) {
             ASSERT((((u64)pd->myLocation) == 0) || (((u64)pd->myLocation) == 1));
             DPRINTF(DEBUG_LVL_VVERB,"[LB] Moving EDT "GUIDF" from PD[%"PRIu64"] to PD[%"PRIu64"]\n",
-                    edtObj.guid.guid, (u64) pd->myLocation, (u64) dstLocation);
+                    GUIDA(edtObj.guid.guid), (u64) pd->myLocation, (u64) dstLocation);
             scheduleEdtMovement(pd, edtObj.guid, pd->myLocation, dstLocation);
             return 0;
         }
