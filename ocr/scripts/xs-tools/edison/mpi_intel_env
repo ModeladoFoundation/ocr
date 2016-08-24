@@ -6,3 +6,4 @@ module load impi/5.1.1.109
 export MPI_ROOT=/opt/intel/parallel_studio_xe_2016.0.047/compilers_and_libraries_2016/linux/mpi/intel64
 export PATH=${MPI_ROOT}/bin:$PATH
 export LD_LIBRARY_PATH=${MPI_ROOT}/lib:$LD_LIBRARY_PATH
+export CC=mpiicc

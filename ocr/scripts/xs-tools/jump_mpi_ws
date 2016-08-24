@@ -47,6 +47,11 @@ if [ -n "$CMD" -a "${CMD}" = "build" ]; then
    make -j${MAKE_THREADS} clean && make -j${MAKE_THREADS} && make -j${MAKE_THREADS} install
 fi
 
+# Add some default tests
+export TEST_EXT_PARAMS_EVT=yes
+export TEST_EXT_COUNTED_EVT=yes
+export TEST_EXT_CHANNEL_EVT=yes
+
 JUMP_PATH=${JUMP_PATH-../../tests}
 # Drops in OCR's test folder by default
 cd ${JUMP_PATH}

@@ -9,6 +9,7 @@ Provided scripts:
     - co_xstack:       Checkout the OCR runtime and applications
     - jump_xxx_ws:     Configure an environment and build OCR on a given system
 
+
 #
 # XS-tools script setup
 #
@@ -18,6 +19,7 @@ Provided scripts:
 2.a) XST_GITNAME: Set git user name
 2.b) XST_SYS    : Set the targeted system name (must have a corresponding folder xs-tools/${XST_SYS})
 2.c) XST_MPI    : Set targeted MPI implementation (must have a corresponding mpi_${XST_MPI}_env under xs-tools/${XST_SYS})
+2.d) XST_BATCH  : yes/no if jobs are intended to be ran in batch mode (automatically sets OCRRUN_OPT_ENVKIND)
 
 
 #

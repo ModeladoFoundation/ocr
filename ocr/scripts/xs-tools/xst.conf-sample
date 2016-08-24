@@ -14,6 +14,6 @@ fi
 
 export XST_SYS=${XST_SYS-thor}
 export XST_MPI=${XST_MPI-intel}
-
+export XST_BATCH=${XST_BATCH-no}
 
 unset TMP_GUSER

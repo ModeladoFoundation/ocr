@@ -1,6 +1,9 @@
 
-# ocrrun reads this to properly build the mpi run command through aprun
-export OCRRUN_OPT_ENVKIND=impi
+if [[ "${XST_BATCH}" == "yes" ]]; then
+    export OCRRUN_OPT_ENVKIND=SLURM
+else
+    export OCRRUN_OPT_ENVKIND=impi
+fi
 
 export MPI_ROOT=/mnt/nordicfs/opt/intel/impi/5.1.2.150/intel64
 export PATH=${MPI_ROOT}/bin:$PATH
