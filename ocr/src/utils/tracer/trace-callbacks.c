@@ -85,6 +85,20 @@ void __attribute__ ((weak)) traceTaskFinish(u64 location, bool evtType, ocrTrace
     return;
 }
 
+void __attribute__ ((weak)) traceTaskShift(u64 location, bool evtType, ocrTraceType_t objType,
+                                            ocrTraceAction_t actionType, u64 workerId,
+                                            u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                                            ocrEdt_t funcPtr, bool shiftFrom){
+
+    //TRACING CALLBACKS - Task Shift
+    INIT_TRACE_OBJECT();
+    TRACE_FIELD(TASK, taskExeShift, tr, taskGuid) = edtGuid;
+    TRACE_FIELD(TASK, taskExeShift, tr, funcPtr) = funcPtr;
+    TRACE_FIELD(TASK, taskExeShift, tr, shiftFrom) = shiftFrom;
+    PUSH_TO_TRACE_DEQUE();
+    return;
+}
+
 void __attribute__ ((weak)) traceTaskDataAcquire(u64 location, bool evtType, ocrTraceType_t objType,
                                                  ocrTraceAction_t actionType, u64 workerId,
                                                  u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,

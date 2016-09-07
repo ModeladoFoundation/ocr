@@ -28,6 +28,7 @@ static u8 masterHelper(ocrWorker_t * worker) {
     ocrTask_t * suspendedTask = worker->curTask;
     DPRINTF(DEBUG_LVL_VERB, "Shifting worker from EDT GUID "GUIDF"\n",
             GUIDA(suspendedTask->guid));
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SHIFT, traceTaskShift, suspendedTask->guid, suspendedTask->funcPtr, true);
     // In helper mode, just try to execute another task
     // on top of the currently executing task's stack.
     worker->curTask = NULL; // nullify because we may execute MT
@@ -37,6 +38,7 @@ static u8 masterHelper(ocrWorker_t * worker) {
     //BUG #204 this should be implemented in the worker
     DPRINTF(DEBUG_LVL_VERB, "Worker shifting back to EDT GUID "GUIDF"\n",
             GUIDA(suspendedTask->guid));
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SHIFT, traceTaskShift, suspendedTask->guid, suspendedTask->funcPtr, false);
     worker->curTask = suspendedTask;
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     ((ocrWorkerHc_t *) worker)->isHelping = 0;

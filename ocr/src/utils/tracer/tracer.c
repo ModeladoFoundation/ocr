@@ -130,6 +130,17 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid);
                 break;
             }
+            case OCR_ACTION_SHIFT:
+            {
+                //Get var args
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
+                ocrEdt_t func = va_arg(ap, ocrEdt_t);
+                bool shiftFrom = (bool)va_arg(ap, int);
+                //Callback
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, func, shiftFrom);
+                break;
+            }
             case OCR_ACTION_DATA_ACQUIRE:
             {
                 //Get var args

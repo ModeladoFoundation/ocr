@@ -1412,7 +1412,6 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
     statsEDT_END(pd, ctx->sourceObj, curWorker, base->guid, base);
 #endif /* OCR_ENABLE_STATISTICS */
     DPRINTF(DEBUG_LVL_INFO, "End_Execution "GUIDF"\n", GUIDA(base->guid));
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, base->guid);
     // edt user code is done, if any deps, release data-blocks
     if(depc != 0) {
         START_PROFILE(ta_hc_dbRel);
@@ -1534,6 +1533,7 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
         ASSERT(base->depc == 0); //Limitation
     }
 #endif
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, base->guid);
     EXIT_PROFILE;
     return 0;
 }

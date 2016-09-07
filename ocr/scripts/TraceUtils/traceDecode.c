@@ -185,6 +185,12 @@ void translateObject(ocrTraceObj_t *trace, int lineCount, long *fctPtrs){
                 genericPrint(evtType, ttype, action, location, workerId, timestamp, taskGuid, NULL_GUID);
                 break;
             }
+            case OCR_ACTION_SHIFT:
+            {
+                ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeShift, trace, taskGuid);
+                genericPrint(evtType, ttype, action, location, workerId, timestamp, taskGuid, NULL_GUID);
+                break;
+            }
             case OCR_ACTION_DATA_ACQUIRE:
             {
                 ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskDataAcquire, trace, taskGuid);

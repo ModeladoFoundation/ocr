@@ -108,6 +108,12 @@ typedef struct {
                 }taskDestroy;
 
                 struct{
+                    ocrGuid_t taskGuid;             /* GUID of task shifted */
+                    ocrEdt_t funcPtr;               /* Function ptr to function associated with the task */
+                    bool shiftFrom;                 /* true if shifting FROM task, false if shifting BACK */
+                }taskExeShift;
+
+                struct{
                     ocrGuid_t taskGuid;             /* GUID of task acquiring the datablock */
                     ocrGuid_t dbGuid;               /* GUID of datablock being acquired */
                     u64 dbSize;                     /* Size of Datablock being acquired */

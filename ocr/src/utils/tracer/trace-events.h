@@ -35,6 +35,7 @@ const char *action_type[] = {
     "SATISFY",
     "EXECUTE",
     "FINISH",
+    "SHIFT",
     "DATA_ACQUIRE",
     "DATA_RELEASE",
     "END_TO_END",
