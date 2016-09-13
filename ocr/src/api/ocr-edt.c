@@ -141,6 +141,7 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
 }
 
 u8 ocrEventSatisfy(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/) {
+if(ocrGuidIsNull(eventGuid)) return 0;
     return ocrEventSatisfySlot(eventGuid, dataGuid, 0);
 }
 
@@ -406,6 +407,7 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
 
 u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
                     ocrDbAccessMode_t mode) {
+if(ocrGuidIsNull(source) && ocrGuidIsNull(destination)) return 0;
     START_PROFILE(api_ocrAddDependence);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrAddDependence(src="GUIDF", dest="GUIDF", slot=%"PRIu32", mode=%"PRId32")\n",
             GUIDA(source), GUIDA(destination), slot, (s32)mode);
