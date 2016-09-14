@@ -131,6 +131,7 @@ ifeq (${OCR_ASAN}, yes)
   LDFLAGS += $(ASAN_FLAGS) $(LDFLAGS)
 endif
 
+
 # Runtime overhead profiler
 # x86 only
 #
@@ -183,6 +184,25 @@ endif
 #
 # (optional) Maximum number of scope nesting for runtime profiler
 # CFLAGS += -DMAX_PROFILER_LEVEL=512
+
+# Enable profiler and use TAU instead of the built-in profiler.
+# Requires that TAU_MAKEFILE be set to the path to a TAU Makefile
+# for a thread-enabled build of TAU.
+# OCR_RUNTIME_PROFILER_TAU := yes
+ifeq (${OCR_RUNTIME_PROFILER_TAU}, yes)
+  ifeq (,$(TAU_MAKEFILE))
+    $(error TAU_MAKEFILE must be declared to use OCR_RUNTIME_PROFILER_TAU)
+  else
+    _T := $(TAU_MAKEFILE)
+    TAU_MAKEFILE := $(realpath $(_T))
+    ifeq (,$(TAU_MAKEFILE))
+      $(error OCR_ROOT is not a valid path: $(_T))
+    endif
+    include $(TAU_MAKEFILE)
+    CFLAGS += -DOCR_RUNTIME_PROFILER_TAU $(TAUDEFS) $(TAUINC)
+    LDFLAGS += $(TAULIBS)
+  endif
+endif
 
 # Enables data collection for execution timeline visualizer
 # x86 only
