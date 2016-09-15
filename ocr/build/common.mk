@@ -18,6 +18,8 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # User Configurable settings
 ####################################################
 
+CFLAGS += -DLOAD_BALANCING_TEST
+
 # for jenkins testing purpose
 #CFLAGS += -DUTASK_COMM -DUTASK_COMM2
 
