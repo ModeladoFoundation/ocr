@@ -98,7 +98,7 @@ u8 destructTaskTemplateHc(ocrTaskTemplate_t *self) {
 }
 
 #ifdef ENABLE_EXTENSION_PERF
-static void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
+void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
                          ocrTaskTemplate_t *taskT) {
     u32 k;
 

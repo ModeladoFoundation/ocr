@@ -37,6 +37,10 @@
 
 #define DEBUG_TYPE POLICY
 
+#ifdef ENABLE_EXTENSION_PERF
+extern void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr, ocrTaskTemplate_t *taskT);
+#endif
+
 // This is in place of using the general purpose 'guidLocation' implementation that relies
 // on PD_MSG_GUID_INFO. Since 'guidLocationShort' is extensively called we directly call
 // the guid provider here
@@ -964,6 +968,10 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 if (tpl->hint.hintVal != NULL) {
                     tpl->hint.hintVal  = (u64*)((u64)base + sizeof(ocrTaskTemplateHc_t));
                 }
+#ifdef ENABLE_EXTENSION_PERF
+                tpl->base.taskPerfsEntry = NULL;
+                addPerfEntry(self, tpl->base.executePtr, &tpl->base);
+#endif
                 self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), (u64) metaDataPtr);
                 PROCESS_MESSAGE_RETURN_NOW(self, 0);
             }
