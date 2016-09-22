@@ -67,11 +67,17 @@ typedef volatile u32 lock_t;
  * source and destination
  */
 #define hal_memCopy(destination, source, size, isBackground)            \
-    do { __asm__ __volatile__("dma.copy %0, %1, %2, 0, 8\n\t"           \
-                              :                                         \
-                              : "r" ((void *)(destination)),            \
-                                "r" ((void *)(source)),                 \
-                                "r" (size));                            \
+    do {                                                                \
+        volatile u64 __dst = (volatile u64)(destination);               \
+        volatile u64 __src = (volatile u64)(source);                    \
+        __asm__ __volatile__("lea %0, %0\n\t"                           \
+                             "lea %1, %1\n\t"                           \
+                             "dma.copy %0, %1, %2, 0, 8\n\t"            \
+                             :                                          \
+                             : "r" ((void *)(__dst)),                   \
+                               "r" ((void *)(__src)),                   \
+                               "r" (size)                               \
+                             : "memory");                               \
         if (!isBackground) hal_fence();                                 \
     } while(0)
 

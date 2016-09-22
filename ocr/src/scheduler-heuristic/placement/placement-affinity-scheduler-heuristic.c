@@ -236,6 +236,7 @@ static void scheduleEdtMovement(ocrPolicyDomain_t * pd, ocrFatGuid_t edtFGuid, o
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 
 static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+    //return OCR_ENOP;
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid;
@@ -262,7 +263,13 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
         ocrSchedulerHeuristicPlacementAffinity_t * dself = (ocrSchedulerHeuristicPlacementAffinity_t *) self;
         ocrPlatformModelAffinity_t * model = dself->platformModel; // Cached from the PD initialization
         hal_lock(&(dself->lock)); // TODO this is concurrent with placement at the WORK creation time
-        u32 placementIndex = dself->edtLastPlacementIndex;
+        u32 placementIndex;
+        //if(getTaskPlacement(edtObj.guid.guid, &placementIndex)) {
+            placementIndex = dself->edtLastPlacementIndex;
+            //placementIndex = rand() % (model->pdLocAffinitiesSize - 1);
+            //placementIndex = 1;
+        //}
+        ASSERT(placementIndex < model->pdLocAffinitiesSize);
         ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
         dself->edtLastPlacementIndex++;
         if (dself->edtLastPlacementIndex == model->pdLocAffinitiesSize) {

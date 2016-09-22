@@ -222,6 +222,7 @@ function run() {
         fi
         runlogFilename=${RUNLOG_FILENAME_BASE}-${prog}
         reportFilename=${REPORT_FILENAME_BASE}-${prog}${REPORT_FILENAME_EXT}
+        echo "RUNNER_ARGS=${SCRIPT_ROOT}/runner.sh ${ARGS} -nbrun ${NB_RUN} -target ${TARGET_ARG} -runlog ${runlogFilename} -report ${reportFilename} ${runnerArgs} ${prog}"
         . ${SCRIPT_ROOT}/runner.sh ${ARGS} -nbrun ${NB_RUN} -target ${TARGET_ARG} -runlog ${runlogFilename} -report ${reportFilename} ${runnerArgs} ${prog}
     done
 }

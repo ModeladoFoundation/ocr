@@ -37,6 +37,12 @@ static void hashtableBucketLockedStatsInit(hashtableBucketLockedStats_t * stats)
 }
 #endif
 
+#ifdef  HASHTABLE_LOCK_SPREAD
+#define GET_LOCK_IDX(id) (id * (CACHE_LINE_SZB/sizeof(lock_t)))
+#else
+#define GET_LOCK_IDX(id) (id)
+#endif
+
 typedef struct _hashtableBucketLocked_t {
     hashtable_t base;
     lock_t * bucketLock;
@@ -134,12 +140,18 @@ hashtable_t * newHashtableBucketLocked(ocrPolicyDomain_t * pd, u32 nbBuckets, ha
     hashtableInit(pd, hashtable, nbBuckets, hashing);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
     u32 i;
-    lock_t * bucketLock = pd->fcts.pdMalloc(pd, nbBuckets*sizeof(lock_t));
+#ifdef HASHTABLE_LOCK_SPREAD
+    ASSERT(sizeof(lock_t)<(CACHE_LINE_SZB));
+    u64 bucketLockSz = nbBuckets*CACHE_LINE_SZB;
+#else
+    u64 bucketLockSz = nbBuckets*sizeof(lock_t);
+#endif
+    lock_t * bucketLock = pd->fcts.pdMalloc(pd, bucketLockSz);
 #ifdef STATS_HASHTABLE
     hashtableBucketLockedStats_t * stats = pd->fcts.pdMalloc(pd, nbBuckets*sizeof(hashtableBucketLockedStats_t));
 #endif
     for (i=0; i < nbBuckets; i++) {
-        bucketLock[i] = INIT_LOCK;
+        bucketLock[GET_LOCK_IDX(i)] = INIT_LOCK;
 #ifdef STATS_HASHTABLE
         hashtableBucketLockedStatsInit(&stats[i]);
 #endif
@@ -370,9 +382,9 @@ bool hashtableConcRemove(hashtable_t * hashtable, void * key, void ** value) {
 void * hashtableConcBucketLockedGet(hashtable_t * hashtable, void * key) {
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
-    hal_lock(&(rhashtable->bucketLock[bucket]));
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     ocr_hashtable_entry * entry = hashtableFindEntry(hashtable, key);
-    hal_unlock(&(rhashtable->bucketLock[bucket]));
+    hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     return (entry == NULL) ? 0x0 : entry->value;
 }
 
@@ -382,7 +394,7 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
     ocr_hashtable_entry * newHead = hashtable->pd->fcts.pdMalloc(hashtable->pd, sizeof(ocr_hashtable_entry));
     newHead->key = key;
     newHead->value = value;
-    hal_lock(&(rhashtable->bucketLock[bucket]));
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     ocr_hashtable_entry * oldHead = hashtable->table[bucket];
     newHead->nxt = oldHead;
     hashtable->table[bucket] = newHead;
@@ -394,14 +406,14 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
         stats->watermark++;
     }
 #endif
-    hal_unlock(&(rhashtable->bucketLock[bucket]));
+    hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     return true;
 }
 
 void * hashtableConcBucketLockedTryPut(hashtable_t * hashtable, void * key, void * value) {
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
-    hal_lock(&(rhashtable->bucketLock[bucket]));
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     ocr_hashtable_entry * entry = hashtableFindEntry(hashtable, key);
     if (entry == NULL) {
         hashtableNonConcPut(hashtable, key, value); // we already own the lock
@@ -412,10 +424,10 @@ void * hashtableConcBucketLockedTryPut(hashtable_t * hashtable, void * key, void
             stats->watermark++;
         }
 #endif
-        hal_unlock(&(rhashtable->bucketLock[bucket]));
+        hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
         return value;
     } else {
-        hal_unlock(&(rhashtable->bucketLock[bucket]));
+        hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
         return entry->value;
     }
 }
@@ -423,14 +435,14 @@ void * hashtableConcBucketLockedTryPut(hashtable_t * hashtable, void * key, void
 bool hashtableConcBucketLockedRemove(hashtable_t * hashtable, void * key, void ** value) {
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
-    hal_lock(&(rhashtable->bucketLock[bucket]));
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
 #ifdef STATS_HASHTABLE
     hashtableBucketLockedStats_t * stats = &rhashtable->stats[bucket];
     ASSERT(stats->current >= 1);
     stats->current--;
 #endif
     bool res = hashtableNonConcRemove(hashtable, key, value);
-    hal_unlock(&(rhashtable->bucketLock[bucket]));
+    hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     return res;
 }
 

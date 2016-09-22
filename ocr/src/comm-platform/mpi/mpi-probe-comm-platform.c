@@ -172,9 +172,9 @@ static u8 verifyOutgoing(ocrCommPlatformMPIProbe_t *mpiComm) {
         int completed = 0;
         RESULT_ASSERT(MPI_Test(&(mpiHandle->status), &completed, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
         if(completed) {
-            ocrPolicyMsg_t *msg = NULL;
+            ocrPolicyMsg_t *msg __attribute__((unused)) = NULL;
             if(mpiHandle->isMtHandle) {
-                mpiCommHandleMt_t *t = (mpiCommHandleMt_t*)mpiHandle;
+                mpiCommHandleMt_t *t = (mpiCommHandleMt_t*) mpiHandle;
                 if(t->myMsg) { //TODO-MT-COMM: Need to understand why 'myMsg' discriminates 1- or 2-way
                     msg = t->myMsg;
                     DPRINTF(DEBUG_LVL_VVERB,"[MPI %"PRId32"] ONE WAY sent msg=%p src=%"PRId32", dst=%"PRId32", msgId=%"PRIu64", type=0x%"PRIx32", usefulSize=%"PRIu64"\n",

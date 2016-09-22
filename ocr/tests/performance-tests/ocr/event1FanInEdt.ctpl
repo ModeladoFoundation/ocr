@@ -1,5 +1,6 @@
 #include "perfs.h"
 #include "ocr.h"
+#include "extensions/ocr-affinity.h"
 
 // DESC: Create FAN_OUT producer events and one consumer EDT depending on all of them
 // TIME: This is a template. Timing info is defined in the file including this one.
@@ -9,6 +10,7 @@
 // VARIABLES
 // - NB_ITERS
 // - FAN_OUT
+
 
 // !! These define are for internal use and should NOT be defined externally !!
 // Paramc for iteration number and various timer accumulators
@@ -81,6 +83,14 @@ ocrGuid_t driverEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         ocrGuid_t consEdtTemplateGuid;
         ocrEdtTemplateCreate(&consEdtTemplateGuid, consumerEdt, 0, FAN_OUT);
 
+        u64 affinityCount;
+        ocrAffinityCount(AFFINITY_PD, &affinityCount);
+        ocrGuid_t remoteAffGuid;
+        ocrAffinityGetAt(AFFINITY_PD, affinityCount-1, &remoteAffGuid);
+        ocrHint_t remoteEdtHint;
+        ocrHintInit(&remoteEdtHint, OCR_HINT_EDT_T);
+        ocrSetHintValue(&remoteEdtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(remoteAffGuid));
+
 #if CLEAN_UP_ITERATION
         ocrEventCreate(&nextIterEvt, OCR_EVENT_STICKY_T, false);
         ocrGuid_t consGuids[FAN_OUT];
@@ -100,19 +110,23 @@ ocrGuid_t driverEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #endif
             i++;
         }
-
         // Create the consumer edt
         ocrGuid_t doneOnceConsEdtGuid;
         ocrEdtCreate(&consEdtGuid, consEdtTemplateGuid,
-                     0, NULL, FAN_OUT, NULL, EDT_PROP_NONE, NULL_HINT, &doneOnceConsEdtGuid);
+                     0, NULL, FAN_OUT, NULL, EDT_PROP_NONE, &remoteEdtHint, &doneOnceConsEdtGuid);
 
         // Setup EDT cleanup completion to be ran after consumer EDT
         ocrGuid_t cleanupDone;
         ocrGuid_t cleanUpEdtGuid;
         ocrGuid_t cleanUpEdtTemplateGuid;
         ocrEdtTemplateCreate(&cleanUpEdtTemplateGuid, cleanupEdt, FAN_OUT, 1);
+        ocrGuid_t curAffGuid;
+        ocrAffinityGetCurrent(&curAffGuid);
+        ocrHint_t localEdtHint;
+        ocrHintInit(&localEdtHint, OCR_HINT_EDT_T);
+        ocrSetHintValue(&localEdtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(curAffGuid));
         ocrEdtCreate(&cleanUpEdtGuid, cleanUpEdtTemplateGuid,
-                     FAN_OUT, (u64*) consGuids, 1, &doneOnceConsEdtGuid, EDT_PROP_NONE, NULL_HINT, &cleanupDone);
+                     FAN_OUT, (u64*) consGuids, 1, &doneOnceConsEdtGuid, EDT_PROP_NONE, &localEdtHint, &cleanupDone);
         ocrEdtTemplateDestroy(cleanUpEdtTemplateGuid);
 
         // Because we're going to satisfy the consumer event before spawning the next iteration
@@ -142,7 +156,7 @@ ocrGuid_t driverEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         ocrGuid_t consEdtGuid;
         ocrGuid_t doneOnceConsEdtGuid;
         ocrEdtCreate(&consEdtGuid, consEdtTemplateGuid,
-                     0, NULL, FAN_OUT, NULL, EDT_PROP_NONE, NULL_HINT, &doneOnceConsEdtGuid);
+                     0, NULL, FAN_OUT, NULL, EDT_PROP_NONE, &remoteEdtHint, &doneOnceConsEdtGuid);
         ocrAddDependence(doneOnceConsEdtGuid, nextIterEvt, 0, DB_MODE_CONST);
         int i = 0;
         while (i < FAN_OUT) {
@@ -174,7 +188,11 @@ ocrGuid_t driverEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
             i++;
         }
         ocrEdtTemplateDestroy(consEdtTemplateGuid);
-
+        ocrGuid_t curAffGuid;
+        ocrAffinityGetCurrent(&curAffGuid);
+        ocrHint_t localEdtHint;
+        ocrHintInit(&localEdtHint, OCR_HINT_EDT_T);
+        ocrSetHintValue(&localEdtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(curAffGuid));
 #endif
 
         //
@@ -199,17 +217,17 @@ ocrGuid_t driverEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         u64 driverParamv[TPL_DRIVER_PARAMC];
         driverParamv[0] = iteration+1;
 #if TIME_SATISFY
-    driverParamv[1] = (u64) accTimerSatisfy;
+        driverParamv[1] = (u64) accTimerSatisfy;
 #endif
 #if TIME_CONSUMER_CREATE
-    driverParamv[2] = (u64) accTimerConsCreate;
+        driverParamv[2] = (u64) accTimerConsCreate;
 #endif
 #if TIME_ADD_DEP
-    driverParamv[3] = (u64) accTimerAddDep;
+        driverParamv[3] = (u64) accTimerAddDep;
 #endif
         ocrGuid_t driverEdtGuid;
         ocrEdtCreate(&driverEdtGuid, driverEdtTemplateGuid,
-                     TPL_DRIVER_PARAMC, driverParamv, TPL_DRIVER_DEPV, &nextIterEvt, EDT_PROP_NONE, NULL_HINT, NULL);
+                     TPL_DRIVER_PARAMC, driverParamv, TPL_DRIVER_DEPV, &nextIterEvt, EDT_PROP_NONE, &localEdtHint, NULL);
         ocrEdtTemplateDestroy(driverEdtTemplateGuid);
     }
 }
@@ -226,8 +244,13 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t driverEdtGuid;
     ocrGuid_t ndepv[1];
     ndepv[0] = NULL_GUID;
+    ocrGuid_t affGuid;
+    ocrAffinityGetAt(AFFINITY_PD, 0, &affGuid);
+    ocrHint_t edtHint;
+    ocrHintInit(&edtHint, OCR_HINT_EDT_T);
+    ocrSetHintValue(&edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(affGuid));
     ocrEdtCreate(&driverEdtGuid, driverEdtTemplateGuid,
-                 TPL_DRIVER_PARAMC, driverParamv, TPL_DRIVER_DEPV, ndepv, TPL_DRIVER_PROP, NULL_HINT, NULL);
+                 TPL_DRIVER_PARAMC, driverParamv, TPL_DRIVER_DEPV, ndepv, TPL_DRIVER_PROP, &edtHint, NULL);
     ocrEdtTemplateDestroy(driverEdtTemplateGuid);
     return NULL_GUID;
 }

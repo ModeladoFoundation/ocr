@@ -7,8 +7,6 @@ REPORT2=$2
 COL1=`cat $REPORT1 | grep "^[0-9]" | sed -e "s/ \+/ /g" | cut -d' ' -f 2-2 | tr '\n' ' '`
 COL2=`cat $REPORT2 | grep "^[0-9]" | sed -e "s/ \+/ /g" | cut -d' ' -f 2-2 | tr '\n' ' '`
 
-echo "$COL1"
-
 IFS=' ' read -r -a ARRAY1 <<< "$COL1"
 IFS=' ' read -r -a ARRAY2 <<< "$COL2"
 

@@ -29,8 +29,11 @@ bool isSupportedTraceType(bool evtType, ocrTraceType_t ttype, ocrTraceAction_t a
 void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocrTraceAction_t actionType,
                                 u64 workerId, u64 timestamp, ocrGuid_t parent, va_list ap);
 
+//FIXME: Smith-Waterman specific hard coded
+//TODO Define these generically
 
-
+#define MAX_PARAMS 6
+#define MAX_DEPS 6
 #define INIT_TRACE_OBJECT()                                                 \
                                                                             \
     ocrPolicyDomain_t *pd = NULL;                                           \
@@ -53,7 +56,7 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                                                                                                     \
     ((ocrWorkerHc_t *)worker)->sysDeque->pushAtTail(((ocrWorkerHc_t *)worker)->sysDeque, tr, 0);
 
-
+//TODO: Add comment descriptions for new trace fields
 typedef struct {
 
     ocrTraceType_t  typeSwitch;
@@ -71,7 +74,16 @@ typedef struct {
         struct{ /* Task (EDT) */
             union{
                 struct{
+                    ocrGuid_t templateGuid;
+                    ocrEdt_t funcPtr;
+                }taskTemplateCreate;
+
+                struct{
                     ocrGuid_t taskGuid;             /* GUID of created task*/
+                    ocrGuid_t parentID;             /*GUID of parent creating cur EDT*/
+                    u32 depc;
+                    u32 paramc;
+                    u64 paramv[MAX_PARAMS];
                 }taskCreate;
 
                 struct{
@@ -97,10 +109,25 @@ typedef struct {
                     u32 whyDelay;                   /* TODO: define this... may not be needed/useful */
                     ocrGuid_t taskGuid;             /* GUID of task executing */
                     ocrEdt_t funcPtr;               /* Function ptr to current function associated with the task */
+                    u64 depc;
+                    u64 paramc;
+                    u64 paramv[MAX_PARAMS];
                 }taskExeBegin;
 
                 struct{
                     ocrGuid_t taskGuid;             /* GUID of task completing */
+                    void *placeHolder;              /* future TODO: define useful fields*/
+                    void *edt;
+                    u32 count;
+                    u64 hwCycles;
+                    u64 hwCacheRefs;
+                    u64 hwCacheMisses;
+                    u64 hwFpOps;
+                    u64 swEdtCreates;
+                    u64 swDbTotal;
+                    u64 swDbCreates;
+                    u64 swDbDestroys;
+                    u64 swEvtSats;
                 }taskExeEnd;
 
                 struct{
@@ -232,6 +259,66 @@ typedef struct {
 
             }action;
         } TRACE_TYPE_NAME(SCHEDULER);
+
+        struct{
+            union{
+                struct{
+                    ocrGuid_t templateGuid;
+                    u32 paramc;
+                    u64 paramv[MAX_PARAMS];
+                    u32 depc;
+                    ocrGuid_t depv[MAX_DEPS];
+                }simEdtCreate;
+
+                struct{
+                    ocrEdt_t funcPtr;
+                    u32 paramc;
+                    u32 depc;
+                }simEdtTemplateCreate;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_EDT);
+
+        struct{
+            union{
+                struct{
+                    ocrEventTypes_t eventType;
+                }simEventCreate;
+
+                struct{
+                    ocrGuid_t eventGuid;
+                    ocrGuid_t dataGuid;
+                }simEventSatisfy;
+
+                struct{
+                    ocrGuid_t source;
+                    ocrGuid_t destination;
+                    u32 slot;
+                    ocrDbAccessMode_t accessMode;
+                }simEventAddDep;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_EVENT);
+
+        struct{
+            union{
+                struct{
+                    u64 len;
+                }simDbCreate;
+
+                struct{
+                    ocrGuid_t guid;
+                }simDbRelease;
+
+                struct{
+                    ocrGuid_t guid;
+                }simDbDestroy;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_DATABLOCK);
 
         struct{ /* User-facing custom marker */
             union{

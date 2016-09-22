@@ -51,7 +51,6 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
 
             case OCR_ACTION_CREATE:
             {
-                //Get var args
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
                 ocrEdt_t func = va_arg(ap, ocrEdt_t);
@@ -59,6 +58,25 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, func);
                 break;
             }
+            case OCR_ACTION_TEMPLATE_CREATE:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void*); // discard traceFunc
+                ocrGuid_t guid = va_arg(ap, ocrGuid_t);
+                ocrEdt_t funcPtr = va_arg(ap, ocrEdt_t);
+                TRACE_FIELD(TASK, taskTemplateCreate, tr, templateGuid) = guid;
+                TRACE_FIELD(TASK, taskTemplateCreate, tr, funcPtr) = funcPtr;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t guid = va_arg(ap, ocrGuid_t);
+                ocrEdt_t funcPtr = va_arg(ap, ocrEdt_t);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, guid, funcPtr);
+#endif
+                break;
+            }
+
             case OCR_ACTION_DESTROY:
             {
                 //Get var args
@@ -113,7 +131,6 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
             }
             case OCR_ACTION_EXECUTE:
             {
-                //Get var args
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
                 ocrEdt_t func = va_arg(ap, ocrEdt_t);
@@ -325,8 +342,8 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 ocrGuid_t curTask = va_arg(ap, ocrGuid_t);
                 TRACE_FIELD(SCHEDULER, schedMsgSend, tr, taskGuid) = curTask;
                 PUSH_TO_TRACE_DEQUE();
-            }
                 break;
+            }
 
             case OCR_ACTION_SCHED_MSG_RCV:
             {
@@ -335,8 +352,8 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 ocrGuid_t curTask = va_arg(ap, ocrGuid_t);
                 TRACE_FIELD(SCHEDULER, schedMsgRcv, tr, taskGuid) = curTask;
                 PUSH_TO_TRACE_DEQUE();
-            }
                 break;
+            }
 
             case OCR_ACTION_SCHED_INVOKE:
             {
@@ -345,17 +362,205 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 ocrGuid_t curTask = va_arg(ap, ocrGuid_t);
                 TRACE_FIELD(SCHEDULER, schedInvoke, tr, taskGuid) = curTask;
                 PUSH_TO_TRACE_DEQUE();
+                break;
             }
+
+            default:
                 break;
 
+        }
+
+        break;
+
+    case OCR_TRACE_TYPE_API_EDT:
+
+        switch(actionType){
+
+            case OCR_ACTION_CREATE:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                va_arg(ap, ocrGuid_t); // discard edtGuid
+                ocrGuid_t templateGuid = va_arg(ap, ocrGuid_t);
+                u32 paramc = va_arg(ap, u32);
+                u64 *paramvIn = va_arg(ap, u64 *);
+                u64 paramvOut[MAX_PARAMS];
+                if(paramc > 0 && paramvIn != NULL){
+                    memcpy(paramvOut, paramvIn, sizeof(paramvOut));
+                }
+                u32 depc = va_arg(ap, u32);
+                TRACE_FIELD(API_EDT, simEdtCreate, tr, templateGuid) = templateGuid;
+                TRACE_FIELD(API_EDT, simEdtCreate, tr, paramc) = paramc;
+                memcpy(TRACE_FIELD(API_EDT, simEdtCreate, tr, paramv), paramvOut, sizeof(paramvOut));
+                TRACE_FIELD(API_EDT, simEdtCreate, tr, depc) = depc;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t edtGuid = va_arg(ap, ocrGuid_t); // discard edtGuid
+                ocrGuid_t templateGuid = va_arg(ap, ocrGuid_t);
+                u32 paramc = va_arg(ap, u32);
+                u64 * paramv = va_arg(ap, u64 *);
+                u32 depc = va_arg(ap, u32);
+                ocrGuid_t * depv = va_arg(ap, ocrGuid_t *);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, edtGuid,
+                        templateGuid, paramc, paramv, depc, depv);
+#endif
+                break;
+            }
+            case OCR_ACTION_TEMPLATE_CREATE:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                ocrEdt_t funcPtr = va_arg(ap, ocrEdt_t);
+                u32 paramc = va_arg(ap, u32);
+                u32 depc = va_arg(ap, u32);
+                TRACE_FIELD(API_EDT, simEdtTemplateCreate, tr, funcPtr) = funcPtr;
+                TRACE_FIELD(API_EDT, simEdtTemplateCreate, tr, paramc) = paramc;
+                TRACE_FIELD(API_EDT, simEdtTemplateCreate, tr, depc) = depc;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrEdt_t funcPtr = va_arg(ap, ocrEdt_t);
+                u32 paramc = va_arg(ap, u32);
+                u32 depc = va_arg(ap, u32);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, funcPtr, paramc, depc);
+#endif
+                break;
+            }
             default:
                 break;
         }
         break;
 
-    default:
+    case OCR_TRACE_TYPE_API_EVENT:
+
+        switch(actionType){
+
+            case OCR_ACTION_CREATE:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                ocrEventTypes_t eventType = va_arg(ap, ocrEventTypes_t);
+                TRACE_FIELD(API_EVENT, simEventCreate, tr, eventType) = eventType;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrEventTypes_t eventType = va_arg(ap, ocrEventTypes_t);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, eventType);
+#endif
+                break;
+            }
+            case OCR_ACTION_SATISFY:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                ocrGuid_t eventGuid = va_arg(ap, ocrGuid_t);
+                ocrGuid_t dataGuid = va_arg(ap, ocrGuid_t);
+                TRACE_FIELD(API_EVENT, simEventSatisfy, tr, eventGuid) = eventGuid;
+                TRACE_FIELD(API_EVENT, simEventSatisfy, tr, dataGuid) = dataGuid;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t eventGuid = va_arg(ap, ocrGuid_t);
+                ocrGuid_t dataGuid = va_arg(ap, ocrGuid_t);
+                u32 slot = va_arg(ap, u32);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, eventGuid,
+                        dataGuid, slot);
+#endif
+                break;
+            }
+            case OCR_ACTION_ADD_DEP:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                ocrGuid_t source = va_arg(ap, ocrGuid_t);
+                ocrGuid_t dest = va_arg(ap, ocrGuid_t);
+                u32 slot = va_arg(ap, u32);
+                ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, source) = source;
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, destination) = dest;
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, slot) = slot;
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, accessMode) = accessMode;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t source = va_arg(ap, ocrGuid_t);
+                ocrGuid_t dest = va_arg(ap, ocrGuid_t);
+                u32 slot = va_arg(ap, u32);
+                ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent,
+                        source, dest, slot, accessMode);
+#endif
+                break;
+            }
+            default:
+                break;
+        }
         break;
 
+    case OCR_TRACE_TYPE_API_DATABLOCK:
+
+        switch(actionType){
+            case OCR_ACTION_CREATE:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                va_arg(ap, ocrGuid_t); // discard dbGuid
+                u64 len = va_arg(ap, u64);
+                TRACE_FIELD(API_DATABLOCK, simDbCreate, tr, len) = len;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t dbGuid = va_arg(ap, ocrGuid_t);
+                u64 len = va_arg(ap, u64);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent,
+                        dbGuid, len);
+#endif
+                break;
+            }
+            case OCR_ACTION_DATA_RELEASE:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                ocrGuid_t guid = va_arg(ap, ocrGuid_t);
+                TRACE_FIELD(API_DATABLOCK, simDbRelease, tr, guid) = guid;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t guid = va_arg(ap, ocrGuid_t);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, guid);
+#endif
+                break;
+            }
+            case OCR_ACTION_DESTROY:
+            {
+#ifdef OCR_ENABLE_SIMULATOR
+                INIT_TRACE_OBJECT();
+                va_arg(ap, void *); // discard traceFunc
+                ocrGuid_t guid = va_arg(ap, ocrGuid_t);
+                TRACE_FIELD(API_DATABLOCK, simDbDestroy, tr, guid) = guid;
+                PUSH_TO_TRACE_DEQUE();
+#else
+                void (*traceFunc)() = va_arg(ap, void *);
+                ocrGuid_t guid = va_arg(ap, ocrGuid_t);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, guid);
+#endif
+                break;
+            }
+
+            default:
+                break;
+        }
+        break;
+    default:
+        break;
     }
 
 }

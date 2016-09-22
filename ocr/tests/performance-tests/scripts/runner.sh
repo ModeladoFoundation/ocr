@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
         shift
         LOGDIR_OPT="yes"
         LOGDIR_ARG=("$@")
-    echo "LOGDIR_ARG=$LOGDIR_ARG"
+        echo "LOGDIR_ARG=$LOGDIR_ARG"
         shift
     elif [[ "$1" = "-nbrun" && $# -ge 2 ]]; then
         shift
@@ -120,7 +120,7 @@ if [[ -z "$PROG_ARG" ]]; then
     exit 1
 fi
 
-if [[ -z "$LOGDIR_ARG" ]]; then
+if [[ "${LOGDIR_OPT}" != "yes" ]]; then
     LOGDIR=`mktemp -d rundir.XXXXXX`
 else
     LOGDIR=${LOGDIR_ARG}
@@ -253,11 +253,6 @@ function generateCfgFile {
         parsed=(${cfgarg//=/ })
         argNameU=${parsed[0]#CFGARG_}
         toLower ${argNameU} argNameL
-        # if [[ ${BASH_VER} -eq 4 ]]; then
-        #     argNameL=${argNameU,,}
-        # else
-        #     argNameL=`echo ${argNameU} | tr '[:upper:]' '[:lower:]'`
-        # fi
         argValue=${parsed[1]}
         #Append to generator argument list
         arg="--${argNameL} ${argValue}"
@@ -334,12 +329,11 @@ function scalingTest {
     for nodes in `echo "${NODE_SCALING}"`; do
         for cores in `echo "${CORE_SCALING}"`; do
             export pes=`echo "${cores}*${nodes}" | bc`
-            # if [[ "${OCR_TYPE}" == "x86-mpi" ]]; then
-            #     export pes_comp=`echo "(${cores}-1)*${nodes}" | bc`
-            # else
-            #     export pes_comp=${pes}
-            # fi
-            export pes_comp=8
+            if [[ "${OCR_TYPE}" == "x86-mpi" ]]; then
+                export pes_comp=`echo "(${cores}-1)*${nodes}" | bc`
+            else
+                export pes_comp=${pes}
+            fi
             runInfo="NB_WORKERS=${cores} NB_NODES=${nodes}"
             echo "======== $runInfo ======== "
 
@@ -356,22 +350,18 @@ function scalingTest {
 
             # Generate the OCR CFG file
             export CFGARG_THREADS=${cores}
-            export CFGARG_OUTPUT="${prog}-${cores}c.cfg"
+            export CFGARG_OUTPUT="${LOGDIR}/${prog}-${cores}c.cfg"
             generateCfgFile
 
             # Generate workload arguments if there is a user-provided function
             invokeRunnerWorkloadArguments WORKLOAD_ARGS
 
-            echo "AFTER WORKLOAD_ARGS=${WORKLOAD_ARGS}"
-
-            echo "BEFore ======== ${OCR_NODEFILE} ${OCR_NUM_NODES} ======== "
             if [[ "${RUNNER_TYPE}" == "Application" ]]; then
                 runApplication RES
             else
                 # Default is micro-benchmark
                 runMicroBenchmark RES
             fi
-            echo "AFTer ======== ${OCR_NODEFILE} ${OCR_NUM_NODES} ======== "
 
             if [[ ! -f ${CFGARG_OUTPUT} ]]; then
                 echo "error: ${SCRIPT_NAME} Cannot find generated OCR config file ${CFGARG_OUTPUT}"

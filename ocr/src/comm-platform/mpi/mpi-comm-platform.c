@@ -473,7 +473,7 @@ static u8 MPICommPollMessageInternal(ocrCommPlatform_t *self, ocrPolicyMsg_t **m
                     postRecvFixedSzMsg(mpiComm, recvHdl);
                 } else {
                     // The message requires a response but we do not know its size: will use MPI probe
-                    mpiCommHandle_t * recvHdl = moveHdlSendToRecv(mpiComm, hdl);
+                    mpiCommHandle_t * recvHdl __attribute__((unused)) = moveHdlSendToRecv(mpiComm, hdl);
                     DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRId32"] moving to incoming: message of type %"PRIx32" with msgId=%"PRIu64" handle idx=%"PRIu32"\n",
                                         locationToMpiRank(self->pd->myLocation), recvHdl->base.msg->type, recvHdl->base.msg->msgId, resolveHandleIdx(mpiComm, recvHdl, mpiComm->recvHdlPool));
                 }

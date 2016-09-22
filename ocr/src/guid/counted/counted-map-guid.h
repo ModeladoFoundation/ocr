@@ -24,9 +24,7 @@
  * - GUID generation relies on an atomic incr shared by ALL the workers of the PD.
  */
 
-#ifdef GUID_PROVIDER_WID_INGUID
-#define GUID_WID_CACHE_SIZE 8
-#endif
+#define GUID_WID_CACHE_SIZE (CACHE_LINE_SZB/sizeof(u64))
 
 typedef struct {
     ocrGuidProvider_t base;

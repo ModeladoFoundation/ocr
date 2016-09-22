@@ -18,10 +18,18 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # User Configurable settings
 ####################################################
 
+CFLAGS += -DLOAD_BALANCING_TEST
+
 # for jenkins testing purpose
 #CFLAGS += -DUTASK_COMM -DUTASK_COMM2
 
+# **** System-dependent values ****
+
+# Cache line size in bytes (Mostly used for padding)
+CFLAGS += -DCACHE_LINE_SZB=64
+
 # **** Lock implementation ****
+
 # By default, a test test-and-set lock is used but you
 # can also enable a ticket-lock instead. This increase space
 # requirements for each lock (from 32 bits to 64 bits)
@@ -80,6 +88,11 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 # - Activate a different hashmap implementation
 #   Warning: Necessitates an additional -D activating the alternate implementation
 # CFLAGS += -DGUID_PROVIDER_CUSTOM_MAP -D_TODO_FILL_ME_IN
+
+# **** Hashtable Parameters ****
+
+# - Distributed hashtable locks over cache lines
+# CFLAGS += -DHASHTABLE_LOCK_SPREAD
 
 # **** Communication Platform Parameters ****
 
@@ -355,6 +368,10 @@ CFLAGS := -g -Wall $(CFLAGS) $(CFLAGS_USER)
 ################################################################
 
 
+# Make sure that incompletely produced files are deleted
+# on error
+.DELETE_ON_ERROR:
+
 #
 # Make sure we have absolute paths
 #
@@ -464,10 +481,10 @@ ifneq (${NO_DEBUG}, yes)
     # For gcc/mpicc versions < 4.4 disable warning as error as message pragmas are not supported
     ret := $(shell echo "`$(CC) -dumpversion | cut -d'.' -f1-2` < 4.4" | bc)
     ifeq ($(ret), 0)
-      CFLAGS += -Werror
+      CFLAGS += -Wno-error
     endif
   else
-    CFLAGS += -Werror
+    CFLAGS += -Wno-error
   endif
 endif
 
@@ -680,7 +697,17 @@ $(OBJDIR)/shared/%.o: %.S Makefile ../common.mk $(OBJDIR)/shared/%.d | $(OBJDIR)
 # Auto-generated config file containing options that
 # need to be enabled for the app if enabled in the runtime
 #
-# We always re-generate this file
+# We always attempt to re-generate this file
+# We don't change it all the time as this messes up dependence
+# checking for applications.
+OPTIONS_FILE_UPTODATE := no
+ifneq ("$(wildcard $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h)", "")
+  ifeq ($(shell cat $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h | sed '4s/.*RT CFLAGS:\(.*\)\*\//\1/; 4!d' | xargs ), $(shell echo "$(CFLAGS)" | xargs))
+    OPTIONS_FILE_UPTODATE := yes
+  endif
+endif
+
+ifeq ($(OPTIONS_FILE_UPTODATE), no)
 .PHONY: $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h
 $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include
 	@echo "Generating OCR build option file: $@"
@@ -704,6 +731,10 @@ ifneq (,$(findstring -DOCR_ASSERT, $(CFLAGS)))
 	$(AT)$(shell echo "#endif" >> $@)
 endif
 	$(AT)$(shell echo "#endif /* __OCR_OPTIONS_"$(subst -,_,$(OCR_TYPE))"_H__ */" >> $@)
+else
+$(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include
+	;
+endif
 #
 # Include auto-generated dependence files
 # We only include the ones for the .o that we need to generate
@@ -845,6 +876,8 @@ else
 
 endif # Darwin ifeq
 
+# List the lock file as intermediate so it is removed if things crash
+.INTERMEDIATE: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
 .PHONY: grablock
 grablock:
 	@printf "\033[32m Grabbing install lock\033[0m\n"

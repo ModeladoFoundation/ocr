@@ -21,6 +21,7 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventCreateParams(*guid="GUIDF", eventType=%"PRIu32", properties=%"PRIu32")\n", GUIDA(*guid),
             (u32)eventType, (u32)properties);
 
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_CREATE, traceAPIEventCreate, eventType);
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t * pd = NULL;
     u8 returnCode = 0;
@@ -107,6 +108,7 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     START_PROFILE(api_ocrEventSatisfySlot);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventSatisfySlot(evt="GUIDF", data="GUIDF", slot=%"PRIu32")\n",
             GUIDA(eventGuid), GUIDA(dataGuid), slot);
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_SATISFY, traceAPIEventSatisfyDependence, eventGuid, dataGuid, slot);
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
 
@@ -145,6 +147,7 @@ u8 ocrEventSatisfy(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/) {
 }
 
 u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, u32 depc, const char* funcName) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EDT, OCR_ACTION_TEMPLATE_CREATE, traceAPITemplateCreate, funcPtr, paramc, depc);
     START_PROFILE(api_ocrEdtTemplateCreate);
 
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEdtTemplateCreate(*guid="GUIDF", funcPtr=%p, paramc=%"PRId32", depc=%"PRId32", name=%s)\n",
@@ -192,6 +195,7 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
     }
 #undef PD_MSG
 #undef PD_TYPE
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_TEMPLATE_CREATE, traceTemplateCreate, *guid, funcPtr);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtTemplateCreate -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
     RETURN_PROFILE(returnCode);
@@ -334,6 +338,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     if (edtGuidPtr != NULL) {
         *edtGuidPtr = edtGuid;
     }
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EDT, OCR_ACTION_CREATE, traceAPITaskCreate, edtGuid, templateGuid, paramc, paramv, depc, depv);
     // These should have been resolved
     paramc = PD_MSG_FIELD_IO(paramc);
     depc = PD_MSG_FIELD_IO(depc);
@@ -406,6 +411,7 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
 
 u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
                     ocrDbAccessMode_t mode) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_ADD_DEP, traceAPIAddDependence, source, destination, slot, mode);
     START_PROFILE(api_ocrAddDependence);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrAddDependence(src="GUIDF", dest="GUIDF", slot=%"PRIu32", mode=%"PRId32")\n",
             GUIDA(source), GUIDA(destination), slot, (s32)mode);

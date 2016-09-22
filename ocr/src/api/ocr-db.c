@@ -27,7 +27,6 @@
 
 u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
                ocrHint_t *hint, ocrInDbAllocator_t allocator) {
-
     START_PROFILE(api_ocrDbCreate);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbCreate(*guid="GUIDF", len=%"PRIu64", flags=%"PRIu32""
             ", hint=%p, alloc=%"PRIu32")\n", GUIDA(*db), len, (u32)flags, hint, (u32)allocator);
@@ -76,7 +75,7 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
     }
 #undef PD_MSG
 #undef PD_TYPE
-
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_CREATE, traceAPIDataCreate, *db, len);
     if((!(flags & DB_PROP_NO_ACQUIRE)) &&  task && (returnCode == 0)) {
         // Here we inform the task that we created a DB
         // This is most likely ALWAYS a local message but let's leave the
@@ -115,7 +114,7 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
 }
 
 u8 ocrDbDestroy(ocrGuid_t db) {
-
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_DESTROY, traceAPIDataDestroy, db);
     START_PROFILE(api_ocrDbDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbDestroy(guid="GUIDF")\n", GUIDA(db));
     PD_MSG_STACK(msg);
@@ -188,6 +187,7 @@ u8 ocrDbDestroy(ocrGuid_t db) {
 
 u8 ocrDbRelease(ocrGuid_t db) {
 
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_DATA_RELEASE, traceAPIDataRelease, db);
     START_PROFILE(api_ocrDbRelease);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbRelease(guid="GUIDF")\n", GUIDA(db));
     PD_MSG_STACK(msg);

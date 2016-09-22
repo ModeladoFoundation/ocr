@@ -37,15 +37,6 @@
 #define SIDX_KIND        (SIDX_LOCID-GUID_LOCID_SIZE)
 #define SIDX_COUNTER     (SIDX_KIND-GUID_KIND_SIZE)
 
-//TODO cleanup when we rewrite reserve
-#ifdef GUID_PROVIDER_WID_INGUID
-#define KIND_LOCATION (SIZE(LOCWID))
-#define LOCID_LOCATION (KIND_LOCATION+SIZE(KIND))
-#else
-#define KIND_LOCATION (0)
-#define LOCID_LOCATION (SIZE(KIND))
-#endif
-
 // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
 #define IS_RESERVED_GUID(guidVal) ((guidVal.guid & 0x8000000000000000ULL) != 0ULL)
@@ -192,36 +183,25 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
 }
 
 u8 labeledGuidReserve(ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGuid,
-                      u64 numberGuids, ocrGuidKind guidType) {
-    ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
-    // We just return a range using our "header" (location, etc) just like for
-    // generateNextGuid
-    // ocrGuidType_t and ocrGuidKind should be the same (there are more GuidKind but
-    // the ones that are the same should match)
-    u64 locId = (u64) locationToLocId(self->pd->myLocation);
-    u64 locIdShifted = locId << LOCID_LOCATION;
-    u64 kindShifted = guidType << KIND_LOCATION;
-    // See BUG #928 on GUID issues
-#if GUID_BIT_COUNT == 64
-    (*(startGuid)).guid = ((1 << (GUID_LOCID_SIZE + LOCID_LOCATION)) | locIdShifted | kindShifted) <<
-        GUID_COUNTER_SIZE;
-#elif GUID_BIT_COUNT == 128
-    (*(startGuid)).lower = ((1 << (GUID_LOCID_SIZE + LOCID_LOCATION)) | locIdShifted | kindShifted) <<
-        GUID_COUNTER_SIZE;
-    (*(startGuid)).upper = 0x0;
-#endif
-
+                      u64 numberGuids, ocrGuidKind kind) {
+    RSELF_TYPE* rself = (RSELF_TYPE*)self;
+    // We just return a range using our "header" (location, etc)
+    // just like for generateNextGuid.
+    // ocrGuidType_t and ocrGuidKind should be the same (there are more
+    // GuidKind but the ones that are the same should match)
+    u64 shLocHome = LSHIFT(LOCHOME, locationToLocId(self->pd->myLocation));
+    u64 shKind = LSHIFT(KIND, kind);
+    u64 guid = (shLocHome | shKind);
     *skipGuid = 1; // Each GUID will just increment by 1
     u64 firstCount = hal_xadd64(&(rself->guidReservedCounter), numberGuids);
     ASSERT(firstCount  + numberGuids < (MAX_VAL(COUNTER)));
-
+    guid |= (LSHIFT(RESERVED, 1) | firstCount);
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-    (*(startGuid)).guid |= firstCount;
+    (*(startGuid)).guid = guid;
 #elif GUID_BIT_COUNT == 128
-    (*(startGuid)).lower |= firstCount;
+    (*(startGuid)).lower = guid;
 #endif
-
     DPRINTF(DEBUG_LVL_VVERB, "LabeledGUID reserved a range for %"PRIu64" GUIDs starting at "GUIDF"\n",
             numberGuids, GUIDA(*startGuid));
     return 0;
@@ -245,8 +225,6 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
         GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) newGuid, (void *) val);
     }
     // See BUG #928 on GUID issues
-
-    GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) newGuid, (void *) val);
 #if GUID_BIT_COUNT == 64
     (*(guid)).guid =  newGuid;
 #elif GUID_BIT_COUNT == 128

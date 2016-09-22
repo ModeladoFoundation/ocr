@@ -31,6 +31,8 @@
 #endif
 
 
+#define GUID_WID_CACHE_SIZE (CACHE_LINE_SZB/sizeof(u64))
+
 typedef struct {
     ocrGuidProvider_t base;
     hashtable_t * guidImplTable;

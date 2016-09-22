@@ -99,6 +99,10 @@ void __attribute__ ((weak)) traceTaskShift(u64 location, bool evtType, ocrTraceT
     return;
 }
 
+u8 __attribute__ ((weak)) getTaskPlacement(ocrGuid_t edtGuid, u32 * location) {
+    return 1;
+}
+
 void __attribute__ ((weak)) traceTaskDataAcquire(u64 location, bool evtType, ocrTraceType_t objType,
                                                  ocrTraceAction_t actionType, u64 workerId,
                                                  u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
@@ -207,6 +211,67 @@ void __attribute__ ((weak)) traceDataDestroy(u64 location, bool evtType, ocrTrac
     INIT_TRACE_OBJECT();
     TRACE_FIELD(DATA, dataDestroy, tr, dbGuid) = dbGuid;
     PUSH_TO_TRACE_DEQUE();
+    return;
+}
+
+void __attribute__ ((weak)) traceTemplateCreate(u64 location, bool evtType, ocrTraceType_t objType,
+                     ocrTraceAction_t actionType, u64 workerId,
+                     u64 timestamp, ocrGuid_t parent, ocrGuid_t templGuid,
+                     ocrEdt_t fctPtr) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPITemplateCreate(u64 location, bool evtType, ocrTraceType_t objType,
+                     ocrTraceAction_t actionType, u64 workerId,
+                     u64 timestamp, ocrGuid_t parent, ocrEdt_t fctPtr,
+                     u32 paramc, u32 depc) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPITaskCreate(u64 location, bool evtType, ocrTraceType_t objType,
+                     ocrTraceAction_t actionType, u64 workerId,
+                     u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                     ocrGuid_t templGuid, u32 paramc, u64 * paramv,
+                     u32 depc, ocrGuid_t * depv) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPIAddDependence(u64 location, bool evtType, ocrTraceType_t objType,
+                            ocrTraceAction_t actionType, u64 workerId,
+                            u64 timestamp, ocrGuid_t parent, ocrGuid_t src,
+                            ocrGuid_t dest, u32 slot, ocrDbAccessMode_t mode) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPIEventSatisfyDependence(u64 location, bool evtType, ocrTraceType_t objType,
+                                 ocrTraceAction_t actionType, u64 workerId,
+                                 u64 timestamp, ocrGuid_t parent, ocrGuid_t eventGuid,
+                                 ocrGuid_t satisfyee, u32 slot) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPIEventCreate(u64 location, bool evtType, ocrTraceType_t objType,
+                      ocrTraceAction_t actionType, u64 workerId,
+                      u64 timestamp, ocrGuid_t parent, ocrEventTypes_t eventType) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPIDataCreate(u64 location, bool evtType, ocrTraceType_t objType,
+                     ocrTraceAction_t actionType, u64 workerId,
+                     u64 timestamp, ocrGuid_t parent, ocrGuid_t dbGuid,
+                     u64 dbSize) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPIDataDestroy(u64 location, bool evtType, ocrTraceType_t objType,
+                      ocrTraceAction_t actionType, u64 workerId,
+                      u64 timestamp, ocrGuid_t parent, ocrGuid_t dbGuid) {
+    return;
+}
+
+void __attribute__ ((weak)) traceAPIDataRelease(u64 location, bool evtType, ocrTraceType_t objType,
+                          ocrTraceAction_t actionType, u64 workerId,
+                          u64 timestamp, ocrGuid_t parent, ocrGuid_t dbGuid) {
     return;
 }
 

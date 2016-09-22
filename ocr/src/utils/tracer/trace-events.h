@@ -16,9 +16,11 @@ const char *evt_type[] = {
 //Strings for traced OCR objects
 const char *obj_type[] = {
     "EDT",
+    "API_EDT",
     "EVENT",
+    "API_EVENT",
     "MESSAGE",
-    "DATABLOCK"
+    "API_DATABLOCK",
     "DATABLOCK",
     "WORKER",
     "SCHEDULER",
@@ -28,6 +30,7 @@ const char *obj_type[] = {
 //Strings for traced OCR events
 const char *action_type[] = {
     "CREATE",
+    "TEMPLATE_CREATE",
     "DESTROY",
     "RUNNABLE",
     "SCHEDULED",

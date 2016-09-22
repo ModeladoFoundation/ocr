@@ -59,7 +59,8 @@ u8 hcWorkpileSwitchRunlevel(ocrWorkpile_t *self, ocrPolicyDomain_t *PD, ocrRunle
             void * nullVal =  (void *) NULL_GUID.lower;
 #endif
             // By convention we stash the deque type here else default
-            ocrDequeType_t type = (derived->deque != NULL) ? (ocrDequeType_t) derived->deque : WORK_STEALING_DEQUE;
+            // Need the u64 cast otherwise icc complains about loosing significant bits
+            ocrDequeType_t type = (derived->deque != NULL) ? ((ocrDequeType_t) ((u64) derived->deque)) : WORK_STEALING_DEQUE;
             derived->deque = newDeque(self->pd, nullVal, type);
         }
         if((properties & RL_TEAR_DOWN) && RL_IS_LAST_PHASE_DOWN(PD, RL_GUID_OK, phase)) {

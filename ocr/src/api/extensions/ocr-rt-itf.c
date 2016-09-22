@@ -55,8 +55,9 @@ u64 ocrNbWorkers() {
     START_PROFILE(api_ocrNbWorkers)
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    if(pd != NULL)
+    if(pd != NULL) {
         RETURN_PROFILE(pd->workerCount);
+    }
     RETURN_PROFILE(0);
 }
 

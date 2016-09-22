@@ -927,7 +927,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     DPRINTF(DEBUG_LVL_INFO, "Create "GUIDF" depc %"PRId32" outputEvent "GUIDF"\n", GUIDA(base->guid), depc, GUIDA(outputEventPtr?outputEventPtr->guid:NULL_GUID));
     edtGuid->guid = base->guid;
     edtGuid->metaDataPtr = base;
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid, base->funcPtr);
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid, base->funcPtr, depc, paramc, paramv);
     // Check to see if the EDT can be run
     if(base->depc == edt->slotSatisfiedCount) {
         //TODO-MD-EDT: Is this an issue if the scheduler calls move here ?
@@ -1553,9 +1553,7 @@ u8 taskExecute(ocrTask_t* base) {
         START_PROFILE(ta_hc_executeSetup);
         base->state = RUNNING_EDTSTATE;
 
-        //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
         DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
-
         ASSERT(derived->unkDbs == NULL); // Should be no dynamically acquired DBs before running
         getCurrentEnv(&pd, &curWorker, NULL, NULL);
 
@@ -1594,7 +1592,7 @@ u8 taskExecute(ocrTask_t* base) {
         TPRINTF("EDT Start: 0x%"PRIx64" 0x%"PRIx64" in %s\n",
                 base->funcPtr, base->guid, location);
 #endif
-        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr);
+        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr, depc, paramc, paramv);
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
         if(base->funcPtr == &processRequestEdt) {
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
