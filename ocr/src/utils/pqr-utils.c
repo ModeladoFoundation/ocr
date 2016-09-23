@@ -48,9 +48,9 @@ ocrGuid_t hcDumpNextEdt(ocrWorker_t *worker, u32 *size){
         ocrFatGuid_t fguid;
         // See BUG #928 on GUIDs
 #if GUID_BIT_COUNT == 64
-        fguid.guid.guid = deqObj->deque->data[tail-1];
+        fguid.guid.guid = (u64)deqObj->deque->data[tail-1];
 #elif GUID_BIT_COUNT == 128
-        fguid.guid.lower = deqObj->deque->data[tail-1];
+        fguid.guid.lower = (u64)deqObj->deque->data[tail-1];
         fguid.guid.upper = 0x0;
 #endif
         fguid.metaDataPtr = NULL;
@@ -61,7 +61,7 @@ ocrGuid_t hcDumpNextEdt(ocrWorker_t *worker, u32 *size){
         PD_MSG_FIELD_IO(guid.guid) = fguid.guid;
         PD_MSG_FIELD_IO(guid.metaDataPtr) = fguid.metaDataPtr;
         PD_MSG_FIELD_I(properties) = RMETA_GUIDPROP | KIND_GUIDPROP;
-        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+        u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, true);
         ocrGuidKind msgKind = PD_MSG_FIELD_O(kind);
         curTask = (ocrTask_t *)PD_MSG_FIELD_IO(guid.metaDataPtr);
     #undef PD_MSG
@@ -154,7 +154,12 @@ ocrGuid_t hcQueryAllEdts(ocrPolicyDomainHc_t *rself, void **result, u32 *qsize){
                 PD_MSG_STACK(msg);
                 getCurrentEnv(NULL, NULL, NULL, &msg);
                 ocrFatGuid_t fguid;
-                fguid.guid = (ocrGuid_t)deqObj->deque->data[j];
+#if GUID_BIT_COUNT == 64
+                fguid.guid.guid = (u64)deqObj->deque->data[j];
+#elif GUID_BIT_COUNT == 128
+                fguid.guid.lower = (u64)deqObj->deque->data[j];
+                fguid.guid.upper = 0x0;
+#endif
                 fguid.metaDataPtr = NULL;
 
             #define PD_MSG (&msg)
@@ -163,7 +168,7 @@ ocrGuid_t hcQueryAllEdts(ocrPolicyDomainHc_t *rself, void **result, u32 *qsize){
                 PD_MSG_FIELD_IO(guid.guid) = fguid.guid;
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = fguid.metaDataPtr;
                 PD_MSG_FIELD_I(properties) = RMETA_GUIDPROP | KIND_GUIDPROP;
-                RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+                u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, true);
                 ocrGuidKind msgKind = PD_MSG_FIELD_O(kind);
                 ocrTask_t *curTask = (ocrTask_t *)PD_MSG_FIELD_IO(guid.metaDataPtr);
             #undef PD_MSG

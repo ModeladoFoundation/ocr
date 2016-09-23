@@ -32,5 +32,11 @@ void ocrResume(u32 flag){
     RETURN_PROFILE()
 }
 
+void ocrInjectFault(){
+    START_PROFILE(api_ocrInjectFault);
+    salInjectFault();
+    RETURN_PROFILE();
+}
+
 #endif /* ENABLE_EXTENSION_PAUSE */
 

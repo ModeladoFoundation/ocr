@@ -67,6 +67,11 @@ ocrGuid_t ocrQuery(ocrQueryType_t query, ocrGuid_t guid, void **result, u32 *siz
  **/
 void ocrResume(u32 flag);
 
+/**
+ * User driven fault injection
+ **/
+void ocrInjectFault();
+
 #ifdef __cplusplus
 }
 #endif

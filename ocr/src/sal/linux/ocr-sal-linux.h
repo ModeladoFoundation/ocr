@@ -20,6 +20,8 @@ extern ocrGuid_t salQuery(ocrQueryType_t query, ocrGuid_t guid, void **result, u
 
 extern void salResume(u32 flag);
 
+extern void salInjectFault(void);
+
 extern void registerSignalHandler();
 
 #define sal_abort()   hal_abort()
