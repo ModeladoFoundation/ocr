@@ -46,7 +46,7 @@
 #define ENABLE_EVENT_HC
 
 // Execution Model
-//#define ENABLE_DEFERRED_MSGS
+#define ENABLE_DEFERRED_MSGS
 
 // External things (mostly needed by the INI parser)
 #define ENABLE_EXTERNAL_DICTIONARY
@@ -76,7 +76,7 @@
 #define ENABLE_POLICY_DOMAIN_HC
 
 // Resiliency
-//#define ENABLE_RESILIENCY
+#define ENABLE_RESILIENCY
 
 // Scheduler
 #define ENABLE_SCHEDULER_COMMON
@@ -138,7 +138,7 @@
 #define ENABLE_EXTENSION_RTITF
 
 // Build pause/resume support
-// #define ENABLE_EXTENSION_PAUSE
+#define ENABLE_EXTENSION_PAUSE
 
 // GUID labeling extension
 #define ENABLE_EXTENSION_LABELING
