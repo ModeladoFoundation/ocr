@@ -116,6 +116,7 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
     DPRINTF_COND_LVL(((returnCode != 0) && (returnCode != OCR_EGUIDEXISTS)), DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrDbCreate -> %"PRIu32"; GUID: "GUIDF"; ADDR: %p size: %"PRIu64"\n",
                      returnCode, GUIDA(*db), *addr, len);
+    //PRINTF("DBDB %p %ld\n", *addr, len);
     RETURN_PROFILE(returnCode);
 }
 

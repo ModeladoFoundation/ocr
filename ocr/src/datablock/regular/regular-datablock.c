@@ -311,6 +311,10 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
 
     guid->guid = resultGuid;
     guid->metaDataPtr = result;
+#ifdef ENABLE_EXTENSION_PERF
+    if(task) result->base.tag = task->tag; else
+    result->base.tag = NULL_TAG;
+#endif
     return 0;
 }
 

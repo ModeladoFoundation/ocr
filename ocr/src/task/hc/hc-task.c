@@ -318,6 +318,31 @@ static u8 registerOnFrontier(ocrTaskHc_t *self, ocrPolicyDomain_t *pd,
 }
 #endif
 
+static void setTag(ocrTask_t *task)
+{
+    PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, &msg);
+    ocrTaskHc_t * rself = ((ocrTaskHc_t *) task);
+    ocrEdtDep_t * depv = rself->resolvedDeps;
+    if(depv && !ocrGuidIsNull(depv[0].guid)) {
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_GUID_INFO
+        msg.type = PD_MSG_GUID_INFO | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_IO(guid.guid) = depv[0].guid;
+        PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(properties) = RMETA_GUIDPROP | KIND_GUIDPROP;
+        pd->fcts.processMessage(pd, &msg, true);
+        ocrDataBlock_t *db = (ocrDataBlock_t *)PD_MSG_FIELD_IO(guid.metaDataPtr);
+        if(db) task->tag = db->tag;
+        else ASSERT(0); // We've already made the necessary checks
+                        // db should be valid here
+#undef PD_MSG
+#undef PD_TYPE
+    }
+}
+
+
 /******************************************************/
 /* OCR-HC Support functions                           */
 /******************************************************/
@@ -334,6 +359,7 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
     task->countUnkDbs = 0;
     task->maxUnkDbs = 0;
     task->resolvedDeps = NULL;
+    task->base.tag = NULL_TAG;
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
     task->evtHead = NULL;
@@ -509,6 +535,7 @@ static u8 scheduleTask(ocrTask_t *self) {
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
 
+    setTag(self);
 #ifdef OCR_MONITOR_SCHEDULER
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_SCHEDULER, OCR_ACTION_SCHED_MSG_SEND, self->guid);
 #endif
@@ -534,6 +561,7 @@ static u8 scheduleSatisfiedTask(ocrTask_t *self) {
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
 
+    setTag(self);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_NOTIFY
     msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
@@ -1486,6 +1514,8 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
                 PD_MSG_FIELD_I(properties) = 0;
                 // Ignore failures at this point
                 pd->fcts.processMessage(pd, &msg, true);
+                if(((ocrDataBlock_t *)PD_MSG_FIELD_IO(guid.metaDataPtr)) && ((base->tag & TAG_MASK) != NULL_TAG))
+                    ((ocrDataBlock_t *)PD_MSG_FIELD_IO(guid.metaDataPtr))->tag = (base->tag & TAG_MASK);
 #undef PD_MSG
 #undef PD_TYPE
             }
@@ -1517,6 +1547,8 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
                         GUIDA(base->guid), GUIDA(extraToFree[0]));
                 break;
             }
+            if(((ocrDataBlock_t *)PD_MSG_FIELD_IO(guid.metaDataPtr)) && ((base->tag & TAG_MASK) != NULL_TAG))
+                ((ocrDataBlock_t *)PD_MSG_FIELD_IO(guid.metaDataPtr))->tag = (base->tag & TAG_MASK);
 #undef PD_MSG
 #undef PD_TYPE
             --count;

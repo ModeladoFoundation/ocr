@@ -101,7 +101,7 @@ u64 salPerfStart(salPerfCounter* perfCtr) {
 }
 
 u64 salPerfStop(salPerfCounter* perfCtr) {
-
+#if 0
     // Doesn't really stop, just reads the counter values
     perfCtr[PERF_HW_CYCLES].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[0]) +
                               *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[1]);
@@ -110,7 +110,12 @@ u64 salPerfStop(salPerfCounter* perfCtr) {
     perfCtr[PERF_L1_MISSES].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[4]) +
                               *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[5]);
     perfCtr[PERF_FLOAT_OPS].perfVal = 0xdeaddead;
+#endif
 
+    perfCtr[PERF_HW_CYCLES].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[2]);
+    perfCtr[PERF_L1_HITS].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[3]);
+    perfCtr[PERF_L1_MISSES].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[4]);
+    perfCtr[PERF_FLOAT_OPS].perfVal = *(u64 *)(AR_PMU_BASE + sizeof(u64)*pmuCounters[5]);
     return 0;
 }
 

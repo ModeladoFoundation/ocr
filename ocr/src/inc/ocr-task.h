@@ -31,6 +31,9 @@
 //Runtime defined properties for EDT create (upper 16 bits)
 #define EDT_PROP_RT_HINT_ALLOC  0x10000 //Hint variable is runtime allocated
 
+#define NULL_TAG 0xfffffffe
+#define TAG_MASK 0xffffffff
+
 struct _ocrTask_t;
 struct _ocrTaskTemplate_t;
 
@@ -353,6 +356,7 @@ typedef struct _ocrTask_t {
     ocrPerfCounters_t *taskPerfsEntry;
     u32 swPerfCtrs[PERF_MAX-PERF_HW_MAX];
 #endif
+    u32 tag;
 } ocrTask_t;
 
 #define OCR_TASK_FLAG_USES_HINTS            0x1 /* Identifies if the task has user hints set */

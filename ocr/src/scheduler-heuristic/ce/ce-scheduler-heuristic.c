@@ -45,6 +45,7 @@
 /* OCR-CE SCHEDULER_HEURISTIC                         */
 /******************************************************/
 
+u8 useTag = 0;
 ocrSchedulerHeuristic_t* newSchedulerHeuristicCe(ocrSchedulerHeuristicFactory_t * factory, ocrParamList_t *perInstance) {
     ocrSchedulerHeuristic_t* self = (ocrSchedulerHeuristic_t*) runtimeChunkAlloc(sizeof(ocrSchedulerHeuristicCe_t), PERSISTENT_CHUNK);
     initializeSchedulerHeuristicOcr(factory, self, perInstance);
@@ -193,6 +194,7 @@ static u8 ceWorkStealingGet(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristic
 
     ocrSchedulerHeuristicCe_t *derived = (ocrSchedulerHeuristicCe_t*)self;
     ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
+    ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
     if (derived->workCount == 0) {
 #if 0 //Enable to make scheduler chatty
         return 0;
@@ -205,20 +207,31 @@ static u8 ceWorkStealingGet(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristic
     edtObj.guid.guid = NULL_GUID;
     edtObj.guid.metaDataPtr = NULL;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
+    u8 retVal = 0;
+    ocrSchedulerObject_t *schedObj;
+    ocrSchedulerHeuristicContextCe_t *ceContext = (ocrSchedulerHeuristicContextCe_t*)context;
+    u32 index = ceContext->stealSchedulerObjectIndex;
+    ocrSchedulerObjectFactory_t *fact = NULL;
 
     //First try to pop from own deque
-    ocrSchedulerHeuristicContextCe_t *ceContext = (ocrSchedulerHeuristicContextCe_t*)context;
-    ocrSchedulerObject_t *schedObj = ceContext->mySchedulerObject;
-    ASSERT(schedObj);
-    ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-    u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    if(useTag) {
+        schedObj = wstSchedObj->deques[((context->location & TAG_MASK)>>17)-1];
+        ASSERT(schedObj);
+        fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+        retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    }
+    if(ocrGuidIsNull(edtObj.guid.guid)) {
+        schedObj = ceContext->mySchedulerObject;
+        ASSERT(schedObj);
+        fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+        retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    }
 
 #if 1 //Turn off to disable stealing (serialize execution)
     //If pop fails, then try to steal from other deques
     if (ocrGuidIsNull(edtObj.guid.guid)) {
         //First try to steal from the last deque that was visited (probably had a successful steal)
-        ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
-        ocrSchedulerObject_t *stealSchedulerObject = wstSchedObj->deques[ceContext->stealSchedulerObjectIndex];
+        ocrSchedulerObject_t *stealSchedulerObject = wstSchedObj->deques[index];
         ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
         retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
 
@@ -371,8 +384,15 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
         }
     }
 
-    ocrSchedulerHeuristicContextCe_t *ceInsertContext = (ocrSchedulerHeuristicContextCe_t*)insertContext;
-    ocrSchedulerObject_t *insertSchedObj = ceInsertContext->mySchedulerObject;
+    ocrSchedulerObject_t *insertSchedObj;
+    if(useTag && ((task->tag & TAG_MASK) != NULL_TAG)) {
+        ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
+        ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+        insertSchedObj = wstSchedObj->deques[((task->tag & TAG_MASK)>>17)-1];
+    } else {
+        ocrSchedulerHeuristicContextCe_t *ceInsertContext = (ocrSchedulerHeuristicContextCe_t*)insertContext;
+        insertSchedObj = ceInsertContext->mySchedulerObject;
+    }
     ASSERT(insertSchedObj);
     ocrSchedulerObject_t edtObj;
     edtObj.guid = fguid;
