@@ -81,8 +81,8 @@ static void workerLoop(ocrWorker_t * worker) {
                 else DPRINTF(DEBUG_LVL_VVERB, "Steady state reached\n");
 #endif
 
-PRINTF("XXX Task %p, oldtag %x newtag %lx\n", worker->curTask->funcPtr, worker->curTask->tag, pd->myLocation&TAG_MASK);
-worker->curTask->tag = pd->myLocation&TAG_MASK;
+//PRINTF("XXX Task %p, oldtag %x newtag %lx\n", worker->curTask->funcPtr, worker->curTask->tag, pd->myLocation&TAG_MASK);
+//worker->curTask->tag = pd->myLocation&TAG_MASK;
                 ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(worker->curTask);
 
 #ifdef ENABLE_EXTENSION_PERF
