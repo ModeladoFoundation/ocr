@@ -139,7 +139,7 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 ifeq (${OCR_ASAN}, yes)
   ASAN_FLAGS := -g -fsanitize=address -fno-omit-frame-pointer
   CFLAGS += $(ASAN_FLAGS)
-  LDFLAGS += $(ASAN_FLAGS) $(LDFLAGS)
+  LDFLAGS += $(ASAN_FLAGS) $(LDFLAGS) -lefence
 endif
 
 # Runtime overhead profiler

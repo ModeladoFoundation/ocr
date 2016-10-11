@@ -82,7 +82,7 @@ static void workerLoop(ocrWorker_t * worker) {
 #endif
 
 //PRINTF("XXX Task %p, oldtag %x newtag %lx\n", worker->curTask->funcPtr, worker->curTask->tag, pd->myLocation&TAG_MASK);
-//worker->curTask->tag = pd->myLocation&TAG_MASK;
+worker->curTask->tag = pd->myLocation&TAG_MASK;
                 ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(worker->curTask);
 
 #ifdef ENABLE_EXTENSION_PERF
@@ -100,7 +100,7 @@ static void workerLoop(ocrWorker_t * worker) {
                         u64 perfval = (i<PERF_HW_MAX) ? (xeWorker->perfCtrs[i].perfVal)
                                                       : (worker->curTask->swPerfCtrs[i-PERF_HW_MAX]);
                         u64 oldaverage = ctrs->stats[i].average;
-                        ctrs->stats[i].average = (oldaverage + perfval)>>1;
+                        ctrs->stats[i].average = (oldaverage + perfval) >> 1;
                         // Check for steady state
                         if(ctrs->count > STEADY_STATE_COUNT) {
                             s64 diff = ctrs->stats[i].average - oldaverage;

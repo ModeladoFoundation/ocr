@@ -382,7 +382,7 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
         }
     }
 #undef PD_MSG
-    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: create GUID: "GUIDF" -> 0x%p\n", GUIDA(fguid->guid), fguid->metaDataPtr);
+//    DPRINTF(DEBUG_LVL_WARN, "LabeledGUID: create GUID: "GUIDF" -> 0x%p\n", GUIDA(fguid->guid), fguid->metaDataPtr);
     return 0;
 }
 
@@ -513,6 +513,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
         *kind = getKindFromGuid(guid);
     }
 
+//PRINTF("GUID "GUIDF" value %lx %d\n", GUIDA(guid), *val, getKindFromGuid(guid));
     return (*val) ? 0 : OCR_EPEND;
 }
 
@@ -526,7 +527,7 @@ extern u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t te
  * a local metadata represent for a foreign GUID.
  */
 u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
-    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: register GUID "GUIDF" -> 0x%"PRIx64"\n", GUIDA(guid), val);
+//    DPRINTF(DEBUG_LVL_WARN, "LabeledGUID: register GUID "GUIDF" -> 0x%"PRIx64"\n", GUIDA(guid), val);
     ocrGuidProviderLabeled_t * dself = (ocrGuidProviderLabeled_t *) self;
 #if GUID_BIT_COUNT == 64
     void * rguid = (void *) guid.guid;

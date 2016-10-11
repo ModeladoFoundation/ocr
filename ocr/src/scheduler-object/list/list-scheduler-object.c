@@ -135,6 +135,7 @@ u8 listSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
         break;
     case SCHEDULER_OBJECT_INSERT_POSITION_TAIL:
         {
+ASSERT(0);
             switch(properties & SCHEDULER_OBJECT_INSERT_KIND) {
             case SCHEDULER_OBJECT_INSERT_BEFORE:
                 {

@@ -45,7 +45,7 @@
 /* OCR-CE SCHEDULER_HEURISTIC                         */
 /******************************************************/
 
-u8 useTag = 0;
+u8 useTag = 1;
 ocrSchedulerHeuristic_t* newSchedulerHeuristicCe(ocrSchedulerHeuristicFactory_t * factory, ocrParamList_t *perInstance) {
     ocrSchedulerHeuristic_t* self = (ocrSchedulerHeuristic_t*) runtimeChunkAlloc(sizeof(ocrSchedulerHeuristicCe_t), PERSISTENT_CHUNK);
     initializeSchedulerHeuristicOcr(factory, self, perInstance);
@@ -385,10 +385,10 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     }
 
     ocrSchedulerObject_t *insertSchedObj;
-    if(useTag && ((task->tag & TAG_MASK) != NULL_TAG)) {
-        ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
-        ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
-        insertSchedObj = wstSchedObj->deques[((task->tag & TAG_MASK)>>17)-1];
+    if(0 && useTag && ((task->tag & TAG_MASK) != NULL_TAG)) {
+        ocrSchedulerHeuristicContextCe_t *ceInsertContext =
+                 (ocrSchedulerHeuristicContextCe_t *)self->contexts[((task->tag & TAG_MASK)>>17)-1];
+        insertSchedObj = ceInsertContext->mySchedulerObject;
     } else {
         ocrSchedulerHeuristicContextCe_t *ceInsertContext = (ocrSchedulerHeuristicContextCe_t*)insertContext;
         insertSchedObj = ceInsertContext->mySchedulerObject;

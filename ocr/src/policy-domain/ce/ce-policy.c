@@ -1909,6 +1909,8 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ocrLocation_t guidLocation;
             self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid),
                                                      &guidLocation);
+
+PRINTF("Location is %lx; my location is %lx\n", guidLocation, self->myLocation);
             // If we get an error, we should really not know about this GUID
             ASSERT(guidLocation != INVALID_LOCATION && guidLocation != self->myLocation);
 
