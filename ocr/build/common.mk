@@ -166,26 +166,36 @@ endif
 # LDFLAGS += -L$(EXTRAE_HOME)/lib -lpttrace
 #
 # Select events to be instrumented
+# 'HWC' version of the flag reads
+# hardware counter values on event creation.
+#
 # Instrument scheduler events
 # CFLAGS += -DENABLE_EVENT_SCHED
+# CFLAGS += -DENABLE_HWC_EVENT_SCHED
 #
 # Instrument user code
 # CFLAGS += -DENABLE_EVENT_USERCODE
+# CFLAGS += -DENABLE_HWC_EVENT_USERCODE
 #
 # Instrument (wo?)
 # CFLAGS += -DENABLE_EVENT_WO
+# CFLAGS += -DENABLE_HWC_EVENT_WO
 #
 # Instrument API
 # CFLAGS += -DENABLE_EVENT_API
+# CFLAGS += -DENABLE_HWC_EVENT_API
 #
 # Instrument Policy Domain
 # CFLAGS += -DENABLE_EVENT_PD
+# CFLAGS += -DENABLE_HWC_EVENT_PD
 #
 # Instrument (cp?)
 # CFLAGS += -DENABLE_EVENT_CP
+# CFLAGS += -DENABLE_HWC_EVENT_CP
 #
 # Instrument (ta?)
 # CFLAGS += -DENABLE_EVENT_TA
+# CFLAGS += -DENABLE_HWC_EVENT_TA
 #
 #
 #

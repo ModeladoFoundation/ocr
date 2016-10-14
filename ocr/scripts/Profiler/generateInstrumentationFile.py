@@ -224,6 +224,9 @@ def main(argv=None):
 #define IS_EVENT_ENABLED( evtType ) \\
     ( (((unsigned long long) enabled_instrumentation_types) & BITMASK(evtType)) != 0 )
 
+#define IS_EVENT_HWC_ENABLED( evtType ) \\
+    ( (((unsigned long long) enabled_hw_counter_types) & BITMASK(evtType)) != 0 )
+
 """)
 
             # Define the enum
@@ -285,6 +288,19 @@ enum {
             for evtType in allEvents.iterkeys():
                 fileHandle.write("""
 #ifdef ENABLE_EVENT_{0}
+        | BITMASK({1})
+#endif""".format( evtType.upper(), evtType_code[evtType] ) )
+
+            fileHandle.write("""
+};
+
+// Enabled hardware counter event mask as an anonymous enum
+enum {
+    enabled_hw_counter_types = 0
+""")
+            for evtType in allEvents.iterkeys():
+                fileHandle.write("""
+#ifdef ENABLE_HWC_EVENT_{0}
         | BITMASK({1})
 #endif""".format( evtType.upper(), evtType_code[evtType] ) )
 

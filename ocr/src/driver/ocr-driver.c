@@ -480,7 +480,8 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
 
 #ifdef EXTRAE_RUNTIME_INSTRUMENTATION
     // Register OCR events in Extrae library
-    if( enabled_instrumentation_types != 0ULL )
+    if( enabled_instrumentation_types != 0  ||
+        enabled_hw_counter_types != 0 )
         Extrae_registerOcrEvents();
 #endif
 
