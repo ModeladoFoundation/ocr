@@ -34,6 +34,14 @@
 #define __PROFILER_H__
 
 #include "ocr-config.h"
+
+#ifdef EXTRAE_RUNTIME_INSTRUMENTATION
+
+#include "profilerAutoGenRT.h"
+#include "extrae-instrumentation.h"
+
+#else
+
 #ifdef OCR_RUNTIME_PROFILER
 #include "ocr-types.h"
 
@@ -45,5 +53,7 @@
 #endif /* OCR_RUNTIME_PROFILER */
 
 #include "extensions/ocr-profiler-internal.h"
+
+#endif /*EXTRAE_RUNTIME_INSTRUMENTATION */
 
 #endif /* __PROFILER_H__ */

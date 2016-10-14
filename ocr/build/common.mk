@@ -155,6 +155,40 @@ ifeq (${OCR_ASAN}, yes)
   LDFLAGS += $(ASAN_FLAGS) $(LDFLAGS)
 endif
 
+# Extrae instrumentation
+# x86 only
+#
+# Enable instrumentation
+# CFLAGS += -DEXTRAE_RUNTIME_INSTRUMENTATION
+#
+# Extrae header and library flags
+# CFLAGS += -I$(EXTRAE_HOME)/include
+# LDFLAGS += -L$(EXTRAE_HOME)/lib -lpttrace
+#
+# Select events to be instrumented
+# Instrument scheduler events
+# CFLAGS += -DENABLE_EVENT_SCHED
+#
+# Instrument user code
+# CFLAGS += -DENABLE_EVENT_USERCODE
+#
+# Instrument (wo?)
+# CFLAGS += -DENABLE_EVENT_WO
+#
+# Instrument API
+# CFLAGS += -DENABLE_EVENT_API
+#
+# Instrument Policy Domain
+# CFLAGS += -DENABLE_EVENT_PD
+#
+# Instrument (cp?)
+# CFLAGS += -DENABLE_EVENT_CP
+#
+# Instrument (ta?)
+# CFLAGS += -DENABLE_EVENT_TA
+#
+#
+#
 # Runtime overhead profiler
 # x86 only
 #
@@ -426,6 +460,12 @@ SRCS   := $(shell find -L $(OCR_ROOT)/src -name '*.[csS]' -print)
 #
 VPATH  := $(shell find -L $(OCR_ROOT)/src -type d -print)
 
+ifneq (,$(findstring EXTRAE_RUNTIME_INSTRUMENTATION,$(CFLAGS)))
+  INSTRUMENTATION_FILE=$(OCR_BUILD)/src/instrumentationAutoGenRT.h
+  CFLAGS += -I $(OCR_BUILD)/src
+  VPATH += $(OCR_BUILD)/src
+endif
+
 ifneq (,$(findstring OCR_RUNTIME_PROFILER,$(CFLAGS)))
   SRCSORIG := $(SRCS)
   PROFILER_FILE_C=$(OCR_BUILD)/src/profilerAutoGen.c
@@ -610,6 +650,10 @@ $(OCREXEC): $(OBJS_EXEC)
 #
 # Objects build rules
 #
+$(INSTRUMENTATION_FILE):
+	@echo "Generating instrumentation header file..."
+	$(AT)$(OCR_ROOT)/scripts/Profiler/generateInstrumentationFile.py -m rt -o $(OCR_BUILD)/src/profilerAutoGen --exclude .git --exclude profiler $(PROFILER_EXTRA_OPTS) $(OCR_ROOT)/src
+	@echo "\tDone."
 
 $(PROFILER_FILE): $(SRCSORIG) | $(OCR_BUILD)/src
 	@echo "Generating profile file..."
@@ -636,7 +680,7 @@ $(PROFILER_FILE_C): $(PROFILER_FILE)
 # Delete default rules so it makes sure to use ours
 %.o: %.c
 
-$(OBJDIR)/static/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(OBJDIR)/static/%.d | $(OBJDIR)/static
+$(OBJDIR)/static/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(INSTRUMENTATION_FILE) $(OBJDIR)/static/%.d | $(OBJDIR)/static
 	@echo "Compiling $<"
 	$(AT)$(CC) $(CFLAGS_STATIC) -MMD -c $< -o $@
 	$(AT)cp -f $(@:.o=.d) $(@:.o=.d.tmp)
@@ -646,7 +690,7 @@ $(OBJDIR)/static/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(OBJDIR)/stati
 	$(AT)rm -f $(@:.o=.d.tmp)
 
 
-$(OBJDIR)/shared/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(OBJDIR)/shared/%.d | $(OBJDIR)/shared
+$(OBJDIR)/shared/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(INSTRUMENTATION_FILE) $(OBJDIR)/shared/%.d | $(OBJDIR)/shared
 	@echo "Compiling $<"
 	$(AT)$(CC) $(CFLAGS_SHARED) -MMD -c $< -o $@
 	$(AT)cp -f $(@:.o=.d) $(@:.o=.d.tmp)

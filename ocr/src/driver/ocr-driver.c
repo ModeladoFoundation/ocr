@@ -478,6 +478,12 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
     builderPreamble(dict);
 #endif
 
+#ifdef EXTRAE_RUNTIME_INSTRUMENTATION
+    // Register OCR events in Extrae library
+    if( enabled_instrumentation_types != 0ULL )
+        Extrae_registerOcrEvents();
+#endif
+
     // INIT
     for (j = 0; j < total_types; j++) {
         type_params[j] = NULL;
