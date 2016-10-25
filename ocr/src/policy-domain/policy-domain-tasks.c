@@ -157,6 +157,8 @@
 /**< Returns the strand table index of a "fake" event pointer */
 #define EVT_DECODE_ST_IDX(evt) ((evt) >> 3)
 
+/**< Encodes an event (reverse of EVT_DECODE) */
+#define EVT_ENCODE(sttbl, stidx) (((sttbl) & 0x7) | ((stidx)<<3))
 
 
 // ----- Action related functions -----
@@ -689,6 +691,50 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
     }
 END_LABEL(resolveEventEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdResolveEvent -> %"PRIu32"; event: 0x%"PRIx64"\n",
+            toReturn, *evtValue);
+    return toReturn;
+#undef _END_FUNC
+}
+
+u8 pdEncodeEvent(ocrPolicyDomain_t *pd, u64 *evtValue) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdEncodeEvent(pd:%p, evtValue*:%p [0x%"PRIx64"])\n",
+            pd, evtValue, *evtValue);
+#define _END_FUNC encodeEventEnd
+
+    u8 toReturn = 0;
+    if(pd == NULL) {
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+    }
+    u8 stTableIdx = EVT_DECODE_ST_TBL(*evtValue);
+    if (stTableIdx) {
+        // Event is already encoded, do nothing
+        toReturn = OCR_ENOP;
+    } else {
+        pdEvent_t *evt = (pdEvent_t*)(*evtValue);
+        if(evt->strand) {
+            // This could be made more efficient but we won't have many tables anyways
+            u32 tblIdx = 0;
+            u32 stIdx = evt->strand->index;
+            for(tblIdx=0; tblIdx<=PDSTT_LAST; tblIdx++) {
+                if(pd->strandTables[tblIdx] == evt->strand->containingTable)
+                    break;
+            }
+            if(tblIdx > PDSTT_LAST) {
+                // Somehow we didn't find the table which is weird and probably a runtime error...
+                DPRINTF(DEBUG_LVL_WARN, "Event %p (strand %p) is not contained in a valid table (%p)\n",
+                    evt, evt->strand, evt->strand->containingTable);
+                toReturn = OCR_EINVAL;
+            } else {
+                *evtValue = EVT_ENCODE(tblIdx, stIdx);
+            }
+        } else {
+            DPRINTF(DEBUG_LVL_WARN, "Event %p is not part of a strand -- cannot encode\n", evt);
+            toReturn = OCR_EINVAL;
+        }
+    }
+
+END_LABEL(encodeEventEnd)
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdEncodeEvent -> %"PRIu32"; event: 0x%"PRIx64"\n",
             toReturn, *evtValue);
     return toReturn;
 #undef _END_FUNC
@@ -1534,7 +1580,7 @@ END_LABEL(getStrandForIndex)
 u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
                     pdAction_t** actions, u8 clearFwdHold) {
     DPRINTF(DEBUG_LVL_INFO, "ENTER pdEnqueueActions(pd:%p, strand:%p, count:%"PRIu32", actions**:%p [%p], clearHold:%"PRIu32")\n",
-            pd, strand, actionCount, actions, *actions, clearFwdHold);
+            pd, strand, actionCount, actions, actions?*actions:NULL, clearFwdHold);
 #define _END_FUNC enqueueActionsEnd
 
     u8 toReturn = 0;
@@ -1653,6 +1699,49 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
     }
 END_LABEL(enqueueActionsEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdEnqueueActions -> %"PRIu32"\n", toReturn);
+    return toReturn;
+#undef _END_FUNC
+}
+
+
+u8 pdReplaceCurrentAction(ocrPolicyDomain_t *pd, pdStrand_t* strand, pdAction_t *action) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdReplaceCurrentAction(pd:%p, strand:%p, action*:%p)\n",
+            pd, strand, action);
+#define _END_FUNC replaceCurrentActionEnd
+
+    u8 toReturn = 0;
+
+    ocrWorker_t *curWorker = NULL;
+    if (pd == NULL) {
+        getCurrentEnv(&pd, &curWorker, NULL, NULL);
+    } else {
+        getCurrentEnv(NULL, &curWorker, NULL, NULL);
+    }
+
+    // Basic sanity checks
+    // action != NULL && action != NULL
+    CHECK_RESULT_T(action != NULL && strand != NULL, , toReturn = OCR_EINVAL);
+
+    // A lock should be held while we enqueue actions. Make sure it is. If this
+    // fails, most likely an internal runtime error
+    ASSERT(hal_islocked(&(strand->lock)));
+
+    // We should be the worker processing the strand
+    CHECK_RESULT_T(curWorker == strand->processingWorker, , toReturn = OCR_EINVAL);
+
+    // We need to have strand->actions that exists. If not, this is probably a runtime
+    // error again
+    ASSERT(strand->actions);
+
+    DPRINTF(DEBUG_LVL_VERB, "Going to enqueue at HEAD on queue %p\n", strand->actions);
+    DPRINTF(DEBUG_LVL_VVERB, "Pushing at head action %p\n", action);
+    arrayDequePushAtHead(strand->actions, (void*)action);
+
+    // No state update needs to happen since it will happen after we are done processing stuff
+    // This is called if we are in pdProcessAction.
+
+END_LABEL(replaceCurrentActionEnd)
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdReplaceCurrentAction -> %"PRIu32"\n", toReturn);
     return toReturn;
 #undef _END_FUNC
 }
@@ -2524,21 +2613,21 @@ static void _pdActionToNP(u8 *npIdx, pdAction_t* action) {
         npIdx[0] = (u8)(((action->properties & PDACT_NPTYPE_MASK) >> PDACT_NPTYPE_SHIFT)+1);
         for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
         return;
-    case 0b001:
+    case PDACTION_ENC_PROCESS_MESSAGE:
         /* PROCESS_MESSAGE */
         npIdx[0] = (u8)(((u64)action >> 3)+1);
         for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
         return;
-    case 0b010:
+    case PDACTION_ENC_PROCESS_EVENT:
         /* PROCESS_EVENT -- always a computation thing */
         npIdx[0] = (u8)(NP_WORK + 1);
         for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
         return;
-    case 0b011:
+    case PDACTION_ENC_MAKEREADYST:
         /* MAKEREADYST -- anyone can process */
         for(i=0; i < NP_COUNT; ++i) npIdx[i] = i+1;
         return;
-    case 0b111: {
+    case PDACTION_ENC_EXTEND: {
         /* Add extended values here */
         u8 type = 0;
         PDACTION_DECEXT_TYPE(type, (u64)action);
@@ -2839,9 +2928,7 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTable_t *t
             slab->curEvent = NULL;
             slab->actions = NULL;
             slab->parent = node;
-#ifdef MT_OPTI_CONTENTIONLIMIT
             slab->containingTable = table;
-#endif
             slab->properties = PDST_FREE;
             slab->lock = INIT_LOCK;
             slab->index = LEAF_LEFTMOST_IDX(node->lmIndex) + (u64)i;

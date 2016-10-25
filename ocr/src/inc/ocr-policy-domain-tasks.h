@@ -325,9 +325,7 @@ typedef struct _pdStrand_t {
                              * implementation is a variable size array */
     struct _pdStrandTableNode_t *parent; /**< Parent of this strand. Note that the slot
                                           number is index & ((1ULL<<6)-1) */
-#ifdef MT_OPTI_CONTENTIONLIMIT
     struct _pdStrandTable_t *containingTable; /**< Table this strand is in */
-#endif
     u64 index;              /**< Index into the table */
     ocrWorker_t* processingWorker;  /**< Worker that is processing this strand
                                          This has implications on locking among other things */
@@ -468,6 +466,10 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
  *                          ready, this value will be unchanged
  * @param[in] clearFwdHold  Set to 1 if this is a forward execution and the event can
  *                          be removed from the strands table if ready.
+ *
+ * @warning If clearFwdHold is true AND the event is ready AND the GC (garbage collect)
+ * flag is set on the event, the evtValue returned will point to an invalid memory
+ * location (as the event is garbage collected when the strand is destroyed)
  * @return a status indicating the state of the resolution:
  *          - 0 if the event is ready and has been resolved
  *          - OCR_EBUSY if the event is still not ready
@@ -475,6 +477,50 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
  *          - OCR_ENOP if evtValue was already an event pointer
  */
 u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold);
+
+
+/**
+ * @brief "Encodes" an event, converting an actual event to an event-like pointer
+ *
+ * This is the opposite operation to pdResolveEvent() and is used when the event is going
+ * to be accessed concurrently with the processing of its strand.
+ *
+ * To explain the role of this function a little better, consider the following scenario:
+ *   - an event is created and associated with a strand.
+ *   - the user enqueues on the strand an action to process said message (action1)
+ *   - the user enqueues a second action on the strand to process the result of action1 (action2)
+ *   - the user returns the event (a non-ready event here because there are two actions
+ *     pending) to the caller
+ * A graphical representation of this is as follows:
+ *    evt1 -> action1 -> evt2 -> action2 -> evt3
+ * evt1 is the initial created event that will be processed by action1 which may return a result
+ * (evt2) which will in turn be processed by action2 which returns evt3. evt1/2/3 do not have to
+ * be the same events and previous events are automatically destroyed by runtime (ie: at the end
+ * of the day, evt3 will be the only one left if it is not garbage collected).
+ *
+ * At this point, if the caller wants to wait on the event, using the pointer to evt1 would
+ * be inccorect because evt1 may have been destroyed because action1 may have finished and
+ * produced evt2. What the caller really wants is to wait for action1 and action2 and resolve
+ * the event to be evt3 (the result of the entire chain). This call will therefore convert evt1
+ * into a pseudo event-like pointer that will actually always point to the result of the entire
+ * strand (so evt3 when it is ready).
+ *
+ * @note The event needs to be part of a strand for this call to succeed
+ * @warning Be wary of race conditions. This call should be made *BEFORE* the processing of the
+ * strand can begin. In the example above, this can be anytime the strand is initially locked (no
+ * processing happens while the strand is locked). Or, if the event is not initially ready,
+ * anytime before the event becomes ready (no actions will be processed while the event is not
+ * ready).
+ *
+ * @param[in] pd            Policy domain to use. Can be NULL but this means that getCurrentEnv
+ *                          will be used to resolve the PD.
+ * @param[in/out] evtValue  Event to encode. If already encoded, OCR_ENOP will be returned
+ * @return a status indicating the status of the encoding:
+ *          - 0 if the event has been successfully encoded
+ *          - OCR_EINVAL if evtValue is invalid (most likely not part of a strand)
+ *          - OCR_ENOP if evtValue was already an event pointer
+ */
+u8 pdEncodeEvent(ocrPolicyDomain_t *pd, u64 *evtValue);
 
 /**
  * @brief Marks the event as ready and updates internal data-structures
@@ -676,6 +722,31 @@ u8 pdGetStrandForIndex(ocrPolicyDomain_t* pd, pdStrand_t **strand, pdStrandTable
  */
 u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
                     pdAction_t** actions, u8 clearFwdHold);
+
+/**
+ * @brief Replaces the current action with a new one
+ *
+ * This is used when a function has been "re-entered"/"entered" in a strand
+ * after a callback (in other words, a strand was created, an action enqueued and
+ * we are now processing that action) and replaces the current action with a new one.
+ * This is effectively used to "insert" an action before whatever comes next. For example,
+ * if the following actions are enqueued:
+ * A -> B -> C and we are now processing A (obviously since actions are processes sequentially),
+ * using this function passing D as the action parameter would result in the chain:
+ * D -> B -> C
+ *
+ * @param[in] pd      Policy domain to use. Can be NULL; it will be resolved by
+ *                    getCurrentEnv() in that case
+ * @param[in] strand  Strand to add the action to
+ * @param[in] action  Action to add (pointer or specially encoded)
+ * @return a status indicating the state of the addition:
+ *          - 0: successful addition
+ *          - OCR_EINVAL: invalid action or the current worker is not the one processing the strand
+ *          - OCR_ENOMEM: not enough memory to add the action
+ *          - OCR_EFAULT: Runtime error
+ */
+u8 pdReplaceCurrentAction(ocrPolicyDomain_t *pd, pdStrand_t* strand, pdAction_t *action);
+
 
 /**
  * @brief Grabs a lock on the strand 'strand'
