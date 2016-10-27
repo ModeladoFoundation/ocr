@@ -238,6 +238,61 @@ static inline u8 _pdUnlockStrand(pdStrand_t *strand) {
     return 0;
 }
 
+/**
+ * @brief Helper function to enqueue actions on a strand's queue
+ *
+ * This queue may be either the regular actions queue or the bufferedActions one
+ * @details [long description]
+ *
+ * @param[in] pd            Policy domain
+ * @param[in/out] queue     Queue to use
+ * @param[in] count         Number of actions
+ * @param[in] actions       Actions to enqueue
+ * @return a status code:
+ *      - 0: success
+ *      - OCR_ENOMEM: Unable to allocate the queue
+ *      - OCR_EFAULT: Other runtime fault
+ */
+static inline u8 _pdDoEnqueue(ocrPolicyDomain_t *pd, arrayDeque_t **queue, u32 count, pdAction_t** actions) {
+#define _END_FUNC doEnqueueEnd
+    u8 toReturn = 0;
+    if(*queue == NULL) {
+        // Create and initialize the actions strand
+        CHECK_MALLOC(*queue = (arrayDeque_t*)pd->fcts.pdMalloc(pd, sizeof(arrayDeque_t)), );
+        CHECK_RESULT(arrayDequeInit(*queue, PDST_ACTION_COUNT),
+                     pd->fcts.pdFree(pd, *queue), toReturn = OCR_EFAULT);
+        DPRINTF(DEBUG_LVL_VERB, "Created actions structure @ %p\n", *queue);
+    }
+
+    DPRINTF(DEBUG_LVL_VERB, "Going to enqueue %"PRIu32" actions on %p\n",
+            count, *queue);
+    // At this point, we can enqueue things on the deque
+    while(count > 0) {
+        DPRINTF(DEBUG_LVL_VVERB, "Pushing action %p\n", *actions);
+        arrayDequePushAtTail(*queue, (void*)*actions);
+        --count;
+        ++actions;
+    }
+
+END_LABEL(doEnqueueEnd)
+    return toReturn;
+#undef _END_FUNC
+}
+
+/**
+ * @brief Re-queues actions from the bufferedActions array to the regular actions array
+ * @details [long description]
+ *
+ * @param[in] pd        Policy domain
+ * @param[in] strand    Strand for which to requeue actions
+ *
+ * @return a status code:
+ *      - 0: success
+ *      - Other codes returned by pdEnqueueActions()
+ */
+static u8 _pdDoRequeue(ocrPolicyDomain_t *pd, pdStrand_t *strand);
+
+
 #define IS_STRAND        0x1 /**< The node is a strand node */
 #define IS_LEAF          0x2 /**< The node is a leaf node */
 /**
@@ -583,16 +638,19 @@ END_LABEL(destroyEventEnd)
 #undef _END_FUNC
 }
 
-u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
-    DPRINTF(DEBUG_LVL_INFO, "ENTER pdResolveEvent(pd:%p, evtValue*:%p [0x%"PRIx64"], clearHold:%"PRIu32")\n",
-            pd, evtValue, *evtValue, clearFwdHold);
+u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, pdStrand_t **strand, u8 clearFwdHold) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdResolveEvent(pd:%p, evtValue*:%p [0x%"PRIx64"], strand*:%p [%p], clearHold:%"PRIu32")\n",
+            pd, evtValue, *evtValue, strand, strand?*strand:NULL, clearFwdHold);
 #define _END_FUNC resolveEventEnd
 
     u8 toReturn = 0;
     if(pd == NULL) {
         getCurrentEnv(&pd, NULL, NULL, NULL);
     }
+
+    pdStrand_t* myStrand = NULL;
     u8 stTableIdx = EVT_DECODE_ST_TBL(*evtValue);
+
     if (stTableIdx) {
         DPRINTF(DEBUG_LVL_VERB, "Event = (table %"PRIu32", idx: %"PRIu64")\n",
                 stTableIdx, EVT_DECODE_ST_IDX(*evtValue));
@@ -607,45 +665,62 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
             return OCR_EINVAL;
         }
         DPRINTF(DEBUG_LVL_VERB, "Looking in table %p\n", stTable);
-        pdStrand_t* myStrand = NULL;
         CHECK_RESULT(toReturn |= pdGetStrandForIndex(pd, &myStrand, stTable,
                                                      EVT_DECODE_ST_IDX(*evtValue)),,);
 
         // Here, we managed to get the strand properly
-        CHECK_RESULT(toReturn |= _pdLockStrand(myStrand, BLOCK), ,);
-        DPRINTF(DEBUG_LVL_VVERB, "Event 0x%"PRIx64" -> strand %p (props: 0x%"PRIx32")\n",
-                *evtValue, myStrand, myStrand->properties);
-        ASSERT(hal_islocked(&(myStrand->lock)));
+        // We do a lock-free check first because we want to not block even
+        // if the strand is being processed (only long lock)
         if((myStrand->properties & PDST_WAIT) == 0) {
-            // Event is ready
-            // The following assert ensures that the event in the slot has
-            // the slot's index. Failure indicates a runtime error
-            ASSERT(myStrand->index == (*evtValue));
-            DPRINTF(DEBUG_LVL_VERB, "Event 0x%"PRIx64" -> %p\n",
-                    *evtValue, myStrand->curEvent);
-            *evtValue = (u64)(myStrand->curEvent);
-            if(clearFwdHold) {
-                myStrand->properties &= ~PDST_RHOLD;
-            }
-            if((myStrand->properties & PDST_HOLD) == 0) {
-                DPRINTF(DEBUG_LVL_VVERB, "Freeing strand %p [idx %"PRIu64"] after resolution\n",
-                        myStrand, myStrand->index);
-                RESULT_ASSERT(_pdDestroyStrand(pd, ((pdEvent_t*)evtValue)->strand), ==, 0);
+            // We have a good chance here; there is no action so unlikely it is
+            // being processed
+            if(_pdLockStrand(myStrand, 0) == 0) {
+                DPRINTF(DEBUG_LVL_VVERB, "Event 0x%"PRIx64" -> strand %p (props: 0x%"PRIx32")\n",
+                    *evtValue, myStrand, myStrand->properties);
+                ASSERT(hal_islocked(&(myStrand->lock)));
+                if((myStrand->properties & PDST_WAIT) == 0) {
+                    // Event is ready
+                    // The following assert ensures that the event in the slot has
+                    // the slot's index. Failure indicates a runtime error
+                    ASSERT(myStrand->index == (*evtValue));
+                    DPRINTF(DEBUG_LVL_VERB, "Event 0x%"PRIx64" -> %p\n",
+                        *evtValue, myStrand->curEvent);
+                    *evtValue = (u64)(myStrand->curEvent);
+                    if(clearFwdHold) {
+                        myStrand->properties &= ~PDST_RHOLD;
+                    }
+                    if((myStrand->properties & PDST_HOLD) == 0) {
+                        DPRINTF(DEBUG_LVL_VVERB, "Freeing strand %p [idx %"PRIu64"] after resolution\n",
+                            myStrand, myStrand->index);
+                        RESULT_ASSERT(_pdDestroyStrand(pd, ((pdEvent_t*)evtValue)->strand), ==, 0);
+                    } else {
+                        RESULT_ASSERT(pdUnlockStrand(myStrand), ==, 0);
+                    }
+                }
             } else {
-                RESULT_ASSERT(pdUnlockStrand(myStrand), ==, 0);
+                // Here, we are just going to pretend the event is not ready
+                // and return that
+                DPRINTF(DEBUG_LVL_VVERB, "Event 0x%"PRIx64" -> strand %p; could not lock strand\n",
+                    *evtValue, myStrand);
+                toReturn = OCR_EBUSY;
             }
         } else {
-            // The event is not ready
-            DPRINTF(DEBUG_LVL_VERB, "Event 0x%"PRIx64" not ready\n", *evtValue);
-            *evtValue = (u64)(myStrand->curEvent);
-            RESULT_ASSERT(pdUnlockStrand(myStrand), ==, 0);
+            DPRINTF(DEBUG_LVL_VVERB, "Event 0x%"PRIx64" -> strand %p (props: 0x%"PRIx32") is not ready\n",
+                *evtValue, myStrand, myStrand->properties);
             toReturn = OCR_EBUSY;
         }
+
+        if(strand)
+            *strand = myStrand;
     } else {
         DPRINTF(DEBUG_LVL_VERB, "Event 0x%"PRIx64" is already a pointer\n", *evtValue);
         pdEvent_t *evt = (pdEvent_t*)(*evtValue);
         // By default return OCR_ENOP unless we find the event is not ready
         toReturn = OCR_ENOP;
+
+        // Easy to get the strand here
+        if(strand)
+            *strand = evt->strand;
         if(evt->properties & PDEVT_READY) {
             ocrWorker_t *curWorker;
             getCurrentEnv(NULL, &curWorker, NULL, NULL);
@@ -655,7 +730,7 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
                     // the strand
                     if(evt->strand->properties & PDST_MODIFIED) {
                         DPRINTF(DEBUG_LVL_VERB, "Event %p is being processed and requires strand re-processing\n", evt);
-                             toReturn = OCR_EBUSY;
+                        toReturn = OCR_EBUSY;
                     } else {
                         DPRINTF(DEBUG_LVL_VERB, "Event %p is being processed and is ready\n", evt);
                         if(clearFwdHold) {
@@ -663,23 +738,34 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
                         }
                     }
                 } else {
-                    // Here we check if there is a strand; if so, we check to make sure it
-                    // is ready
-                    // Lock the strand to check its status properly
-                    RESULT_ASSERT(_pdLockStrand(evt->strand, BLOCK), ==, 0);
-                    DPRINTF(DEBUG_LVL_VVERB, "Event %p has strand %p (props: 0x%"PRIx32")\n",
-                            evt, evt->strand, evt->strand->properties);
-                    ASSERT(hal_islocked(&(evt->strand->lock)));
-                    if((evt->strand->properties & PDST_WAIT) != 0) {
-                        // Event is not fully ready, there is some stuff left to process
-                        DPRINTF(DEBUG_LVL_VERB, "Event %p is ready but strand is not\n", evt);
-                        toReturn = OCR_EBUSY;
-                    } else {
-                        if(clearFwdHold) {
-                            evt->strand->properties &= ~PDST_RHOLD;
+                    // Check to make sure the strand is ready
+                    // We again do not lock right away
+                    if((evt->strand->properties & PDST_WAIT) == 0) {
+                        // Now we try to grab the lock
+                        if(_pdLockStrand(evt->strand, 0) == 0) {
+                            // Success in locking
+                            DPRINTF(DEBUG_LVL_VVERB, "Event %p has strand %p (props: 0x%"PRIx32")\n",
+                                evt, evt->strand, evt->strand->properties);
+                            ASSERT(hal_islocked(&(evt->strand->lock)));
+                            if((evt->strand->properties & PDST_WAIT) != 0) {
+                                // Event is not fully ready, there is some stuff left to process
+                                DPRINTF(DEBUG_LVL_VERB, "Event %p is ready but strand is not\n", evt);
+                                toReturn = OCR_EBUSY;
+                            } else {
+                                if(clearFwdHold) {
+                                    evt->strand->properties &= ~PDST_RHOLD;
+                                }
+                            }
+                            RESULT_ASSERT(pdUnlockStrand(evt->strand), ==, 0);
+                        } else {
+                            DPRINTF(DEBUG_LVL_VVERB, "Event %p has strand %p but could not lock it\n",
+                                evt, evt->strand);
+                            toReturn = OCR_EBUSY;
                         }
+                    } else {
+                        DPRINTF(DEBUG_LVL_VVERB, "Event %p has strand %p (props: 0x%"PRIx32") not ready\n",
+                            evt, evt->strand, evt->strand->properties);
                     }
-                    RESULT_ASSERT(pdUnlockStrand(evt->strand), ==, 0);
                 }
             }
         } else {
@@ -690,8 +776,8 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
 
     }
 END_LABEL(resolveEventEnd)
-    DPRINTF(DEBUG_LVL_INFO, "EXIT pdResolveEvent -> %"PRIu32"; event: 0x%"PRIx64"\n",
-            toReturn, *evtValue);
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdResolveEvent -> %"PRIu32"; event: 0x%"PRIx64" strand: %p [%p]\n",
+            toReturn, *evtValue, strand, strand?*strand:NULL);
     return toReturn;
 #undef _END_FUNC
 }
@@ -822,10 +908,10 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                 } else {
                     DPRINTF(DEBUG_LVL_VERB, "Strand %p is ready but has a hold -- leaving as is\n",
                             strand);
-                    _pdUnlockStrand(strand);
+                    pdUnlockStrand(strand);
                 }
             } else {
-                _pdUnlockStrand(strand);
+                pdUnlockStrand(strand);
             }
 
             // We still hold lock on curNode EXCEPT if didFree
@@ -870,7 +956,7 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
             }
         } else {
             DPRINTF(DEBUG_LVL_VERB, "Skipping propagation as worker is processing worker\n");
-            RESULT_ASSERT(_pdUnlockStrand(strand), ==, 0);
+            // No need to unlock because it is a NOP when we are the processing worker
         }
     }
 END_LABEL(markReadyEventEnd)
@@ -948,7 +1034,9 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                 propagateReady = curNode->nodeReady == 0ULL;
             }
 
-            _pdUnlockStrand(strand);
+            // Not quite sure how to recover from this one. If this fails, it means
+            // we couldn't enqueue buffered actions
+            RESULT_ASSERT(pdUnlockStrand(strand), ==, 0);
 
             // We still hold lock on curNode
             if (propagateReady || propagateNP) {
@@ -989,7 +1077,7 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
             }
         } else {
             DPRINTF(DEBUG_LVL_VERB, "Skipping propagation as worker is processing worker\n");
-            RESULT_ASSERT(_pdUnlockStrand(strand), ==, 0);
+            // No need to unlock as we are the processing worker and an unlock is a NOP
         }
     }
 END_LABEL(markWaitEventEnd)
@@ -1459,6 +1547,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
 
     strand->curEvent = event;
     strand->actions = NULL;
+    strand->bufferedActions = NULL;
     strand->processingWorker = NULL;
     strand->contextTask = task;
     strand->properties |= PDST_RHOLD |
@@ -1593,87 +1682,93 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
     // !(actionCount == 0 || actions != NULL)
     CHECK_RESULT_T(actionCount == 0 || actions != NULL, , toReturn = OCR_EINVAL);
 
-    // A lock should be held while we enqueue actions. Make sure it is. If this
-    // fails, most likely an internal runtime error
-    ASSERT(hal_islocked(&(strand->lock)));
-
-    u32 npIdxCounter = 0;
-    u8 npIdx[NP_COUNT];
-    _pdActionToNP(npIdx, actions[0]);
-    if(strand->actions == NULL) {
-        // Create and initialize the actions strand
-        CHECK_MALLOC(strand->actions = (arrayDeque_t*)pd->fcts.pdMalloc(pd, sizeof(arrayDeque_t)), );
-        CHECK_RESULT(arrayDequeInit(strand->actions, PDST_ACTION_COUNT),
-                     pd->fcts.pdFree(pd, strand->actions), toReturn = OCR_EFAULT);
-        DPRINTF(DEBUG_LVL_VERB, "Created actions structure @ %p\n", strand->actions);
+    u8 needUnlock = 0; // Will be 1 for the regular lock or 2 for the buffered one
+    if(hal_islocked(&(strand->lock))) {
+        DPRINTF(DEBUG_LVL_VERB, "Strand is locked -- regular enqueue\n");
+        toReturn = _pdDoEnqueue(pd, &(strand->actions), actionCount, actions);
+        CHECK_RESULT(toReturn, ,);
+    } else {
+        if(hal_trylock(&(strand->lock))) {
+            DPRINTF(DEBUG_LVL_VERB, "Strand was not locked but successfully locked -- regular enqueue\n");
+            toReturn = _pdDoEnqueue(pd, &(strand->actions), actionCount, actions);
+            CHECK_RESULT(toReturn, hal_unlock(&(strand->lock)),);
+            needUnlock = 1;
+        } else {
+            DPRINTF(DEBUG_LVL_VERB, "Strand was not locked and could not acquire -- buffered enqueue\n");
+            hal_lock(&(strand->bufferedLock));
+            toReturn = _pdDoEnqueue(pd, &(strand->bufferedActions), actionCount, actions);
+            CHECK_RESULT(toReturn, hal_unlock(&(strand->bufferedLock)), );
+            needUnlock = 2;
+        }
     }
 
-    DPRINTF(DEBUG_LVL_VERB, "Going to enqueue %"PRIu32" actions on %p\n",
-            actionCount, strand->actions);
-    // At this point, we can enqueue things on the strand->actions deque
-    u32 i;
-    for (i = 0; i < actionCount; ++i, ++actions) {
-        DPRINTF(DEBUG_LVL_VVERB, "Pushing action %p\n", *actions);
-        arrayDequePushAtTail(strand->actions, (void*)*actions);
-    }
+    // At this point, we enqueued the actions.
 
-    if (arrayDequeSize(strand->actions) == actionCount) {
-        // This means that no actions were pending
-        DPRINTF(DEBUG_LVL_VVERB, "Strand %p had no actions [props: 0x%"PRIx32"] -> setting WAIT_ACT\n",
+    if(needUnlock < 2) {
+        // Basically we enqueued normally
+        ASSERT(hal_islocked(&(strand->lock)));
+
+        u32 npIdxCounter = 0;
+        u8 npIdx[NP_COUNT];
+        _pdActionToNP(npIdx, actions[0]);
+
+        if (arrayDequeSize(strand->actions) == actionCount) {
+            // This means that no actions were pending
+            DPRINTF(DEBUG_LVL_VVERB, "Strand %p had no actions [props: 0x%"PRIx32"] -> setting WAIT_ACT\n",
                 strand, strand->properties);
-        ASSERT((strand->properties & PDST_WAIT_ACT) == 0);
-        strand->properties |= PDST_WAIT_ACT;
-        DPRINTF(DEBUG_LVL_VVERB, "Strand %p [props: 0x%"PRIx32"]\n", strand,
+            ASSERT((strand->properties & PDST_WAIT_ACT) == 0);
+            strand->properties |= PDST_WAIT_ACT;
+            DPRINTF(DEBUG_LVL_VVERB, "Strand %p [props: 0x%"PRIx32"]\n", strand,
                 strand->properties);
 
-        if((strand->properties & PDST_WAIT_EVT) == 0) {
-            // Check if the event was also ready. If that's
-            // the case, we need to switch to being *not* ready
-            // We need to propagate that back up the tree
-            pdStrandTableNode_t *curNode = strand->parent;
-            ASSERT(curNode);
-            pdStrandTableNode_t *parent = curNode->parent;
-            u32 stIdx = strand->index & ((1<<BV_SIZE_LOG2)-1);
-            bool propagateReady = false, propagateNP = false;
+            if((strand->properties & PDST_WAIT_EVT) == 0) {
+                // Check if the event was also ready. If that's
+                // the case, we need to switch to being *not* ready
+                // We need to propagate that back up the tree
+                pdStrandTableNode_t *curNode = strand->parent;
+                ASSERT(curNode);
+                pdStrandTableNode_t *parent = curNode->parent;
+                u32 stIdx = strand->index & ((1<<BV_SIZE_LOG2)-1);
+                bool propagateReady = false, propagateNP = false;
 
-            hal_lock(&(curNode->lock));
-            // We need processing
-            while(npIdx[npIdxCounter]) {
-                u8 tIdx = npIdx[npIdxCounter] - 1;
-                propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
-                curNode->nodeNeedsProcess[tIdx] |= (1ULL<<stIdx);
+                hal_lock(&(curNode->lock));
+                // We need processing
+                while(npIdx[npIdxCounter]) {
+                    u8 tIdx = npIdx[npIdxCounter] - 1;
+                    propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
+                    curNode->nodeNeedsProcess[tIdx] |= (1ULL<<stIdx);
 #ifdef MT_OPTI_CONTENTIONLIMIT
-                u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[tIdx]), 1);
-                DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (enqueueActions); was %"PRId32"\n",
-                    tIdx, strand->containingTable, t);
+                    u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[tIdx]), 1);
+                    DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (enqueueActions); was %"PRId32"\n",
+                        tIdx, strand->containingTable, t);
 #endif
-                ++npIdxCounter;
-            }
+                    ++npIdxCounter;
+                }
 
-            // We are no longer ready
-            ASSERT((curNode->nodeReady & (1ULL<<stIdx)) != 0);
-            curNode->nodeReady &= ~(1ULL<<stIdx);
-            propagateReady = (curNode->nodeReady == 0ULL);
-            ASSERT(hal_islocked(&(curNode->lock)));
+                // We are no longer ready
+                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) != 0);
+                curNode->nodeReady &= ~(1ULL<<stIdx);
+                propagateReady = (curNode->nodeReady == 0ULL);
+                ASSERT(hal_islocked(&(curNode->lock)));
 
-            // In this case, we flipped:
-            // NP from 0 to 1 (stop when we see a 1)
-            // Ready from 1 to 0 (stop when sibblings have ready nodes)
-            u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
-            if(npIdx[1]) {
-                DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
-            }
-            PROPAGATE_UP_TREE(
-                curNode, parent, tNpIdx,
-                propagateReady || propagateNP, {
-                    if (propagateReady) {
-                        parent->nodeReady &= ~(1ULL<<curNode->parentSlot);
-                        propagateReady = parent->nodeReady == 0ULL;
-                    }
-                    if (propagateNP) {
-                        propagateNP = false;
-                        u32 i;
-                        for(i=0; i<NP_COUNT; ++i) {
+                // In this case, we flipped:
+                // NP from 0 to 1 (stop when we see a 1)
+                // Ready from 1 to 0 (stop when sibblings have ready nodes)
+                u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
+                if(npIdx[1]) {
+                    DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+                }
+                PROPAGATE_UP_TREE(
+                    curNode, parent, tNpIdx,
+                    propagateReady || propagateNP, {
+                        if (propagateReady) {
+                            parent->nodeReady &= ~(1ULL<<curNode->parentSlot);
+                            propagateReady = parent->nodeReady == 0ULL;
+                        }
+                        if (propagateNP) {
+                            propagateNP = false;
+                            u32 i;
+                            for(i=0; i<NP_COUNT; ++i) {
                             if(npIdx[i]) { // npIdx[i] == 0 means nothing to propagate at that position
                                 if(parent->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
                                     parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
@@ -1686,16 +1781,29 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
                         }
                     }
                 });
+            }
         }
-    }
-    if (clearFwdHold) {
-        DPRINTF(DEBUG_LVL_VERB, "Clearing fwd hold on %p [props: 0x%"PRIx32"]\n",
+
+        if (clearFwdHold) {
+            DPRINTF(DEBUG_LVL_VERB, "Clearing fwd hold on %p [props: 0x%"PRIx32"]\n",
                 strand, strand->properties);
-        if ((strand->properties & PDST_RHOLD) == 0) {
-            DPRINTF(DEBUG_LVL_WARN, "Clearing non-existant hold on %p [props: 0x%"PRIx32"]\n",
+            if ((strand->properties & PDST_RHOLD) == 0) {
+                DPRINTF(DEBUG_LVL_WARN, "Clearing non-existant hold on %p [props: 0x%"PRIx32"] -- possible race!!\n",
                     strand, strand->properties);
+            }
+            strand->properties &= ~PDST_RHOLD;
         }
-        strand->properties &= ~PDST_RHOLD;
+        if(needUnlock)
+            hal_unlock(&(strand->lock));
+    } else {
+        // We did not grab the lock. Just check the clearing of the hold and buffer that if necessary
+        if(clearFwdHold) {
+            if(strand->bufferedHoldClear) {
+                DPRINTF(DEBUG_LVL_WARN, "Clearning non-existant buffer hold on %p -- possible race!!\n", strand);
+            }
+            strand->bufferedHoldClear = true;
+        }
+        hal_unlock(&(strand->bufferedLock));
     }
 END_LABEL(enqueueActionsEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdEnqueueActions -> %"PRIu32"\n", toReturn);
@@ -1768,6 +1876,16 @@ u8 pdUnlockStrand(pdStrand_t *strand) {
 
     u8 toReturn = 0;
     CHECK_RESULT_T(hal_islocked(&(strand->lock)), , toReturn = OCR_EINVAL);
+
+    // We figure out if there is a need to check for buffered actions and
+    // add them to the action list if that is the case
+    // This is a while loop to catch the highly unlikely case where things keep getting buffered
+    // while we are adding the previously buffered actions
+    if(strand->bufferedActions) {
+        ocrPolicyDomain_t *pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        toReturn = _pdDoRequeue(pd, strand);
+    }
     _pdUnlockStrand(strand);
 
 END_LABEL(unlockStrandEnd)
@@ -2041,38 +2159,56 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 // First some sanity checks: if the node needed processing, it should be in this state
                 worker->curTask = toProcess->contextTask;
                 ASSERT((toProcess->properties & PDST_WAIT) == PDST_WAIT_ACT);
-                // We loop while the event is ready and there is stuff to do
-                // Note that the actions may make the event not ready thus the importance
-                // of checking every time
-                while (((toProcess->properties & PDST_WAIT_EVT) == 0) &&
-                       arrayDequeSize(toProcess->actions)) {
-                    pdAction_t *curAction = NULL;
-                    bool canProcess = false;
-                    RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
-                    ASSERT(curAction);
-                    npIdxCounter = 0;
-                    _pdActionToNP(npIdx, curAction);
-                    while(npIdx[npIdxCounter]) {
-                        if((npIdx[npIdxCounter] - 1) == processType) {
-                            canProcess = true;
+
+                // This outer processing loop is to deal with the case that we have actions
+                // buffering up in bufferedActions.
+                u8 outerBreak = false;
+                while(true) {
+                    outerBreak = false;
+                    // We loop while the event is ready and there is stuff to do
+                    // Note that the actions may make the event not ready thus the importance
+                    // of checking every time
+                    while (((toProcess->properties & PDST_WAIT_EVT) == 0) &&
+                        arrayDequeSize(toProcess->actions)) {
+
+                        pdAction_t *curAction = NULL;
+                        bool canProcess = false;
+                        RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
+                        ASSERT(curAction);
+                        npIdxCounter = 0;
+                        _pdActionToNP(npIdx, curAction);
+                        while(npIdx[npIdxCounter]) {
+                            if((npIdx[npIdxCounter] - 1) == processType) {
+                                canProcess = true;
+                                break;
+                            }
+                            ++npIdxCounter;
+                        }
+                        if(canProcess) {
+                            pdAction_t *tAction __attribute__((unused)) = NULL;
+                            RESULT_ASSERT(arrayDequePopFromHead(toProcess->actions, (void**)&tAction), ==, 0);
+                            ASSERT(tAction == curAction);
+                            DPRINTF(DEBUG_LVL_VERB, "Processing action %p\n", curAction);
+                            RESULT_ASSERT(_pdProcessAction(pd, worker, toProcess, curAction, 0), ==, 0);
+                            DPRINTF(DEBUG_LVL_VERB, "Done processing action %p\n", curAction);
+                        } else {
+                            DPRINTF(DEBUG_LVL_VERB, "Action %p is of the wrong type (needed %"PRIu32") -- leaving as is\n",
+                                curAction, processType);
+                            // Whatever happens, we can't go further since this action cannot be processed
+                            outerBreak = true;
                             break;
                         }
-                        ++npIdxCounter;
                     }
-                    if(canProcess) {
-                        pdAction_t *tAction __attribute__((unused)) = NULL;
-                        RESULT_ASSERT(arrayDequePopFromHead(toProcess->actions, (void**)&tAction), ==, 0);
-                        ASSERT(tAction == curAction);
-                        DPRINTF(DEBUG_LVL_VERB, "Processing action %p\n", curAction);
-                        RESULT_ASSERT(_pdProcessAction(pd, worker, toProcess, curAction, 0), ==, 0);
-                        DPRINTF(DEBUG_LVL_VERB, "Done processing action %p\n", curAction);
-                    } else {
-                        DPRINTF(DEBUG_LVL_VERB, "Action %p is of the wrong type (needed %"PRIu32") -- leaving as is\n",
-                                curAction, processType);
-                        break;
-                    }
-                }
 
+                    // At this point, we check to see if we have actions that we can add
+                    // We check regardless of outerBreak because we will use the cheaper
+                    // unlock later on
+
+                    // If we broke out of the inner loop because we couldn't process the action, we still can't
+                    // process it now
+                    if(outerBreak)
+                        break;
+                }
                 worker->curTask = savedTask;
 
                 toProcess->processingWorker = NULL;
@@ -2151,6 +2287,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 }
 
                 // Holding curNode->lock (except if didFree) and strand lock
+                // We can use the cheap unlock because we already checked for buffered actions
                 if(!didFree)
                     _pdUnlockStrand(toProcess);
 
@@ -2263,7 +2400,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
     // which we will be able to get a strand
     DPRINTF(DEBUG_LVL_VERB, "Initially resolving events; count is %"PRIu32"\n", count);
     for(i=0; i<count; ++i) {
-        if(pdResolveEvent(pd, (u64*)(&(events[i])), doClearHold) != OCR_EBUSY) {
+        if(pdResolveEvent(pd, (u64*)(&(events[i])), NULL, doClearHold) != OCR_EBUSY) {
             // The event is ready
             DPRINTF(DEBUG_LVL_VVERB, "Event %"PRIu32" (@ %p) is initially ready\n",
                     i, events[i]);
@@ -2302,7 +2439,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
             }
             // At this stage, we have a legitimate event to try to resolve at position curEvent
             // First attempt to resolve the event (who knows, it may be ready now)
-            if(pdResolveEvent(pd, (u64*)(&(events[curEvent])), doClearHold) != OCR_EBUSY) {
+            if(pdResolveEvent(pd, (u64*)(&(events[curEvent])), NULL, doClearHold) != OCR_EBUSY) {
                 // We resolved it without having to do anything, hurray, move along
                 DPRINTF(DEBUG_LVL_VERB, "Event %"PRIu32" (@ %p) is now ready\n", curEvent, events[curEvent]);
                 isNotReady &= ~(1ULL<<curEvent);
@@ -2520,7 +2657,8 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         }
 
                         // Holding curNode->lock (except if didFree) and strand lock
-                        // Unlock the strand
+                        // Unlock the strand; we can use the cheaper unlock because we already checked
+                        // for buffered actions
                         _pdUnlockStrand(toProcess);
 
                         // Holding lock on curNode->lock EXCEPT if freed strand
@@ -2568,7 +2706,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                     } else { /* Node does not need processing or cannot be processed by us */
                         hal_unlock(&(curNode->lock));
                         // We attempt to resolve the event again
-                        if(pdResolveEvent(pd, (u64*)(&(events[curEvent])), doClearHold) != OCR_EBUSY) {
+                        if(pdResolveEvent(pd, (u64*)(&(events[curEvent])), NULL, doClearHold) != OCR_EBUSY) {
                             isNotReady &= ~(1ULL<<curEvent);
                         }
                     }
@@ -2867,6 +3005,67 @@ static u8 _pdLockStrand(pdStrand_t *strand, u32 properties) {
     return 0;
 }
 
+static u8 _pdDoRequeue(ocrPolicyDomain_t *pd, pdStrand_t *strand) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER _pdDoRequeue(pd:%p, strand:%p)\n",
+            pd, strand);
+#define _END_FUNC doRequeueEnd
+
+    u8 toReturn = 0;
+
+    // If these fail, there is a runtime error in the MT
+    ASSERT(pd)
+    ASSERT(strand && hal_islocked(&(strand->lock)));
+
+    // We use a while loop in case there are additions in parallel
+    // TODO: There is still a race here because actions can be buffered and
+    // not added to the main actions list. This may cause issues but this
+    // should be rare enough that for now we can ignore (fingers crossed)
+    while(strand->bufferedActions != NULL) {
+        arrayDeque_t *bufferedActions = NULL;;
+        u8 bufferedClear = false;
+        // OK, there seems to be something for us to do
+        DPRINTF(DEBUG_LVL_VERB, "Found buffered actions %p on unlock for strand %p -- adding to regular actions\n",
+            strand->bufferedActions, strand);
+
+        hal_lock(&(strand->bufferedLock));
+        // We are going to swap bufferedActions with NULL
+        bufferedActions = strand->bufferedActions;
+        bufferedClear = strand->bufferedHoldClear;
+        strand->bufferedActions = NULL;
+        strand->bufferedHoldClear = false;
+        hal_unlock(&(strand->bufferedLock));
+
+        // At this point, we have taken all the actions that were buffered and all we have to do is add them
+        // to the actions queue.
+        // This is not done very efficiently (ideally we should do it in one fell swoop) but it works
+        ASSERT(bufferedActions);
+        u32 count = arrayDequeSize(bufferedActions);
+        ASSERT(count >= 1);
+        pdAction_t *actionPtr = NULL;
+        while(--count > 0) {
+            // Only go to the penultimate one so we can set the proper clearFwdHold flag
+            RESULT_ASSERT(arrayDequePopFromHead(bufferedActions, (void**)&actionPtr), ==, 0);
+            CHECK_RESULT(pdEnqueueActions(pd, strand, 1, &actionPtr, false), {
+                    arrayDequeDestruct(bufferedActions);
+                    pd->fcts.pdFree(pd, bufferedActions);
+                }, );
+        }
+        // Now do the last one
+        RESULT_ASSERT(arrayDequePopFromHead(bufferedActions, (void**)&actionPtr), ==, 0);
+        CHECK_RESULT(pdEnqueueActions(pd, strand, 1, &actionPtr, bufferedClear), {
+                arrayDequeDestruct(bufferedActions);
+                pd->fcts.pdFree(pd, bufferedActions);
+            }, );
+
+        // Free buffferedActions
+        arrayDequeDestruct(bufferedActions);
+        pd->fcts.pdFree(pd, bufferedActions);
+    }
+END_LABEL(doRequeueEnd)
+    DPRINTF(DEBUG_LVL_INFO, "EXIT _pdDoRequeue -> %"PRIu32"\n", toReturn);
+    return toReturn;
+#undef _END_FUNC
+}
 
 static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTable_t *table, pdStrandTableNode_t *node,
                                        pdStrandTableNode_t *parent, u32 parentSlot,
@@ -2927,10 +3126,12 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTable_t *t
         for (i = 0; i < numChildrenToInit; ++i, ++slab) {
             slab->curEvent = NULL;
             slab->actions = NULL;
+            slab->bufferedActions = NULL;
             slab->parent = node;
             slab->containingTable = table;
             slab->properties = PDST_FREE;
             slab->lock = INIT_LOCK;
+            slab->bufferedLock = INIT_LOCK;
             slab->index = LEAF_LEFTMOST_IDX(node->lmIndex) + (u64)i;
             slab->processingWorker = NULL;
             slab->contextTask =  NULL;
@@ -3115,6 +3316,14 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
     CHECK_RESULT(strand->properties & PDST_WAIT, , toReturn = OCR_EINVAL);
     if (strand->actions) {
         CHECK_RESULT_T(arrayDequeSize(strand->actions) == 0, , toReturn = OCR_EINVAL);
+        arrayDequeDestruct(strand->actions);
+        pd->fcts.pdFree(pd, strand->actions);
+    }
+
+    if (strand->bufferedActions) {
+        CHECK_RESULT_T(arrayDequeSize(strand->bufferedActions) == 0, , toReturn = OCR_EINVAL);
+        arrayDequeDestruct(strand->bufferedActions);
+        pd->fcts.pdFree(pd, strand->bufferedActions);
     }
 
     // At this stage, we can free the strand

@@ -1803,7 +1803,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             // We also clear the fwdHold to let the runtime know that we no longer
             // need this strand
             {
-                u8 ret __attribute__((unused)) = pdResolveEvent(self, (u64*)&event, true);
+                u8 ret __attribute__((unused)) = pdResolveEvent(self, (u64*)&event, NULL, true);
                 ASSERT(ret == 0 || ret == OCR_ENOP);
             }
             ocrPolicyMsg_t *response = ((pdEventMsg_t*)event)->msg;

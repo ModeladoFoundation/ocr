@@ -321,8 +321,6 @@ struct _pdStrandTable_t;
  */
 typedef struct _pdStrand_t {
     pdEvent_t* curEvent;    /**< Event currently pointed to by this slot */
-    arrayDeque_t *actions;  /**< Deque of actions to perform once event is ready. This
-                             * implementation is a variable size array */
     struct _pdStrandTableNode_t *parent; /**< Parent of this strand. Note that the slot
                                           number is index & ((1ULL<<6)-1) */
     struct _pdStrandTable_t *containingTable; /**< Table this strand is in */
@@ -331,8 +329,15 @@ typedef struct _pdStrand_t {
                                          This has implications on locking among other things */
     ocrTask_t* contextTask; /**< EDT that was active/live when the strand was created.
                                  This is restored when the actions on the strand are processed */
+    arrayDeque_t *actions;  /**< Deque of actions to perform once event is ready. This
+                             * implementation is a variable size array */
+    arrayDeque_t *bufferedActions; /**< Deque containing actions that are buffered when
+                                    * the strand is locked */
+    lock_t bufferedLock; /**< Lock for the buffered actions structure */
     u32 properties;/**< Properties and status of this slot. */
     lock_t lock;
+    u8 bufferedHoldClear; /**< Will be true if the actions in bufferedActions should clear
+                            the hold once they are merged */
 } pdStrand_t;
 
 
@@ -464,6 +469,11 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
  * @param[in/out] evtValue  Event to resolve. If the event is ready, on output, will
  *                          contain a valid pdEvent_t pointer. If the event is not
  *                          ready, this value will be unchanged
+ * @param[out] strand       If non-NULL, on return, will contain the strand this event
+ *                          refers to. This is true irrespective of whether or not
+ *                          the event is ready and the returned value can therefore be used
+ *                          for other strand related functions if the event is not ready (like
+ *                          enqueuing)
  * @param[in] clearFwdHold  Set to 1 if this is a forward execution and the event can
  *                          be removed from the strands table if ready.
  *
@@ -476,7 +486,7 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
  *          - OCR_EINVAL if evtValue is invalid
  *          - OCR_ENOP if evtValue was already an event pointer
  */
-u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold);
+u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, pdStrand_t **strand, u8 clearFwdHold);
 
 
 /**
@@ -705,8 +715,15 @@ u8 pdGetStrandForIndex(ocrPolicyDomain_t* pd, pdStrand_t **strand, pdStrandTable
  * does not mean that other actions can't be added on later but just that there
  * is no longer a race between adding an action and removing a ready strand
  *
- * @note A lock on the strand needs to be held prior to this action being called.
- * The lock is not released.
+ * @note If a lock on the strand is held, the actions will be directly enqueued and
+ * the lock is *NOT* released. If a lock on the strand is NOT held a try lock is attempted:
+ *   - if successful, the actions are directly enqueued and the lock is released
+ *   - if unsuccessful, the actions are buffered in another side structure and will be
+ *     merged with the main list of actions at a later point. This mode of operation is
+ *     specifically targeted at allowing simultaneous processing of the strand and adding
+ *     further actions to the strand. This way, threads that want to add actions to a strand
+ *     only have to wait for other threads adding actions to a strand (short) as opposed to
+ *     the potentially long time it takes to process the actions already present.
  *
  * @param[in] pd            Policy domain to use. Can be NULL; it will be resolved by
  *                          getCurrentEnv() in that case
@@ -776,6 +793,8 @@ u8 pdLockStrand(pdStrand_t *strand, bool doTry);
  * @return a status code:
  *      - 0: successful
  *      - OCR_EINVAL: strand is invalid or unlocked already
+ *      - status codes from pdEnqueueActions may also be returned in certain circumstances. If
+ *        something other than OCR_EINVAL is returned, look at those error codes for their meaning
  */
 u8 pdUnlockStrand(pdStrand_t *strand);
 

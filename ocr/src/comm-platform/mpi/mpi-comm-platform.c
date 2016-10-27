@@ -1138,7 +1138,7 @@ static u8 MPICommSendMessageMT(ocrCommPlatform_t * self,
     if(idx == 0) {
         // This is a direct call to the function (no strand processing)
         // We only deal with cases where the message is ready at this time
-        u8 ret = pdResolveEvent(self->pd, &evtValue, 0);
+        u8 ret = pdResolveEvent(self->pd, &evtValue, NULL, 0);
         ASSERT(ret == 0 || ret == OCR_ENOP);
         *inOutMsg = (pdEvent_t*)evtValue;
     } else {
