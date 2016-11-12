@@ -662,7 +662,7 @@ $(OCREXEC): $(OBJS_EXEC)
 #
 $(INSTRUMENTATION_FILE):
 	@echo "Generating instrumentation header file..."
-	$(AT)$(OCR_ROOT)/scripts/Profiler/generateInstrumentationFile.py -m rt -o $(OCR_BUILD)/src/profilerAutoGen --exclude .git --exclude profiler $(PROFILER_EXTRA_OPTS) $(OCR_ROOT)/src
+	$(AT)$(OCR_ROOT)/scripts/Profiler/generateInstrumentationFile.py -m rt -o $(OCR_BUILD)/src/instrumentationAutoGen --exclude .git --exclude profiler $(PROFILER_EXTRA_OPTS) $(OCR_ROOT)/src
 	@echo "\tDone."
 
 $(PROFILER_FILE): $(SRCSORIG) | $(OCR_BUILD)/src

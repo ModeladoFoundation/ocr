@@ -37,7 +37,7 @@
 
 #ifdef EXTRAE_RUNTIME_INSTRUMENTATION
 
-#include "profilerAutoGenRT.h"
+#include "instrumentationAutoGenRT.h"
 #include "extrae-instrumentation.h"
 
 #else
