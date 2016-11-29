@@ -785,6 +785,8 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         ASSERT(!ocrGuidIsUninitialized(outputEvent.guid));
 #undef PD_MSG
 #undef PD_TYPE
+    } else {
+        outputEvent.guid = outputEventPtr->guid;
     }
 
     // Set up the base's base
