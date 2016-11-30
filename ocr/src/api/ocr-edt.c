@@ -323,18 +323,16 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         hint = &userHint;
     }
 
-    if(outputEvent) {
-        if(properties & EDT_PROP_OEVT_VALID) {
-            ASSERT( !ocrGuidIsNull(*outputEvent) );
-            ASSERT( !ocrGuidIsUninitialized(*outputEvent) );
-            ASSERT( !ocrGuidIsError(*outputEvent) );
-
-            PD_MSG_FIELD_IO(outputEvent.guid) = *outputEvent;
-        } else {
-            PD_MSG_FIELD_IO(outputEvent.guid) = UNINITIALIZED_GUID;
-        }
-    } else {
+    if(!outputEvent) {
         PD_MSG_FIELD_IO(outputEvent.guid) = NULL_GUID;
+    } else if(properties & EDT_PROP_OEVT_VALID) {
+        ASSERT( !ocrGuidIsNull(*outputEvent) );
+        ASSERT( !ocrGuidIsUninitialized(*outputEvent) );
+        ASSERT( !ocrGuidIsError(*outputEvent) );
+
+        PD_MSG_FIELD_IO(outputEvent.guid) = *outputEvent;
+    } else {
+        PD_MSG_FIELD_IO(outputEvent.guid) = UNINITIALIZED_GUID;
     }
     PD_MSG_FIELD_IO(outputEvent.metaDataPtr) = NULL;
     PD_MSG_FIELD_IO(paramc) = paramc;
