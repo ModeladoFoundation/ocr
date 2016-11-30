@@ -801,8 +801,18 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
                 ocrStrlen(&(((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->name[0])) + 1, false);
 #endif
     self->outputEvent = outputEvent.guid;
-    // Sentinel value to remember a finish scope must be created when the EDT start executing
-    self->finishLatch = (hasProperty(properties, EDT_PROP_FINISH)) ? UNINITIALIZED_GUID : NULL_GUID;
+    if( !hasProperty(properties, EDT_PROP_FINISH) ) {
+        // Sentinel value to remember a finish scope must not
+        // be created
+        self->finishLatch =  NULL_GUID;
+    } else if(hasProperty(properties, EDT_PROP_OEVT_VALID)){
+        // Reuse user-provided output event
+        self->finishLatch = outputEvent.guid;
+    } else {
+        // Sentinel value to remember a finish scope must be
+        // created when the EDT start executing
+        self->finishLatch = UNINITIALIZED_GUID;
+    }
     self->parentLatch = parentLatch.guid;
     u32 i;
     for(i = 0; i < ELS_SIZE; ++i) {
@@ -1575,10 +1585,11 @@ u8 taskExecute(ocrTask_t* base) {
         //       Nothing to do as the parent latch is incremented on creation
         ocrGuid_t taskGuid = base->guid;
         bool hasOutputEvent = !ocrGuidIsNull(base->outputEvent);
-        bool hasFinish = ocrGuidIsUninitialized(base->finishLatch);
+        bool hasFinish = !ocrGuidIsNull(base->finishLatch);
         bool hasParent = !ocrGuidIsNull(base->parentLatch);
         bool hasLocalParent = hasParent && isLocalGuid(pd, base->parentLatch);
         bool needProxy = (hasParent && !hasLocalParent);
+        bool linkOutputToFinish = hasOutputEvent && !ocrGuidIsEq(base->finishLatch,base->outputEvent);
 
         if (hasFinish || needProxy) {
             PD_MSG_STACK(msg);
@@ -1587,24 +1598,30 @@ u8 taskExecute(ocrTask_t* base) {
             currentEdt.guid = taskGuid;
             currentEdt.metaDataPtr = base;
             ocrFatGuid_t newFinishLatchFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+            if( ocrGuidIsUninitialized(base->finishLatch) ) {
+                // Create finishLatch event if it is not initialized
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_CREATE
-            msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-            PD_MSG_FIELD_IO(guid) = newFinishLatchFGuid;
-            PD_MSG_FIELD_I(currentEdt) = currentEdt;
-            PD_MSG_FIELD_I(type) = OCR_EVENT_LATCH_T;
+                msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                PD_MSG_FIELD_IO(guid) = newFinishLatchFGuid;
+                PD_MSG_FIELD_I(currentEdt) = currentEdt;
+                PD_MSG_FIELD_I(type) = OCR_EVENT_LATCH_T;
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
-            ocrEventParams_t latchParams;
-            latchParams.EVENT_LATCH.counter = 1;
-            PD_MSG_FIELD_I(params) = &latchParams;
+                ocrEventParams_t latchParams;
+                latchParams.EVENT_LATCH.counter = 1;
+                PD_MSG_FIELD_I(params) = &latchParams;
 #endif
-            PD_MSG_FIELD_I(properties) = 0;
-            RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
-            newFinishLatchFGuid = PD_MSG_FIELD_IO(guid);
-            ASSERT(!(ocrGuidIsNull(newFinishLatchFGuid.guid)) && newFinishLatchFGuid.metaDataPtr != NULL);
-            base->finishLatch = newFinishLatchFGuid.guid;
+                PD_MSG_FIELD_I(properties) = 0;
+                RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+                newFinishLatchFGuid = PD_MSG_FIELD_IO(guid);
+                ASSERT(!(ocrGuidIsNull(newFinishLatchFGuid.guid)) && newFinishLatchFGuid.metaDataPtr != NULL);
+                base->finishLatch = newFinishLatchFGuid.guid;
 #undef PD_MSG
 #undef PD_TYPE
+            } else {
+                // finishLatch event is already created (referenced by user)
+                newFinishLatchFGuid.guid = base->finishLatch;
+            }
 #ifndef ENABLE_EXTENSION_PARAMS_EVT
             // Account for this EDT as being part of its local finish scope
             getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -1629,7 +1646,7 @@ u8 taskExecute(ocrTask_t* base) {
                 // we forget we had a parent. This is essentially a sentinel value that
                 // helps disambiguate which actions need to be carried out in the epilogue.
                 base->parentLatch = NULL_GUID;
-                if (hasOutputEvent) {
+                if (linkOutputToFinish) {
                     // Link the new finish scope to the output event only if it's not a proxy finish scope
                     // Otherwise we would unnecessarily delay the output event satisfaction to the proxy scope.
                     DPRINTF(DEBUG_LVL_VVERB, "Link finish scope "GUIDF" to output event "GUIDF"\n", GUIDA(newFinishLatchFGuid.guid), GUIDA(base->outputEvent));
