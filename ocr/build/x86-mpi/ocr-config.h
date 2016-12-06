@@ -152,5 +152,11 @@
 // Performance monitoring
 //#define ENABLE_EXTENSION_PERF
 
+//#define ENABLE_RESILIENCY
+
+#ifdef ENABLE_RESILIENCY
+#define ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+#endif
+
 #endif /* __OCR_CONFIG_H__ */
 

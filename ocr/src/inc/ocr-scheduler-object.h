@@ -66,10 +66,11 @@ struct _ocrPolicyMsg_t;
                                                                     // - [in/out] iterator->data points to u64 key on input, value on output
 
 // Count
-#define SCHEDULER_OBJECT_COUNT_IMMEDIATE                    0x014   // Count the number of elements in immediate level
-#define SCHEDULER_OBJECT_COUNT_RECURSIVE                    0x024   // Count the number of elements recursively for all elements
+#define SCHEDULER_OBJECT_COUNT_IMMEDIATE                    0x004   // Count the number of elements in immediate level
+#define SCHEDULER_OBJECT_COUNT_RECURSIVE                    0x014   // Count the number of elements recursively for all elements
 #define SCHEDULER_OBJECT_COUNT_EDT                          0x104   // Count only EDT elements
 #define SCHEDULER_OBJECT_COUNT_DB                           0x204   // Count only DB elements
+#define SCHEDULER_OBJECT_COUNT_RUNTIME_EDT                  0x304   // Count only Runtime EDT elements
 
 //Mapping
 #define SCHEDULER_OBJECT_CREATE_IF_ABSENT                   0x15
@@ -110,6 +111,7 @@ typedef enum {
     OCR_SCHEDULER_OBJECT_VOIDPTR                           =0x110,
     OCR_SCHEDULER_OBJECT_EDT                               =0x210,
     OCR_SCHEDULER_OBJECT_DB                                =0x310,
+    OCR_SCHEDULER_OBJECT_RUNTIME_EDT                       =0x410,
 
     //aggregate schedulerObjects:
     //    These schedulerObjects can hold other schedulerObjects, both singleton and aggregate.
@@ -143,6 +145,7 @@ typedef enum {
 #define IS_SCHEDULER_OBJECT_TYPE_SPECIALIZED(kind) ((kind & 0xF0) == OCR_SCHEDULER_OBJECT_SPECIALIZED)
 #define IS_SCHEDULER_OBJECT_CONFIG_ALLOCATED(kind) ((kind & 0xF) == OCR_SCHEDULER_OBJECT_ALLOC_CONFIG)
 #define IS_SCHEDULER_OBJECT_PD_ALLOCATED(kind)     ((kind & 0xF)  == OCR_SCHEDULER_OBJECT_ALLOC_PD)
+#define IS_SCHEDULER_OBJECT_TYPE_RUNTIME(kind)     ((kind == OCR_SCHEDULER_OBJECT_RUNTIME_EDT) /*|| (kind == ...)*/)
 
 /****************************************************/
 /* OCR SCHEDULER OBJECT                             */

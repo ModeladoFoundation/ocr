@@ -31,6 +31,9 @@ static void deqSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDomain_
     deqSchedObj->deque = NULL;
 #else
     deqSchedObj->deque = newDeque(pd, NULL, deqType);
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    deqSchedObj->dequeRt = newDeque(pd, NULL, deqType);
+#endif
 #endif
 }
 
@@ -44,6 +47,9 @@ static void deqSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
     ocrSchedulerObjectDeq_t* deqSchedObj = (ocrSchedulerObjectDeq_t*)self;
     deqSchedObj->dequeType = 0;
     deqSchedObj->deque = NULL;
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    deqSchedObj->dequeRt = NULL;
+#endif
 }
 
 ocrSchedulerObject_t* newSchedulerObjectDeq(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
@@ -83,6 +89,9 @@ u8 deqSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
         getCurrentEnv(&pd, NULL, NULL, NULL);
         ocrSchedulerObjectDeq_t* deqSchedObj = (ocrSchedulerObjectDeq_t*)self;
         if (deqSchedObj->deque) deqSchedObj->deque->destruct(pd, deqSchedObj->deque);
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+        if (deqSchedObj->dequeRt) deqSchedObj->dequeRt->destruct(pd, deqSchedObj->dequeRt);
+#endif
         pd->fcts.pdFree(pd, self);
     }
     return 0;
@@ -91,6 +100,21 @@ u8 deqSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
 u8 deqSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObject_t *element, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     ocrSchedulerObjectDeq_t *schedObj = (ocrSchedulerObjectDeq_t*)self;
     ASSERT(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(element->kind));
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    if (IS_SCHEDULER_OBJECT_TYPE_RUNTIME(element->kind)) {
+        deque_t * deq = schedObj->dequeRt;
+        if (deq == NULL) {
+            ocrPolicyDomain_t *pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            deq = newDeque(pd, NULL, schedObj->dequeType);
+            schedObj->dequeRt = deq;
+        }
+        //Sanity check - Ensure work is local
+        ASSERT(element->guid.metaDataPtr != NULL);
+        deq->pushAtTail(deq, (void *)(element->guid.metaDataPtr), 0);
+        return 0;
+    }
+#endif
     deque_t * deq = schedObj->deque;
     if (deq == NULL) {
         ocrPolicyDomain_t *pd = NULL;
@@ -110,6 +134,10 @@ u8 deqSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
     ocrSchedulerObjectDeq_t *schedObj = (ocrSchedulerObjectDeq_t*)self;
     ASSERT(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(kind));
     deque_t * deq = schedObj->deque;
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    if (IS_SCHEDULER_OBJECT_TYPE_RUNTIME(kind))
+        deq = schedObj->dequeRt;
+#endif
     if (deq == NULL) return count;
 
     for (i = 0; i < count; i++) {
@@ -166,9 +194,16 @@ u8 deqSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
 
 u64 deqSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
     ocrSchedulerObjectDeq_t *schedObj = (ocrSchedulerObjectDeq_t*)self;
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    if (properties == SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) {
+        deque_t * deq = schedObj->dequeRt;
+        if (deq == NULL) return 0;
+        return deq->size(deq);
+    }
+#endif
     deque_t * deq = schedObj->deque;
     if (deq == NULL) return 0;
-    return deq->size(deq); //this may be racy but ok for approx count
+    return deq->size(deq);
 }
 
 ocrSchedulerObjectIterator_t* deqSchedulerObjectCreateIterator(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {

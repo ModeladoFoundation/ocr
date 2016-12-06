@@ -26,8 +26,11 @@ typedef struct _paramListSchedulerObjectDeq_t {
 
 typedef struct _ocrSchedulerObjectDeq_t {
     ocrSchedulerObject_t base;
-    deque_t *deque;             // the deque
     ocrDequeType_t dequeType;   // type of deque
+    deque_t *deque;             // the deque
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    deque_t *dequeRt;           // deque for runtime edts
+#endif
 } ocrSchedulerObjectDeq_t;
 
 /****************************************************/

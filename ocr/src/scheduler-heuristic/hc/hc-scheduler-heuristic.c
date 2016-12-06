@@ -142,19 +142,22 @@ ocrSchedulerHeuristicContext_t* hcSchedulerHeuristicGetContext(ocrSchedulerHeuri
 }
 
 /* Find EDT for the worker to execute - This uses random workstealing to find work if no work is found owned deque */
-static u8 hcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+static u8 hcSchedulerHeuristicGetEdt(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context,
+                                     ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints, ocrSchedulerObjectKind kind,
+                                     u32 countProp)
+{
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     ocrSchedulerObject_t edtObj;
     edtObj.guid.guid = NULL_GUID;
     edtObj.guid.metaDataPtr = NULL;
-    edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
+    edtObj.kind = kind;
 
     //First try to pop from own deque
     ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
     ocrSchedulerObject_t *schedObj = hcContext->mySchedulerObject;
     ASSERT(schedObj);
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-    u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    u8 retVal = fact->fcts.remove(fact, schedObj, kind , 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
 
     //If pop fails, then try to steal from other deques
     if (ocrGuidIsNull(edtObj.guid.guid)) {
@@ -162,18 +165,18 @@ static u8 hcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
         //First try to steal from the last deque that was visited (probably had a successful steal)
         ocrSchedulerObject_t *stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
         ASSERT(stealSchedulerObject);
-        retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
+        retVal = fact->fcts.remove(fact, stealSchedulerObject, kind, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
 
         //If cached steal failed, then restart steal loop from starting index
         ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
         ocrSchedulerObjectFactory_t *sFact = self->scheduler->pd->schedulerObjectFactories[rootObj->fctId];
-        while (ocrGuidIsNull(edtObj.guid.guid) && sFact->fcts.count(sFact, rootObj, (SCHEDULER_OBJECT_COUNT_EDT | SCHEDULER_OBJECT_COUNT_RECURSIVE) ) != 0) {
+        while (ocrGuidIsNull(edtObj.guid.guid) && sFact->fcts.count(sFact, rootObj, countProp) != 0) {
             u32 i;
             for (i = 1; ocrGuidIsNull(edtObj.guid.guid) && i < self->contextCount; i++) {
                 hcContext->stealSchedulerObjectIndex = (context->id + i) % self->contextCount; //simple round robin stealing
                 stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
                 if (stealSchedulerObject){
-                    retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+                    retVal = fact->fcts.remove(fact, stealSchedulerObject, kind, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
                 }
             }
         }
@@ -234,7 +237,15 @@ u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     switch(taskArgs->kind) {
     case OCR_SCHED_WORK_EDT_USER:
-        return hcSchedulerHeuristicWorkEdtUserInvoke(self, context, opArgs, hints);
+        {
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+            ASSERT(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid));
+            u8 retVal = hcSchedulerHeuristicGetEdt(self, context, opArgs, hints, OCR_SCHEDULER_OBJECT_RUNTIME_EDT, SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
+            if (!(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid)))
+                return retVal;
+#endif
+            return hcSchedulerHeuristicGetEdt(self, context, opArgs, hints, OCR_SCHEDULER_OBJECT_EDT, SCHEDULER_OBJECT_COUNT_EDT);
+        }
     // Unknown ops
     default:
         ASSERT(0);
@@ -256,11 +267,17 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
-    ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    ocrTask_t *task = (ocrTask_t*)notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr;
+    if ((task->flags & OCR_TASK_FLAG_RUNTIME_EDT) != 0) {
+        edtObj.kind = OCR_SCHEDULER_OBJECT_RUNTIME_EDT;
+    }
+#endif
 #ifdef OCR_MONITOR_SCHEDULER
     ocrGuid_t taskGuid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid;
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SCHEDULED, taskGuid, schedObj);
 #endif
+    ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
 }
 
