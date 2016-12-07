@@ -25,6 +25,9 @@
 #include "extensions/ocr-hints.h"
 #endif
 
+#ifdef ENABLE_RESILIENCY
+#include "policy-domain/hc/hc-policy.h"
+#endif
 /******************************************************/
 /* OCR-HC SCHEDULER_HEURISTIC                         */
 /******************************************************/
@@ -243,6 +246,14 @@ u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
             u8 retVal = hcSchedulerHeuristicGetEdt(self, context, opArgs, hints, OCR_SCHEDULER_OBJECT_RUNTIME_EDT, SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
             if (!(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid)))
                 return retVal;
+#ifdef ENABLE_RESILIENCY
+            ocrPolicyDomain_t * pd;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+            if (hcPolicy->checkpointInProgress != 0) {
+                return 0; //When checkpoint is in progress, we will not pick up anymore user edts
+            }
+#endif
 #endif
             return hcSchedulerHeuristicGetEdt(self, context, opArgs, hints, OCR_SCHEDULER_OBJECT_EDT, SCHEDULER_OBJECT_COUNT_EDT);
         }

@@ -1545,6 +1545,11 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #undef PD_TYPE
         break;
     }
+    case PD_MSG_RESILIENCY_CHECKPOINT: {
+        // Resiliency manager sets dest location
+        DPRINTF(DEBUG_LVL_VVERB, "RESILIENCY_CHECKPOINT: target is %"PRId32"\n", (u32)msg->destLocation);
+        break;
+    }
     case PD_MSG_DEP_UNREGSIGNALER: {
         //Not implemented: see #521, #522
         ASSERT(false && "Not implemented PD_MSG_DEP_UNREGSIGNALER");

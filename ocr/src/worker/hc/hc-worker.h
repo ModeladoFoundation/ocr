@@ -48,6 +48,11 @@ typedef struct {
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     u32 isHelping;
     bool stealFirst;
+    u64 edtDepth;
+    u64 maxEdtDepth;
+#endif
+#ifdef ENABLE_RESILIENCY
+    volatile u8 checkpointInProgress;
 #endif
 } ocrWorkerHc_t;
 

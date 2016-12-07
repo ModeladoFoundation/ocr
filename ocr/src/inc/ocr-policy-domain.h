@@ -286,6 +286,8 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_RESILIENCY_NOTIFY    0x1800
 /**< Proactive fault monitoring */
 #define PD_MSG_RESILIENCY_MONITOR   0x2800
+/**< PD checkpoint msgs */
+#define PD_MSG_RESILIENCY_CHECKPOINT 0x3800
 
 /**< And this to just get the type of the message (note that the number
  * of ocrFatGuid_t is part of the type as for a given type, this won't change)
@@ -1212,6 +1214,17 @@ typedef struct _ocrPolicyMsg_t {
                 } out;
             } inOrOut __attribute__ (( aligned(8) ));
         } PD_MSG_STRUCT_NAME(PD_MSG_RESILIENCY_MONITOR);
+
+        struct {
+            union {
+                struct {
+                    u32 properties;             /**< In Properties for proactive fault monitoring */
+                } in;
+                struct {
+                    u32 returnDetail;           /**< Out: Success or error code */
+                } out;
+            } inOrOut __attribute__ (( aligned(8) ));
+        } PD_MSG_STRUCT_NAME(PD_MSG_RESILIENCY_CHECKPOINT);
     } args;
 } ocrPolicyMsg_t;
 

@@ -56,6 +56,20 @@ static void hcWorkShift(ocrWorker_t * worker) {
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
 
+#ifdef ENABLE_RESILIENCY
+    {
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+        msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+#endif
+
     ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *) worker;
 #if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
     RESULT_ASSERT(pdProcessStrands(pd, NP_WORK, 0), ==, 0);
@@ -101,6 +115,13 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
             {
                 START_PROFILE(wo_hc_executeWork);
+#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
+                if ((curTask->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0) {
+                    hcWorker->edtDepth++;
+                    if (hcWorker->edtDepth > hcWorker->maxEdtDepth)
+                        hcWorker->maxEdtDepth = hcWorker->edtDepth;
+                }
+#endif
                 // Task sanity checks
                 ASSERT(taskGuid.metaDataPtr != NULL);
                 worker->curTask = curTask;
@@ -175,6 +196,11 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 hcWorker->edtGuid = curTask->guid;
 #ifdef OCR_ENABLE_EDT_NAMING
                 hcWorker->name = curTask->name;
+#endif
+#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
+                if ((curTask->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0) {
+                    hcWorker->edtDepth--;
+                }
 #endif
                 EXIT_PROFILE;
             }
@@ -370,6 +396,7 @@ static void workerLoop(ocrWorker_t * worker) {
     salPerfShutdown(hcWorker->perfCtrs);
 #endif
 
+    //DPRINTF(DEBUG_LVL_NONE, "Worker max edt depth reached with context switch: %lu\n", ((ocrWorkerHc_t*)worker)->maxEdtDepth);
     DPRINTF(DEBUG_LVL_VERB, "Finished worker loop ... waiting to be reapped\n");
 }
 
@@ -653,6 +680,11 @@ void initializeWorkerHc(ocrWorkerFactory_t * factory, ocrWorker_t* self, ocrPara
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     workerHc->isHelping = 0;
     workerHc->stealFirst = 0;
+    workerHc->edtDepth = 0;
+    workerHc->maxEdtDepth = 0;
+#endif
+#ifdef ENABLE_RESILIENCY
+    workerHc->checkpointInProgress = 0;
 #endif
 }
 

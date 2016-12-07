@@ -17,6 +17,10 @@
 /* OCR-HC POLICY DOMAIN                               */
 /******************************************************/
 
+#ifndef OCR_CHECKPOINT_INTERVAL
+#define OCR_CHECKPOINT_INTERVAL 1000000UL
+#endif
+
 typedef struct {
     ocrPolicyDomainFactory_t base;
 } ocrPolicyDomainFactoryHc_t;
@@ -44,10 +48,16 @@ typedef struct {
 #ifdef ENABLE_RESILIENCY
     ocrFaultArgs_t faultArgs;
     volatile u8 shutdownInProgress;
+    volatile u8 checkpointInProgress;
+    volatile u8 resumeAfterCheckpoint;
     volatile u32 fault;
     volatile u32 recover;
-    u32 faultMonitorCounter;
     u32 computeWorkerCount;
+    u32 faultMonitorCounter;
+    u32 checkpointMonitorCounter;
+    u32 checkpointPdMonitorCounter;
+    u64 checkpointInterval;
+    u64 timestamp;
 #endif
 } ocrPolicyDomainHc_t;
 

@@ -36,6 +36,10 @@
 #include "event/hc/hc-event.h"
 #include "workpile/hc/hc-workpile.h"
 
+#ifdef ENABLE_RESILIENCY
+#include "worker/hc/hc-worker.h"
+#endif
+
 // Currently required to find out if self is the blessed PD
 #include "extensions/ocr-affinity.h"
 
@@ -555,6 +559,7 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             // BRING_UP is called twice in RL_LEGACY mode, record we've seen the first call.
             rself->rlSwitch.legacySecondStart = true;
 #ifdef ENABLE_RESILIENCY
+            rself->timestamp = salGetTime();
             DPRINTF(DEBUG_LVL_INFO, "PD worker count: %"PRIu64" Compute worker count: %"PRIu32"\n", policy->workerCount, rself->computeWorkerCount);
 #endif
             // Register properties here to allow tear down to read special flags set on bring up
@@ -935,6 +940,89 @@ static inline void hcSchedNotifyPostProcessMessage(ocrPolicyDomain_t *self, ocrP
                     self->schedulers[0], (ocrSchedulerOpArgs_t*) &notifyArgs, NULL), ==, 0);
     msg->type &= ~PD_MSG_REQ_POST_PROCESS_SCHEDULER;
 }
+
+#ifdef ENABLE_RESILIENCY
+static void checkinWorkerForCheckpoint(ocrPolicyDomain_t *self, ocrWorker_t *worker) {
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+    ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t*)worker;
+    DPRINTF(DEBUG_LVL_VERB, "Worker %"PRIu64" checking in for checkpoint...\n", worker->id);
+    hcWorker->checkpointInProgress = 1;
+    u32 oldVal = hal_xadd32(&rself->checkpointMonitorCounter, 1);
+    if(oldVal == (rself->computeWorkerCount - 1)) {
+        DPRINTF(DEBUG_LVL_VERB, "All workers checked in for checkpoint...\n");
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+        msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+        msg.destLocation = 0;
+        PD_MSG_FIELD_I(properties) = OCR_CHECKPOINT_PD_READY;
+        RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+}
+
+static void startPdCheckpoint(ocrPolicyDomain_t *self) {
+    DPRINTF(DEBUG_LVL_INFO, "PD checkpoint start...\n");
+    //doCheckpoint();
+    DPRINTF(DEBUG_LVL_INFO, "PD checkpoint done...\n");
+    PD_MSG_STACK(msg);
+    getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+    msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+    msg.destLocation = 0;
+    PD_MSG_FIELD_I(properties) = OCR_CHECKPOINT_PD_DONE;
+    RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+}
+
+static void checkinPdForCheckpoint(ocrPolicyDomain_t *self) {
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+    u32 oldVal = hal_xadd32(&rself->checkpointPdMonitorCounter, 1);
+    if (oldVal == self->neighborCount) {
+        DPRINTF(DEBUG_LVL_VERB, "All PDs checked in for checkpoint...\n");
+        int i;
+        for ( i = 1; i <= self->neighborCount; i++ ) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+            msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+            msg.destLocation = i;
+            PD_MSG_FIELD_I(properties) = OCR_CHECKPOINT_PD_START;
+            RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+        }
+        startPdCheckpoint(self);
+    }
+}
+
+static void checkoutPdFromCheckpoint(ocrPolicyDomain_t *self) {
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+    u32 oldVal = hal_xadd32(&rself->checkpointPdMonitorCounter, -1);
+    if (oldVal == 1) {
+        DPRINTF(DEBUG_LVL_VERB, "All PDs checked out from checkpoint...\n");
+        int i;
+        for ( i = 1; i <= self->neighborCount; i++ ) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+            msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+            msg.destLocation = i;
+            PD_MSG_FIELD_I(properties) = OCR_CHECKPOINT_PD_RESUME;
+            RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+        }
+        rself->resumeAfterCheckpoint = 1;
+    }
+}
+#endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 // Need a strand table
@@ -3022,70 +3110,143 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_RESILIENCY_MONITOR
 #ifdef ENABLE_RESILIENCY
+        ocrWorker_t * worker;
+        getCurrentEnv(NULL, &worker, NULL, NULL);
         ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
-        if (rself->shutdownInProgress == 0 && rself->fault != 0) { //Fault detected
+        ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t*)worker;
+        if (rself->shutdownInProgress == 0) {
+            if (rself->fault != 0) { //Fault detected
 
-            // Read fault data:
-            PD_MSG_FIELD_O(faultArgs) = rself->faultArgs;
+                // Read fault data:
+                PD_MSG_FIELD_O(faultArgs) = rself->faultArgs;
 
-            // Checkin:
-            u32 oldVal = hal_xadd32(&rself->faultMonitorCounter, 1);
+                // Checkin:
+                u32 oldVal = hal_xadd32(&rself->faultMonitorCounter, 1);
 
-            if (oldVal == 0) {
-                DPRINTF(DEBUG_LVL_WARN, "Fault detected! Waiting for recovery...\n");
-            }
-
-            ocrWorker_t * worker;
-            getCurrentEnv(NULL, &worker, NULL, NULL);
-            DPRINTF(DEBUG_LVL_INFO, "Worker %"PRIu64" checked in...\n", worker->id);
-
-            // Recovery:
-            if(oldVal == (rself->computeWorkerCount - 1)) {
-                // The last worker to arrive executes the recovery code
-                // This ensures shutdown does not start during recovery
-                ASSERT(rself->faultMonitorCounter == rself->computeWorkerCount);
-                RESULT_ASSERT((hal_cmpswap32(&rself->recover, 0, 1)), ==, 0);
-                //Now recover from fault
-                switch(rself->faultArgs.kind) {
-                case OCR_FAULT_DATABLOCK_CORRUPTION:
-                    {
-                        ocrFatGuid_t dbGuid = rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db;
-                        ASSERT(!ocrGuidIsNull(dbGuid.guid) && dbGuid.metaDataPtr != NULL);
-                        DPRINTF(DEBUG_LVL_WARN, "Fault kind: OCR_FAULT_DATABLOCK_CORRUPTION (db="GUIDF")\n", GUIDA(dbGuid.guid));
-                        ocrDataBlock_t *db = (ocrDataBlock_t*)(dbGuid.metaDataPtr);
-                        hal_memCopy(db->ptr, db->bkPtr, db->size, 0);
-                    }
-                    break;
-                default:
-                    // Not handled
-                    ASSERT(0);
-                    return OCR_EFAULT;
+                if (oldVal == 0) {
+                    DPRINTF(DEBUG_LVL_WARN, "Fault detected! Waiting for recovery...\n");
                 }
-                rself->faultArgs.kind = OCR_FAULT_NONE;
-                RESULT_ASSERT((hal_cmpswap32(&rself->fault, 1, 0)), ==, 1);
-            } else {
-                // Others wait for recovery
-                while(rself->fault != 0 && rself->shutdownInProgress == 0)
-                    ;
+
+                DPRINTF(DEBUG_LVL_INFO, "Worker %"PRIu64" checked in...\n", worker->id);
+
+                // Recovery:
+                if(oldVal == (rself->computeWorkerCount - 1)) {
+                    // The last worker to arrive executes the recovery code
+                    // This ensures shutdown does not start during recovery
+                    ASSERT(rself->faultMonitorCounter == rself->computeWorkerCount);
+                    RESULT_ASSERT((hal_cmpswap32(&rself->recover, 0, 1)), ==, 0);
+                    //Now recover from fault
+                    switch(rself->faultArgs.kind) {
+                    case OCR_FAULT_DATABLOCK_CORRUPTION:
+                        {
+                            ocrFatGuid_t dbGuid = rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db;
+                            ASSERT(!ocrGuidIsNull(dbGuid.guid) && dbGuid.metaDataPtr != NULL);
+                            DPRINTF(DEBUG_LVL_WARN, "Fault kind: OCR_FAULT_DATABLOCK_CORRUPTION (db="GUIDF")\n", GUIDA(dbGuid.guid));
+                            ocrDataBlock_t *db = (ocrDataBlock_t*)(dbGuid.metaDataPtr);
+                            hal_memCopy(db->ptr, db->bkPtr, db->size, 0);
+                        }
+                        break;
+                    default:
+                        // Not handled
+                        ASSERT(0);
+                        return OCR_EFAULT;
+                    }
+                    rself->faultArgs.kind = OCR_FAULT_NONE;
+                    RESULT_ASSERT((hal_cmpswap32(&rself->fault, 1, 0)), ==, 1);
+                } else {
+                    // Others wait for recovery
+                    while(rself->fault != 0 && rself->shutdownInProgress == 0)
+                        ;
+                }
+
+                // Checkout:
+                oldVal = hal_xadd32(&rself->faultMonitorCounter, -1);
+                DPRINTF(DEBUG_LVL_INFO, "Worker %"PRIu64" checked out...\n", worker->id);
+
+                if (oldVal == 1) {
+                    ASSERT(rself->faultMonitorCounter == 0);
+                    RESULT_ASSERT((hal_cmpswap32(&rself->recover, 1, 0)), ==, 1);
+                    DPRINTF(DEBUG_LVL_WARN, "Fault recovery completed\n");
+                } else {
+                    while(rself->recover != 0)
+                        ;
+                }
+
+                // Resume:
+                PD_MSG_FIELD_O(returnDetail) = OCR_EFAULT;
+            } else if (worker->id == 1 && rself->checkpointInProgress == 0) {
+                u64 curTime = salGetTime();
+                u64 prevTime = rself->timestamp;
+                if ((curTime - prevTime) > rself->checkpointInterval) {
+                    if (prevTime > 0) {
+                        DPRINTF(DEBUG_LVL_INFO, "Ready to checkpoint...\n");
+                        rself->timestamp = curTime;
+                        rself->checkpointInProgress = 1;
+                        ASSERT(hcWorker->checkpointInProgress == 0);
+                        if (hcWorker->edtDepth == 0)
+                            checkinWorkerForCheckpoint(self, worker);
+                    }
+                }
+            } else if (rself->checkpointInProgress != 0 && hcWorker->checkpointInProgress == 0 && hcWorker->edtDepth == 0) {
+                checkinWorkerForCheckpoint(self, worker);
+            } else if (rself->resumeAfterCheckpoint != 0) {
+                ASSERT(hcWorker->checkpointInProgress != 0);
+                DPRINTF(DEBUG_LVL_VERB, "Worker %"PRIu64" checking out from checkpoint...\n", worker->id);
+                hcWorker->checkpointInProgress = 0;
+                u32 oldVal = hal_xadd32(&rself->checkpointMonitorCounter, -1);
+                if (oldVal == 1) {
+                    DPRINTF(DEBUG_LVL_INFO, "Resuming after checkpoint...\n");
+                    rself->checkpointInProgress = 0;
+                    rself->resumeAfterCheckpoint= 0;
+                } else {
+                    while (rself->checkpointInProgress != 0)
+                        ;
+                }
             }
-
-            // Checkout:
-            oldVal = hal_xadd32(&rself->faultMonitorCounter, -1);
-            DPRINTF(DEBUG_LVL_INFO, "Worker %"PRIu64" checked out...\n", worker->id);
-
-            if (oldVal == 1) {
-                ASSERT(rself->faultMonitorCounter == 0);
-                RESULT_ASSERT((hal_cmpswap32(&rself->recover, 1, 0)), ==, 1);
-                DPRINTF(DEBUG_LVL_WARN, "Fault recovery completed\n");
-            } else {
-                while(rself->recover != 0)
-                    ;
-            }
-
-            // Resume:
-            PD_MSG_FIELD_O(returnDetail) = OCR_EFAULT;
         } else {
+            rself->checkpointInProgress = 0; //When shutting down, cancel any pending checkpoints
             PD_MSG_FIELD_O(returnDetail) = 0;
+        }
+#else
+        PD_MSG_FIELD_O(returnDetail) = 0;
+#endif
+#undef PD_MSG
+#undef PD_TYPE
+        msg->type &= ~PD_MSG_REQUEST;
+        msg->type |= PD_MSG_RESPONSE;
+        break;
+    }
+
+    case PD_MSG_RESILIENCY_CHECKPOINT: {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+#ifdef ENABLE_RESILIENCY
+        ocrCheckpointProp prop = PD_MSG_FIELD_I(properties);
+        switch(prop) {
+        case OCR_CHECKPOINT_PD_READY:
+            {
+                checkinPdForCheckpoint(self);
+                break;
+            }
+        case OCR_CHECKPOINT_PD_START:
+            {
+                startPdCheckpoint(self);
+                break;
+            }
+        case OCR_CHECKPOINT_PD_DONE:
+            {
+                checkoutPdFromCheckpoint(self);
+                break;
+            }
+        case OCR_CHECKPOINT_PD_RESUME:
+            {
+                ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+                rself->resumeAfterCheckpoint = 1;
+                break;
+            }
+        default:
+            // Not handled
+            ASSERT(0);
         }
 #else
         PD_MSG_FIELD_O(returnDetail) = 0;
@@ -3228,10 +3389,16 @@ void initializePolicyDomainHc(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
 #ifdef ENABLE_RESILIENCY
     derived->faultArgs.kind = OCR_FAULT_NONE;
     derived->shutdownInProgress = 0;
+    derived->checkpointInProgress = 0;
+    derived->resumeAfterCheckpoint = 0;
     derived->fault = 0;
     derived->recover = 0;
-    derived->faultMonitorCounter = 0;
     derived->computeWorkerCount = 0;
+    derived->faultMonitorCounter = 0;
+    derived->checkpointMonitorCounter = 0;
+    derived->checkpointPdMonitorCounter = 0;
+    derived->checkpointInterval = OCR_CHECKPOINT_INTERVAL;
+    derived->timestamp = 0;
 #endif
 }
 

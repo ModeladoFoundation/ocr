@@ -27,4 +27,11 @@ typedef struct _ocrResiliencyFaultArgs {
     ocrFaultData_t data;                      /* Fault related data */
 } ocrFaultArgs_t;
 
+typedef enum {
+    OCR_CHECKPOINT_PD_READY,
+    OCR_CHECKPOINT_PD_START,
+    OCR_CHECKPOINT_PD_DONE,
+    OCR_CHECKPOINT_PD_RESUME
+} ocrCheckpointProp;
+
 #endif /* OCR_RESILIENCY_H_ */
