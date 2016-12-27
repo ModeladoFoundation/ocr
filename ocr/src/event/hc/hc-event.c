@@ -2209,14 +2209,9 @@ u8 fixupEventHc(ocrEvent_t *base) {
 }
 
 u8 resetEventHc(ocrEvent_t *base) {
-#ifdef ENABLE_CHECKPOINT_VERIFICATION
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
-    if (hcPolicy->checkpointInProgress) {
-        pd->fcts.pdFree(pd, base);
-    }
-#endif
+    pd->fcts.pdFree(pd, base);
     return 0;
 }
 #endif

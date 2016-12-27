@@ -192,39 +192,47 @@ static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd)
 }
 
 #ifdef ENABLE_RESILIENCY
-static u64 pendingCommCount(ocrPolicyDomain_t *pd) {
-    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+static u64 pendingCommCount(ocrPolicyDomain_t *pd, bool resiliencyInProgress, bool doVerify) {
     ocrCommPlatformMPI_t *mpiComm = (ocrCommPlatformMPI_t*)pd->commApis[0]->commPlatform;
     ocrSchedulerHeuristicHcCommDelegate_t *heur = (ocrSchedulerHeuristicHcCommDelegate_t*)((ocrSchedulerCommon_t *)pd->schedulers[0])->schedulerHeuristics[2];
     u32 i;
-    u32 inCount = 0;
-    for (i = 0; i < heur->inboxesCount; i++) {
-        deque_t *d = heur->inboxes[i];
-        inCount += (d->tail - d->head);
-    }
-    u32 outCount = 0;
-    for (i = 0; i < heur->outboxesCount; i++) {
-        deque_t *d = heur->outboxes[i];
-        outCount += (d->tail - d->head);
-    }
-    u64 sCount = pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
     u32 activeCount = 0;
-    if (hcPolicy->checkpointInProgress) {
+    if (resiliencyInProgress) {
         for (i = 1; i < pd->workerCount; i++) {
             ocrWorker_t *worker = pd->workers[i];
-            if (!worker->checkpointMaster) {
+            if (!worker->resiliencyMaster) {
                 activeCount += !worker->isIdle;
             }
         }
     }
-    u64 commStateCount = hcPolicy->outstandingRequests + hcPolicy->outstandingResponses +
-                         mpiComm->sendPoolSz + mpiComm->recvPoolSz +
-                         sCount + inCount + outCount + activeCount;
+    hal_fence();
+    u32 inCount = 0;
+    for (i = 0; i < heur->inboxesCount; i++) {
+        deque_t *d = heur->inboxes[i];
+        inCount += d->size(d);
+    }
+    u32 outCount = 0;
+    for (i = 0; i < heur->outboxesCount; i++) {
+        deque_t *d = heur->outboxes[i];
+        outCount += d->size(d);
+    }
+    u64 sCount = pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
+    hal_fence();
+    activeCount = 0;
+    if (resiliencyInProgress) {
+        for (i = 1; i < pd->workerCount; i++) {
+            ocrWorker_t *worker = pd->workers[i];
+            if (!worker->resiliencyMaster) {
+                activeCount += !worker->isIdle;
+            }
+        }
+    }
+    u64 commStateCount = sCount + inCount + outCount + activeCount +
+                         mpiComm->sendPoolSz + mpiComm->recvPoolSz;
 
-    if (hcPolicy->checkpointInProgress && mpiComm->recvFxdPoolSz != 1) {
-        DPRINTF(DEBUG_LVL_WARN, "OUT [%d : %d]\n", hcPolicy->outstandingRequests, hcPolicy->outstandingResponses);
+    if ((doVerify && commStateCount != activeCount) || (resiliencyInProgress && mpiComm->recvFxdPoolSz != 1)) {
         DPRINTF(DEBUG_LVL_WARN, "COMMS [%d : %d : %d]\n", mpiComm->sendPoolSz, mpiComm->recvPoolSz, mpiComm->recvFxdPoolSz);
-        DPRINTF(DEBUG_LVL_WARN, "SCHED [%lu : %u : %u]\n\n", sCount, inCount, outCount);
+        DPRINTF(DEBUG_LVL_WARN, "SCHED [%lu : %u : %u : %u]\n\n", sCount, inCount, outCount, activeCount);
         ASSERT(0);
     }
     return commStateCount;
@@ -236,13 +244,21 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
 #ifdef ENABLE_RESILIENCY
     ASSERT(worker->id == 0); //Current assumption
     ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
-    u32 quiesceComms = hcPolicy->quiesceComms;
-    if (quiesceComms) {
-        DPRINTF(DEBUG_LVL_VERB, "Quiescing comms...\n");
-        flushOutgoingComm = true;
-        retmask = (POLL_NO_OUTGOING_MESSAGE | POLL_NO_INCOMING_MESSAGE);
-    }
+    bool flushOutgoingCommOrig = flushOutgoingComm;
+    bool quiesceComms = false;
+    bool resiliencyInProgress = false;
     do {
+        if (hcPolicy->quiesceComms) {
+            quiesceComms = true;
+            resiliencyInProgress = hcPolicy->resiliencyInProgress;
+            flushOutgoingComm = true;
+            retmask = (POLL_NO_OUTGOING_MESSAGE | POLL_NO_INCOMING_MESSAGE);
+        } else {
+            quiesceComms = false;
+            resiliencyInProgress = false;
+            flushOutgoingComm = flushOutgoingCommOrig;
+            retmask = POLL_NO_OUTGOING_MESSAGE;
+        }
 #endif
     // In outgoing flush mode:
     // - Send all outgoing communications
@@ -370,22 +386,28 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
     } while (flushOutgoingComm && !((ret & retmask) == retmask));
 
 #ifdef ENABLE_RESILIENCY
-    } while (quiesceComms && pendingCommCount(pd) > 0);
+    } while (quiesceComms != 0 && pendingCommCount(pd, resiliencyInProgress, false) > 0);
 
     if (quiesceComms) {
-        if (hcPolicy->checkpointInProgress) {
+        if (resiliencyInProgress) {
             hcPolicy->commStopped = 1;
             hal_fence();
 
-            ASSERT(pendingCommCount(pd) == 0);
+            ASSERT(pendingCommCount(pd, true, true) == 0);
             hal_fence();
 
             hcPolicy->quiesceComms = 0;
             DPRINTF(DEBUG_LVL_VERB, "...Comms quiesced!\n");
             hal_fence();
-            //Wait until checkpoint is over
+            //Wait until comms resume
             while (hcPolicy->commStopped != 0)
                 ;
+            ASSERT(hcPolicy->quiesceComms == 0 && hcPolicy->commStopped == 0);
+            if (hcPolicy->stateOfRestart) {
+                ocrWorkerHcComm_t * rworker = (ocrWorkerHcComm_t *) worker;
+                ocrEdtTemplateCreate(&(rworker->processRequestTemplate), &processRequestEdt, 1, 0);
+            }
+            DPRINTF(DEBUG_LVL_VERB, "Resuming comms\n");
         } else {
             hal_fence();
             hcPolicy->quiesceComms = 0;
@@ -400,6 +422,10 @@ static void workShiftHcComm(ocrWorker_t * worker) {
     workerLoopHcCommInternal(worker, worker->pd, rworker->processRequestTemplate, rworker->flushOutgoingComm);
 }
 
+#ifdef ENABLE_RESILIENCY
+extern bool doCheckpointResume(ocrPolicyDomain_t *pd);
+#endif
+
 static void workerLoopHcComm(ocrWorker_t * worker) {
     START_PROFILE(hc_worker_comm);
     u8 continueLoop = true;
@@ -407,7 +433,12 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
 
-    if (worker->amBlessed) {
+#ifdef ENABLE_RESILIENCY
+    if (worker->amBlessed && !doCheckpointResume(pd))
+#else
+    if (worker->amBlessed)
+#endif
+    {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
         // There should be a single master PD

@@ -959,29 +959,33 @@ static inline void hcSchedNotifyPostProcessMessage(ocrPolicyDomain_t *self, ocrP
 }
 
 #ifdef ENABLE_RESILIENCY
+
 static void checkinWorkerForCheckpoint(ocrPolicyDomain_t *self, ocrWorker_t *worker) {
-ASSERT(worker->edtDepth == 0);
     ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
     DPRINTF(DEBUG_LVL_VERB, "Worker checking in for checkpoint...\n");
     hal_fence();
     worker->stateOfCheckpoint = 1;
-    u32 oldVal = hal_xadd32(&rself->checkpointMonitorCounter, 1);
+    u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, 1);
     if(oldVal == (rself->computeWorkerCount - 1)) {
         DPRINTF(DEBUG_LVL_VERB, "All workers checked in for checkpoint...\n");
         rself->quiesceComms = 1;
-        while (rself->quiesceComms != 0)
+        while (rself->quiesceComms != 0 && rself->stateOfCheckpoint != 0)
             ;
         hal_fence();
-        PD_MSG_STACK(msg);
-        getCurrentEnv(NULL, NULL, NULL, &msg);
+        if (rself->stateOfCheckpoint != 0) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
-        msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
-        msg.destLocation = 0;
-        PD_MSG_FIELD_I(properties) = OCR_CHECKPOINT_PD_READY;
-        RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+            msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+            msg.destLocation = 0;
+            PD_MSG_FIELD_I(properties) = OCR_CHECKPOINT_PD_READY;
+            RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
 #undef PD_MSG
 #undef PD_TYPE
+        } else {
+            rself->quiesceComms = 0;
+        }
     }
 }
 
@@ -991,63 +995,79 @@ static void startPdCheckpoint(ocrPolicyDomain_t *self) {
     ocrWorker_t * worker;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     ASSERT(worker->id != 0);
-    worker->checkpointMaster = 1;
+    ASSERT(worker->resiliencyMaster == 0);
+    worker->resiliencyMaster = 1;
     hal_fence();
-    rself->checkpointInProgress = 1;
+    ASSERT(rself->resiliencyInProgress == 0);
+    rself->resiliencyInProgress = 1;
     hal_fence();
 
     //First quiesce all comms
     rself->quiesceComms = 1;
-    while (rself->quiesceComms != 0)
+    while (rself->quiesceComms != 0 && rself->stateOfCheckpoint != 0)
         ;
     hal_fence();
 
     //Next quiesce all the other comp workers
-    while (rself->quiesceComps != (rself->computeWorkerCount - 1))
+    rself->quiesceComps = 1;
+    while (rself->quiesceComps != rself->computeWorkerCount && rself->stateOfCheckpoint != 0)
         ;
     hal_fence();
+
+    //Abort if checkpoint got canceled
+    if (rself->stateOfCheckpoint == 0) {
+        rself->resiliencyInProgress = 0;
+        rself->commStopped = 0;
+        rself->quiesceComms = 0;
+        rself->quiesceComps = 0;
+        worker->resiliencyMaster = 0;
+        return;
+    }
+
+    //No turning back:
+    ASSERT(rself->quiesceComms == 0 && rself->commStopped != 0);
     ASSERT(self->schedulers[0]->fcts.count(self->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0);
-    hal_fence();
 
     char *chkptName = NULL;
     u64 chkptSize = 0;
     self->guidProviders[0]->fcts.getSerializationSize(self->guidProviders[0], &chkptSize);
     DPRINTF(DEBUG_LVL_VERB, "PD checkpoint size: %lu\n", chkptSize);
 
-    chkptSize = ((chkptSize >> 12) + !!(chkptSize & 0xFFFULL)) << 12; //Align chkptSize to 4096 bytes (TODO: do this in sal)
-    u8 *buffer = salOpenPdCheckpoint(&chkptName, chkptSize);
+    u8 *buffer = salCreatePdCheckpoint(&chkptName, chkptSize);
     ASSERT(rself->prevCheckpointName == NULL);
     rself->prevCheckpointName = rself->currCheckpointName;
     rself->currCheckpointName = chkptName;
     DPRINTF(DEBUG_LVL_VERB, "PD checkpoint buffer: %p\n", buffer);
 
     self->guidProviders[0]->fcts.serialize(self->guidProviders[0], buffer);
-    DPRINTF(DEBUG_LVL_VERB, "PD checkpoint done!\n");
+    DPRINTF(DEBUG_LVL_VERB, "PD serialized...\n");
 
 #ifdef ENABLE_CHECKPOINT_VERIFICATION
-    DPRINTF(DEBUG_LVL_NONE, "Starting PD reset ...\n");
+    DPRINTF(DEBUG_LVL_VERB, "Starting PD reset ...\n");
     self->guidProviders[0]->fcts.reset(self->guidProviders[0]);
     self->schedulers[0]->fcts.update(self->schedulers[0], OCR_SCHEDULER_UPDATE_PROP_RESET);
-    DPRINTF(DEBUG_LVL_NONE, "PD reset done!\n");
+    DPRINTF(DEBUG_LVL_VERB, "PD reset done!\n");
 
-    DPRINTF(DEBUG_LVL_NONE, "Starting PD deserialize from checkpoint ...\n");
+    DPRINTF(DEBUG_LVL_VERB, "Starting PD deserialize from checkpoint ...\n");
     self->guidProviders[0]->fcts.deserialize(self->guidProviders[0], buffer);
     self->guidProviders[0]->fcts.fixup(self->guidProviders[0]);
-    DPRINTF(DEBUG_LVL_NONE, "Resuming PD from checkpoint ...\n");
+    DPRINTF(DEBUG_LVL_VERB, "Resuming PD from checkpoint ...\n");
 #endif
 
     RESULT_ASSERT(salClosePdCheckpoint(buffer, chkptSize), ==, 0);
-
-    DPRINTF(DEBUG_LVL_VERB, "PD checkpoint completed...\n");
+    DPRINTF(DEBUG_LVL_VERB, "PD checkpoint completed!\n");
     hal_fence();
 
-    rself->quiesceComps = 0; //Other comp workers will wait for comms to be back up
+    rself->resiliencyInProgress = 0;
+    worker->resiliencyMaster = 0;
     hal_fence();
 
+    //Release the comms
     rself->commStopped = 0;
-    rself->checkpointInProgress = 0;
     hal_fence();
-    worker->checkpointMaster = 0;
+
+    //Release the comps
+    rself->quiesceComps = 0;
     hal_fence();
 
     PD_MSG_STACK(msg);
@@ -1064,20 +1084,23 @@ static void startPdCheckpoint(ocrPolicyDomain_t *self) {
 
 static void resumePdAfterCheckpoint(ocrPolicyDomain_t *self) {
     ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
-    if (rself->prevCheckpointName != NULL) {
+    if (rself->prevCheckpointName != NULL && rself->stateOfCheckpoint != 0) {
         RESULT_ASSERT(salRemovePdCheckpoint(rself->prevCheckpointName), ==, 0);
         rself->prevCheckpointName = NULL;
     }
+    hal_fence();
     u64 curTime = salGetTime();
     DPRINTF(DEBUG_LVL_VERB, "Total checkpoint time... %lu nsecs\n", (curTime - rself->timestamp));
     rself->timestamp = curTime;
     hal_fence();
-    rself->resumeAfterCheckpoint = 1;
+    rself->resumeAfterCheckpoint = rself->stateOfCheckpoint;
 }
 
 static void checkinPdForCheckpoint(ocrPolicyDomain_t *self) {
+    ASSERT(self->myLocation == 0);
     ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
-    u32 oldVal = hal_xadd32(&rself->checkpointPdMonitorCounter, 1);
+    u32 oldVal = hal_xadd32(&rself->checkpointPdCounter, 1);
+    ASSERT(oldVal >= 0 && oldVal <= self->neighborCount);
     if (oldVal == self->neighborCount) {
         DPRINTF(DEBUG_LVL_VERB, "All PDs checked in for checkpoint...\n");
         int i;
@@ -1098,8 +1121,9 @@ static void checkinPdForCheckpoint(ocrPolicyDomain_t *self) {
 }
 
 static void checkoutPdFromCheckpoint(ocrPolicyDomain_t *self) {
+    ASSERT(self->myLocation == 0);
     ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
-    u32 oldVal = hal_xadd32(&rself->checkpointPdMonitorCounter, -1);
+    u32 oldVal = hal_xadd32(&rself->checkpointPdCounter, -1);
     if (oldVal == 1) {
         DPRINTF(DEBUG_LVL_VERB, "All PDs checked out from checkpoint...\n");
         int i;
@@ -1115,9 +1139,200 @@ static void checkoutPdFromCheckpoint(ocrPolicyDomain_t *self) {
 #undef PD_MSG
 #undef PD_TYPE
         }
+        RESULT_ASSERT(salSetPdCheckpoint(rself->currCheckpointName), ==, 0);
         resumePdAfterCheckpoint(self);
     }
 }
+
+bool doCheckpointResume(ocrPolicyDomain_t *self) {
+    ASSERT(self->myLocation == 0);
+    bool resumeFromCheckpoint = salCheckpointExistsResumeQuery();
+
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t*)self;
+    ASSERT(rself->stateOfCheckpoint == 0);
+    rself->stateOfRestart = resumeFromCheckpoint;
+    rself->initialCheckForRestart = 1;
+    DPRINTF(DEBUG_LVL_VERB, "We are %sresuming from checkpoint...\n", resumeFromCheckpoint ? "" : "not ");
+
+    u32 i;
+    for ( i = 1; i <= self->neighborCount; i++ ) {
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+        msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+        msg.destLocation = i;
+        PD_MSG_FIELD_I(properties) = resumeFromCheckpoint ? OCR_RESTART_PD_TRUE : OCR_RESTART_PD_FALSE;
+        RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+    return resumeFromCheckpoint;
+}
+
+static void startPdRestart(ocrPolicyDomain_t *self) {
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+    DPRINTF(DEBUG_LVL_VERB, "PD restart begin...\n");
+    ocrWorker_t * worker;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    ASSERT(worker->id != 0);
+    ASSERT(worker->resiliencyMaster == 0);
+    worker->resiliencyMaster = 1;
+    hal_fence();
+    ASSERT(rself->resiliencyInProgress == 0);
+    rself->resiliencyInProgress = 1;
+    hal_fence();
+
+    //First quiesce all comms
+    rself->quiesceComms = 1;
+    while (rself->quiesceComms != 0 && rself->stateOfRestart != 0)
+        ;
+    hal_fence();
+
+    //Next quiesce all the other comp workers
+    rself->quiesceComps = 1;
+    while (rself->quiesceComps != rself->computeWorkerCount && rself->stateOfRestart != 0)
+        ;
+    hal_fence();
+
+    //Abort if Restart got canceled
+    if (rself->stateOfRestart == 0) {
+        ASSERT(rself->quiesceComps != rself->computeWorkerCount);
+        worker->resiliencyMaster = 0;
+        rself->resiliencyInProgress = 0;
+        rself->commStopped = 0;
+        rself->quiesceComms = 0;
+        rself->quiesceComps = 0;
+        return;
+    }
+
+    //No turning back:
+    ASSERT(self->schedulers[0]->fcts.count(self->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0);
+
+    char *chkptName = salGetCheckpointName();
+    ASSERT(chkptName != NULL);
+    u64 chkptSize = 0;
+    u8 *buffer = salOpenPdCheckpoint(chkptName, &chkptSize);
+    ASSERT(buffer != NULL);
+    rself->prevCheckpointName = NULL;
+    rself->currCheckpointName = chkptName;
+    DPRINTF(DEBUG_LVL_VERB, "PD checkpoint buffer: %p\n", buffer);
+
+    DPRINTF(DEBUG_LVL_VERB, "Starting PD reset ...\n");
+    self->guidProviders[0]->fcts.reset(self->guidProviders[0]);
+    self->schedulers[0]->fcts.update(self->schedulers[0], OCR_SCHEDULER_UPDATE_PROP_RESET);
+    DPRINTF(DEBUG_LVL_VERB, "PD reset done!\n");
+
+    DPRINTF(DEBUG_LVL_VERB, "Starting PD deserialize from checkpoint ...\n");
+    self->guidProviders[0]->fcts.deserialize(self->guidProviders[0], buffer);
+    self->guidProviders[0]->fcts.fixup(self->guidProviders[0]);
+    DPRINTF(DEBUG_LVL_VERB, "Resuming PD from checkpoint ...\n");
+
+    RESULT_ASSERT(salClosePdCheckpoint(buffer, chkptSize), ==, 0);
+
+    DPRINTF(DEBUG_LVL_VERB, "PD restart completed...\n");
+
+    hal_fence();
+
+    rself->resiliencyInProgress = 0;
+    worker->resiliencyMaster = 0;
+    rself->commStopped = 0;
+
+    hal_fence();
+
+    rself->quiesceComps = 0;
+
+    hal_fence();
+
+    PD_MSG_STACK(msg);
+    getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+    msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+    msg.destLocation = 0;
+    PD_MSG_FIELD_I(properties) = OCR_RESTART_PD_DONE;
+    RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+}
+
+static void checkinWorkerForRestart(ocrPolicyDomain_t *self, ocrWorker_t *worker) {
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+    DPRINTF(DEBUG_LVL_VERB, "Worker checking in for restart...\n");
+    hal_fence();
+    worker->stateOfRestart = 1;
+    u32 oldVal = hal_xadd32(&rself->restartWorkerCounter, 1);
+    if(oldVal == (rself->computeWorkerCount - 1)) {
+        DPRINTF(DEBUG_LVL_VERB, "All workers checked in for restart...\n");
+        rself->quiesceComms = 1;
+        while (rself->quiesceComms != 0 && rself->stateOfRestart != 0)
+            ;
+        hal_fence();
+        if (rself->stateOfRestart != 0) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+            msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+            msg.destLocation = 0;
+            PD_MSG_FIELD_I(properties) = OCR_RESTART_PD_READY;
+            RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+        } else {
+            rself->quiesceComms = 0;
+        }
+    }
+}
+
+static void checkinPdForRestart(ocrPolicyDomain_t *self) {
+    ASSERT(self->myLocation == 0);
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+    u32 oldVal = hal_xadd32(&rself->restartPdCounter, 1);
+    ASSERT(oldVal >= 0 && oldVal <= self->neighborCount);
+    if (oldVal == self->neighborCount) {
+        DPRINTF(DEBUG_LVL_VERB, "All PDs checked in for restart...\n");
+        int i;
+        for ( i = 1; i <= self->neighborCount; i++ ) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+            msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+            msg.destLocation = i;
+            PD_MSG_FIELD_I(properties) = OCR_RESTART_PD_START;
+            RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+        }
+        startPdRestart(self);
+    }
+}
+
+static void checkoutPdFromRestart(ocrPolicyDomain_t *self) {
+    ASSERT(self->myLocation == 0);
+    ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
+    u32 oldVal = hal_xadd32(&rself->restartPdCounter, -1);
+    if (oldVal == 1) {
+        DPRINTF(DEBUG_LVL_VERB, "All PDs checked out from restart...\n");
+        int i;
+        for ( i = 1; i <= self->neighborCount; i++ ) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
+            msg.type = PD_MSG_RESILIENCY_CHECKPOINT | PD_MSG_REQUEST;
+            msg.destLocation = i;
+            PD_MSG_FIELD_I(properties) = OCR_RESTART_PD_RESUME;
+            RESULT_ASSERT(self->fcts.processMessage(self, &msg, false), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+        }
+        hal_fence();
+        rself->resumeAfterRestart = 1;
+    }
+}
+
 #endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
@@ -3269,47 +3484,83 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
                 // Resume:
                 PD_MSG_FIELD_O(returnDetail) = OCR_EFAULT;
-            } else if (worker->id == 1 && rself->stateOfCheckpoint == 0) {
+            } else if (worker->id == 1 &&
+                       rself->stateOfCheckpoint == 0 &&
+                       rself->stateOfRestart == 0 &&
+                       rself->initialCheckForRestart != 0)
+            {
                 u64 curTime = salGetTime();
                 u64 prevTime = rself->timestamp;
                 if ((curTime - prevTime) > rself->checkpointInterval) {
                     if (prevTime > 0) {
-                        DPRINTF(DEBUG_LVL_VERB, "Ready to checkpoint...\n");
                         rself->timestamp = curTime;
+                        DPRINTF(DEBUG_LVL_VERB, "Ready to checkpoint...\n");
                         rself->stateOfCheckpoint = 1;
-                        ASSERT(worker->stateOfCheckpoint == 0);
-                        if (worker->isIdle)
-                            checkinWorkerForCheckpoint(self, worker);
                     }
                 }
-            } else if ( rself->stateOfCheckpoint != 0 &&
-                        worker->stateOfCheckpoint == 0 &&
-                        worker->isIdle)
+            } else if (rself->stateOfCheckpoint != 0 &&
+                       worker->stateOfCheckpoint == 0 &&
+                       worker->isIdle)
             {
                 checkinWorkerForCheckpoint(self, worker);
-            } else if (rself->commStopped != 0 && worker->isIdle) {
+            } else if (rself->stateOfRestart != 0 &&
+                       worker->stateOfRestart == 0 &&
+                       worker->isIdle)
+            {
+                checkinWorkerForRestart(self, worker);
+            } else if (rself->quiesceComps != 0 && worker->isIdle) {
                 hal_xadd32(&rself->quiesceComps, 1);
-                while (rself->commStopped != 0)
+                DPRINTF(DEBUG_LVL_VERB, "Waiting at quiesceComps...\n");
+                while (rself->quiesceComps != 0)
                     ;
-                hal_fence();
-                ASSERT(rself->quiesceComps == 0);
+                DPRINTF(DEBUG_LVL_VERB, "Checking out of quiesceComps...\n");
             } else if (rself->resumeAfterCheckpoint != 0) {
                 ASSERT(worker->stateOfCheckpoint != 0);
                 worker->stateOfCheckpoint = 0;
-                u32 oldVal = hal_xadd32(&rself->checkpointMonitorCounter, -1);
+                u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, -1);
+                ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
                 if (oldVal == 1) {
                     DPRINTF(DEBUG_LVL_VERB, "Resuming after checkpoint...\n");
                     rself->stateOfCheckpoint = 0;
-                    hal_fence();
-                    rself->resumeAfterCheckpoint= 0;
                 } else {
                     DPRINTF(DEBUG_LVL_VERB, "Waiting to resume after checkpoint...\n");
-                    while (rself->resumeAfterCheckpoint != 0)
+                    while (rself->stateOfCheckpoint != 0)
                         ;
                 }
+                if (hal_cmpswap32(&rself->resumeAfterCheckpoint, 1, 0) == 1) {
+                    ASSERT(rself->checkpointWorkerCounter == 0);
+                }
+                ASSERT(rself->resumeAfterCheckpoint == 0);
+            } else if (rself->resumeAfterRestart != 0) {
+                ASSERT(worker->stateOfRestart != 0);
+                worker->stateOfRestart = 0;
+                u32 oldVal = hal_xadd32(&rself->restartWorkerCounter, -1);
+                ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
+                if (oldVal == 1) {
+                    DPRINTF(DEBUG_LVL_VERB, "Resuming after restart...\n");
+                    rself->timestamp = salGetTime();
+                    hal_fence();
+                    rself->stateOfRestart = 0;
+                } else {
+                    DPRINTF(DEBUG_LVL_VERB, "Waiting to resume after restart...\n");
+                    while (rself->stateOfRestart != 0)
+                        ;
+                }
+                if (hal_cmpswap32(&rself->resumeAfterRestart, 1, 0) == 1) {
+                    ASSERT(rself->restartWorkerCounter == 0);
+                }
+                ASSERT(rself->resumeAfterRestart == 0);
+            } else if (rself->stateOfCheckpoint == 0 &&
+                       worker->stateOfCheckpoint != 0) {
+                //Checkpoint got canceled
+                worker->stateOfCheckpoint = 0;
+                u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, -1);
+                ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
             }
         } else {
-            rself->stateOfCheckpoint = 0; //When shutting down, cancel any pending checkpoints
+            //When shutting down, reset the resiliency state
+            rself->stateOfCheckpoint = 0;
+            rself->stateOfRestart = 0;
             PD_MSG_FIELD_O(returnDetail) = 0;
         }
 #else
@@ -3326,11 +3577,13 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
 #ifdef ENABLE_RESILIENCY
+        ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
         ocrCheckpointProp prop = PD_MSG_FIELD_I(properties);
         switch(prop) {
         case OCR_CHECKPOINT_PD_READY:
             {
-                checkinPdForCheckpoint(self);
+                if (!rself->shutdownInProgress && !rself->stateOfRestart)
+                    checkinPdForCheckpoint(self);
                 break;
             }
         case OCR_CHECKPOINT_PD_START:
@@ -3348,6 +3601,43 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 resumePdAfterCheckpoint(self);
                 break;
             }
+        case OCR_RESTART_PD_TRUE:
+            {
+                ASSERT(self->myLocation != 0);
+                ASSERT(salCheckpointExists());
+                rself->stateOfRestart = 1;
+                hal_fence();
+                rself->initialCheckForRestart = 1;
+                rself->stateOfCheckpoint = 0;
+                break;
+            }
+        case OCR_RESTART_PD_FALSE:
+            {
+                ASSERT(self->myLocation != 0);
+                rself->initialCheckForRestart = 1;
+                break;
+            }
+        case OCR_RESTART_PD_READY:
+            {
+                ASSERT(rself->stateOfRestart);
+                checkinPdForRestart(self);
+                break;
+            }
+        case OCR_RESTART_PD_START:
+            {
+                startPdRestart(self);
+                break;
+            }
+        case OCR_RESTART_PD_DONE:
+            {
+                checkoutPdFromRestart(self);
+                break;
+            }
+        case OCR_RESTART_PD_RESUME:
+            {
+                rself->resumeAfterRestart = 1;
+                break;
+            }
         default:
             // Not handled
             ASSERT(0);
@@ -3359,49 +3649,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_TYPE
         msg->type &= ~PD_MSG_REQUEST;
         msg->type |= PD_MSG_RESPONSE;
-        break;
-    }
-/*
-    case PD_MSG_RESILIENCY_CHECKPOINT: {
-        START_PROFILE(pd_hc_ResiliencyCheckpoint);
-#define PD_MSG msg
-#define PD_TYPE PD_MSG_RESILIENCY_CHECKPOINT
-        ocrPolicyDomainHc_t *derived = (ocrPolicyDomainHc_t *)self;
-        u64 newSizeofChkpt = 0;
-        self->guidProviders[0]->fcts.getSerializationSize(self->guidProviders[0], &newSizeofChkpt);
-        u8* buffer = salGetFileBufferPolicyDomainCheckpoint(derived->fdChkpt, derived->bufferChkpt, derived->sizeofChkpt, newSizeofChkpt);
-        self->guidProviders[0]->fcts.serialize(self->guidProviders[0], buffer);
-        salSetFileBufferPolicyDomainCheckpoint(derived->fdChkpt, buffer, newSizeofChkpt);
-        PD_MSG_FIELD_O(returnDetail) = 0;
-        msg->type &= ~PD_MSG_REQUEST;
-        msg->type |= PD_MSG_RESPONSE;
-#undef PD_MSG
-#undef PD_TYPE
-        EXIT_PROFILE;
-        break;
-    }
-*/
-    case PD_MSG_RESILIENCY_RESTORE: {
-        START_PROFILE(pd_hc_ResiliencyRestart);
-#define PD_MSG msg
-#define PD_TYPE PD_MSG_RESILIENCY_RESTORE
-#ifdef ENABLE_RESILIENCY
-/*
-        ocrPolicyDomainHc_t *derived = (ocrPolicyDomainHc_t *)self;
-        char *fname = PD_MSG_FIELD_I(filename);
-        strcpy(derived->fnameChkpt, fname);
-        derived->fdChkpt = salOpenFilePolicyDomainCheckpoint(fname, &(derived->bufferChkpt), &(derived->sizeofChkpt));
-        self->guidProviders[0]->fcts.deserialize(self->guidProviders[0], derived->bufferChkpt);
-*/
-        PD_MSG_FIELD_O(returnDetail) = 0;
-#else
-        PD_MSG_FIELD_O(returnDetail) = 0;
-#endif
-#undef PD_MSG
-#undef PD_TYPE
-        msg->type &= ~PD_MSG_REQUEST;
-        msg->type |= PD_MSG_RESPONSE;
-        EXIT_PROFILE;
         break;
     }
 
@@ -3537,8 +3784,11 @@ void initializePolicyDomainHc(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
     derived->faultArgs.kind = OCR_FAULT_NONE;
     derived->shutdownInProgress = 0;
     derived->stateOfCheckpoint = 0;
-    derived->checkpointInProgress = 0;
+    derived->stateOfRestart = 0;
+    derived->initialCheckForRestart = 0;
+    derived->resiliencyInProgress = 0;
     derived->resumeAfterCheckpoint = 0;
+    derived->resumeAfterRestart = 0;
     derived->quiesceComms = 0;
     derived->quiesceComps = 0;
     derived->commStopped = 0;
@@ -3546,15 +3796,15 @@ void initializePolicyDomainHc(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
     derived->recover = 0;
     derived->computeWorkerCount = 0;
     derived->faultMonitorCounter = 0;
-    derived->checkpointMonitorCounter = 0;
-    derived->checkpointPdMonitorCounter = 0;
+    derived->checkpointWorkerCounter = 0;
+    derived->checkpointPdCounter = 0;
+    derived->restartWorkerCounter = 0;
+    derived->restartPdCounter = 0;
     derived->checkpointInterval = OCR_CHECKPOINT_INTERVAL;
     derived->timestamp = 0;
     derived->calTime = 0;
     derived->currCheckpointName = NULL;
     derived->prevCheckpointName = NULL;
-    derived->outstandingRequests = 0;
-    derived->outstandingResponses = 0;
 #endif
 }
 

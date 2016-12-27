@@ -59,9 +59,14 @@ u64 salPerfShutdown(salPerfCounter *perfCtr);
 
 #ifdef ENABLE_RESILIENCY
 u64 salGetCalTime();
-u8* salOpenPdCheckpoint(char **name, u64 size);
+u8* salCreatePdCheckpoint(char **name, u64 size);
+u8* salOpenPdCheckpoint(char *name, u64 *size);
 u8  salClosePdCheckpoint(u8 *buffer, u64 size);
 u8  salRemovePdCheckpoint(char *name);
+u8 salSetPdCheckpoint(char *name);
+char* salGetCheckpointName();
+bool salCheckpointExists();
+bool salCheckpointExistsResumeQuery();
 #endif
 
 #endif /* __OCR_SAL_LINUX_H__ */

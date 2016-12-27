@@ -916,22 +916,17 @@ u8 fixupDataBlockLockable(ocrDataBlock_t *self) {
 }
 
 u8 resetDataBlockLockable(ocrDataBlock_t *self) {
-#ifdef ENABLE_CHECKPOINT_VERIFICATION
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
-    if (hcPolicy->checkpointInProgress) {
-        if(self->ptr) {
-            pd->fcts.pdFree(pd, self->ptr);
-            self->ptr = NULL;
-        }
-        if(self->bkPtr) {
-            pd->fcts.pdFree(pd, self->bkPtr);
-            self->bkPtr = NULL;
-        }
-        pd->fcts.pdFree(pd, self);
+    if(self->ptr) {
+        pd->fcts.pdFree(pd, self->ptr);
+        self->ptr = NULL;
     }
-#endif
+    if(self->bkPtr) {
+        pd->fcts.pdFree(pd, self->bkPtr);
+        self->bkPtr = NULL;
+    }
+    pd->fcts.pdFree(pd, self);
     return 0;
 }
 #endif

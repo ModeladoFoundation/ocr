@@ -49,8 +49,11 @@ typedef struct {
     ocrFaultArgs_t faultArgs;
     volatile u32 shutdownInProgress;
     volatile u32 stateOfCheckpoint;
-    volatile u32 checkpointInProgress;
+    volatile u32 resiliencyInProgress;
     volatile u32 resumeAfterCheckpoint;
+    volatile u32 resumeAfterRestart;
+    volatile u32 stateOfRestart;
+    volatile u32 initialCheckForRestart;
     volatile u32 quiesceComms;
     volatile u32 quiesceComps;
     volatile u32 commStopped;
@@ -58,15 +61,15 @@ typedef struct {
     volatile u32 recover;
     u32 computeWorkerCount;
     u32 faultMonitorCounter;
-    u32 checkpointMonitorCounter;
-    u32 checkpointPdMonitorCounter;
+    u32 checkpointWorkerCounter;
+    u32 checkpointPdCounter;
+    u32 restartWorkerCounter;
+    u32 restartPdCounter;
     u64 checkpointInterval;
     u64 timestamp;
     u64 calTime;    // Calendar start time agreed by all PD's
     char *currCheckpointName;
     char *prevCheckpointName;
-    volatile s32 outstandingRequests;
-    volatile s32 outstandingResponses;
 #endif
 } ocrPolicyDomainHc_t;
 

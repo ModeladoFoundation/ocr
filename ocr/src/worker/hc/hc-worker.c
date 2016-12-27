@@ -265,6 +265,10 @@ static void hcWorkShift(ocrWorker_t * worker) {
     RETURN_PROFILE();
 }
 
+#ifdef ENABLE_RESILIENCY
+extern bool doCheckpointResume(ocrPolicyDomain_t *pd);
+#endif
+
 static void workerLoop(ocrWorker_t * worker) {
     u8 continueLoop = true;
 #ifdef ENABLE_EXTENSION_PERF
@@ -274,7 +278,12 @@ static void workerLoop(ocrWorker_t * worker) {
     // At this stage, we are in the USER_OK runlevel
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
-    if (worker->amBlessed) {
+#ifdef ENABLE_RESILIENCY
+    if (worker->amBlessed && !doCheckpointResume(pd))
+#else
+    if (worker->amBlessed)
+#endif
+    {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
         // There should be a single master PD

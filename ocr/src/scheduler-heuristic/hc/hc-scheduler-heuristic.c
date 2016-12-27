@@ -250,7 +250,7 @@ u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
             ocrPolicyDomain_t * pd;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
-            if (hcPolicy->stateOfCheckpoint != 0) {
+            if (hcPolicy->stateOfCheckpoint != 0 || hcPolicy->stateOfRestart != 0) {
                 return 0; //When checkpoint is in progress, we will not pick up anymore user edts
             }
 #endif

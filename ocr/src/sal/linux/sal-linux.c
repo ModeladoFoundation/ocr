@@ -144,6 +144,7 @@ u64 salPerfShutdown(salPerfCounter *perfCtr) {
 
 #define FD_CHKPT_INITVAL -1
 int fdChkpt = FD_CHKPT_INITVAL;
+u64 chkptPhase = 0;
 
 typedef enum {
     YEAR,
@@ -188,10 +189,10 @@ u64 salGetCalTime() {
         if (t < 10) sprintf(fname, "%s0%d", fname, t);
         else        sprintf(fname, "%s%d", fname, t);
     }
-    return atol(fname);
+    return strtoul(fname, NULL, 10);
 }
 
-const char* salGetExecutableName() {
+static const char* salGetExecutableName() {
     static char *execName = NULL;
     if (execName == NULL) {
         ocrPolicyDomain_t *pd;
@@ -211,12 +212,75 @@ const char* salGetExecutableName() {
     return (const char*)execName;
 }
 
-u8* salOpenPdCheckpoint(char **name, u64 size) {
+static const char* salGetCheckpointSummaryFileName() {
+    static char *checkpointSummaryName = NULL;
+    if (checkpointSummaryName == NULL) {
+        ocrPolicyDomain_t *pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        const char* execName = salGetExecutableName();
+        char appendStr[] = ".chkpt\0";
+        u32 filenamesize = strlen(execName) + strlen(appendStr) + 1;
+        char *filename = pd->fcts.pdMalloc(pd, filenamesize + 1);
+        int rc = snprintf(filename, filenamesize, "%s%s", execName, appendStr);
+        if (rc < 0 || rc >= filenamesize) {
+            fprintf(stderr, "snprintf failed: (filename: %s)\n", filename);
+            ASSERT(0);
+            return NULL;
+        }
+        filename[filenamesize] = '\0';
+        checkpointSummaryName = filename;
+    }
+    return (const char*)checkpointSummaryName;
+}
+
+static const char* salConstructPdCheckpointFileName(u64 calTime, u64 phase, u64 loc) {
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    char filenameBuf[4096];
+    const char* execName = salGetExecutableName();
+    sprintf(filenameBuf, "%s.%lu.%lu.%lu.chkpt", execName, calTime, phase, loc);
+    u64 filenameBufSize = strlen(filenameBuf);
+    char *filename = pd->fcts.pdMalloc(pd, filenameBufSize + 1);
+    strncpy(filename, filenameBuf, filenameBufSize);
+    filename[filenameBufSize] = '\0';
+    return (const char*)filename;
+}
+
+static u8 salGetCheckpointNameTokens(char *checkpointStr, u64 *time, u64 *phase, u64 *loc) {
+    char *tok = strtok(checkpointStr, ".");
+    const char* execName = salGetExecutableName();
+    if (strcmp(tok, execName) != 0)
+        return 1;
+
+    tok = strtok(NULL, ".");
+    if (tok == NULL)
+        return 1;
+    u64 calTime = strtoul(tok, NULL, 10);
+    ASSERT(calTime <= salGetCalTime());
+
+    tok = strtok(NULL, ".");
+    if (tok == NULL)
+        return 1;
+    u64 ph = strtoul(tok, NULL, 10);
+    ASSERT(ph > 0);
+
+    tok = strtok(NULL, ".");
+    if (tok == NULL)
+        return 1;
+    u64 location = strtoul(tok, NULL, 10);
+
+    *time = calTime;
+    *phase = ph;
+    *loc = location;
+    return 0;
+}
+
+//Create a new checkpoint buffer
+u8* salCreatePdCheckpoint(char **name, u64 size) {
     ASSERT(name);
-    static u64 chkptPhase = 0;
 
     if (fdChkpt >= 0) {
-        fprintf(stderr, "Cannot open new checkpoint buffer. Previously buffer has not been closed yet. \n");
+        fprintf(stderr, "Cannot open new checkpoint buffer. Previous buffer has not been closed yet. \n");
         ASSERT(0);
         return NULL;
     }
@@ -224,14 +288,7 @@ u8* salOpenPdCheckpoint(char **name, u64 size) {
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
-
-    char filenameBuf[4096];
-    const char* execName = salGetExecutableName();
-    sprintf(filenameBuf, "%s.%lu.%lu.%lu.chkpt", execName, hcPolicy->calTime, ++chkptPhase, pd->myLocation);
-    u64 filenameBufSize = strlen(filenameBuf);
-    char *filename = pd->fcts.pdMalloc(pd, filenameBufSize + 1);
-    strncpy(filename, filenameBuf, filenameBufSize);
-    filename[filenameBufSize] = '\0';
+    const char *filename = salConstructPdCheckpointFileName(hcPolicy->calTime, ++chkptPhase, pd->myLocation);
 
     int fd = open(filename, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
     if (fd<0) {
@@ -240,6 +297,7 @@ u8* salOpenPdCheckpoint(char **name, u64 size) {
         return NULL;
     }
 
+    size = ((size >> 12) + !!(size & 0xFFFULL)) << 12; //Align size to 4096 bytes
     if (fd>=0) {
         int rc = ftruncate(fd, size);
         if (rc) {
@@ -256,11 +314,54 @@ u8* salOpenPdCheckpoint(char **name, u64 size) {
         return NULL;
     }
 
-    *name = filename;
+    *name = (char*)filename;
     fdChkpt = fd;
     return ptr;
 }
 
+//Open a previously closed stable checkpoint
+//salGetCheckpointName() provides the stable checkpoint name
+u8* salOpenPdCheckpoint(char *name, u64 *size) {
+    if (fdChkpt >= 0) {
+        fprintf(stderr, "Cannot open new checkpoint buffer. Previous buffer has not been closed yet. \n");
+        ASSERT(0);
+        return NULL;
+    }
+
+    ASSERT(name);
+    const char *filename = name;
+    struct stat sb;
+    if (stat(filename, &sb) == -1) {
+        fprintf(stderr, "stat failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return NULL;
+    }
+
+    u64 filesize = sb.st_size;
+    ASSERT(filesize > 0);
+
+    int fd = open(filename, O_RDWR, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return NULL;
+    }
+
+    u8 *ptr = (u8*)mmap( NULL, filesize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    if (ptr == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", filesize, filename, fd);
+        ASSERT(0);
+        return NULL;
+    }
+
+    if (size)
+        *size = filesize;
+
+    fdChkpt = fd;
+    return ptr;
+}
+
+//Close a previously opened checkpoint buffer
 u8 salClosePdCheckpoint(u8 *buffer, u64 size) {
     ASSERT(buffer);
     if (fdChkpt < 0) {
@@ -294,6 +395,7 @@ u8 salClosePdCheckpoint(u8 *buffer, u64 size) {
     return 0;
 }
 
+//Remove a checkpoint
 u8 salRemovePdCheckpoint(char *name) {
     if (name == NULL)
         return 0;
@@ -307,6 +409,166 @@ u8 salRemovePdCheckpoint(char *name) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     pd->fcts.pdFree(pd, name);
     return 0;
+}
+
+//Mark the checkpoint name as stable.
+//This updates the checkpoint summary file
+u8 salSetPdCheckpoint(char *name) {
+    ASSERT(name != NULL && chkptPhase > 0);
+    if (strlen(name) >= 4096) {
+        ASSERT(0);
+        return 1;
+    }
+
+    const char* filename = salGetCheckpointSummaryFileName();
+    FILE *fp = fopen(filename, "w");
+    if (fp == NULL) {
+        fprintf(stderr, "fopen failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return 1;
+    }
+
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+    char checkpointStr[4096];
+    strcpy(checkpointStr, name);
+    u64 calTime = 0;
+    u64 phase = 0;
+    u64 loc = 0;
+    int rc = salGetCheckpointNameTokens(checkpointStr, &calTime, &phase, &loc);
+    if (rc < 0 || calTime != hcPolicy->calTime || phase != chkptPhase || loc != pd->myLocation) {
+        fprintf(stderr, "Cannot set checkpoint. Invalid checkpoint name: (filename: %s)\n", name);
+        ASSERT(0);
+        return 1;
+    }
+
+    char filenameBuf[4096];
+    const char* execName = salGetExecutableName();
+    rc = sprintf(filenameBuf, "%s.%lu.%lu.%u", execName, hcPolicy->calTime, chkptPhase, pd->neighborCount + 1);
+    if (rc < 0 || rc >= 4096) {
+        fprintf(stderr, "sprintf failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = fputs(filenameBuf, fp);
+    if (rc == EOF || rc < 0) {
+        fprintf(stderr, "fputs failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = fclose(fp);
+    if (rc != 0) {
+        fprintf(stderr, "fclose failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return 1;
+    }
+    return 0;
+}
+
+//Get the name of the current stable checkpoint
+char* salGetCheckpointName() {
+    struct stat sb;
+    const char* filename = salGetCheckpointSummaryFileName();
+    if (stat(filename, &sb) == -1)
+        return NULL;
+
+    FILE *fp = fopen(filename, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "fopen failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return NULL;
+    }
+
+    char checkpointStr[4096];
+    if (fgets(checkpointStr, 4096, fp) == NULL) {
+        fprintf(stderr, "fgets failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return NULL;
+    }
+
+    u64 calTime = 0;
+    u64 phase = 0;
+    u64 numLocations = 0;
+    int rc = salGetCheckpointNameTokens(checkpointStr, &calTime, &phase, &numLocations);
+    if (rc < 0)
+        return NULL;
+
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    if (numLocations != (pd->neighborCount + 1))
+        return NULL;
+
+    const char *chkptFilename = salConstructPdCheckpointFileName(calTime, phase, pd->myLocation);
+    return (char*)chkptFilename;
+}
+
+//Check if any valid checkpoint exists
+static bool salCheckpointExistsInternal(bool doQuery) {
+    struct stat sb;
+    const char* filename = salGetCheckpointSummaryFileName();
+    if (stat(filename, &sb) == -1)
+        return false;
+
+    FILE *fp = fopen(filename, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "fopen failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return false;
+    }
+
+    char checkpointStr[4096];
+    if (fgets(checkpointStr, 4096, fp) == NULL) {
+        fprintf(stderr, "fgets failed: (filename: %s)\n", filename);
+        ASSERT(0);
+        return false;
+    }
+
+    u64 calTime = 0;
+    u64 phase = 0;
+    u64 numLocations = 0;
+    int rc = salGetCheckpointNameTokens(checkpointStr, &calTime, &phase, &numLocations);
+    if (rc < 0)
+        return false;
+
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    if (numLocations != (pd->neighborCount + 1))
+        return false;
+
+    u32 i;
+    for (i = 0; i < numLocations; i++) {
+        char *chkptFilename = (char*)salConstructPdCheckpointFileName(calTime, phase, i);
+        if (stat(chkptFilename, &sb) == -1) {
+            pd->fcts.pdFree(pd, chkptFilename);
+            return false;
+        }
+        pd->fcts.pdFree(pd, chkptFilename);
+    }
+
+    if (doQuery) {
+        char ans;
+        printf("Found existing checkpoint: (timestamp: %lu phase: %lu) \nDo you want to resume? [Y/N] : ", calTime, phase);
+        scanf ("%c", &ans);
+        if (ans != 'Y' && ans != 'y')
+            return false;
+        fprintf(stderr, "Resuming from checkpoint: (timestamp: %lu phase: %lu)\n", calTime, phase);
+    }
+    return true;
+}
+
+//Check if any valid checkpoint exists
+bool salCheckpointExists() {
+    return salCheckpointExistsInternal(false);
+}
+
+//Check if any valid checkpoint exists
+//If yes, then ask user if program should
+//be resumed from that checkpoint
+bool salCheckpointExistsResumeQuery() {
+    return salCheckpointExistsInternal(true);
 }
 
 #endif

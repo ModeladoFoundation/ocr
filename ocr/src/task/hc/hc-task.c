@@ -292,14 +292,9 @@ u8 fixupTaskTemplateHc(ocrTaskTemplate_t *self) {
 }
 
 u8 resetTaskTemplateHc(ocrTaskTemplate_t *self) {
-#ifdef ENABLE_CHECKPOINT_VERIFICATION
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
-    if (hcPolicy->checkpointInProgress) {
-        pd->fcts.pdFree(pd, self);
-    }
-#endif
+    pd->fcts.pdFree(pd, self);
     return 0;
 }
 #endif
@@ -2382,24 +2377,19 @@ u8 fixupTaskHc(ocrTask_t *task) {
 }
 
 u8 resetTaskHc(ocrTask_t *self) {
-#ifdef ENABLE_CHECKPOINT_VERIFICATION
     ASSERT((self->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0);
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
-    if (hcPolicy->checkpointInProgress) {
-        ocrTaskHc_t* dself = (ocrTaskHc_t*)self;
-        if (dself->resolvedDeps != NULL) {
-            pd->fcts.pdFree(pd, dself->resolvedDeps);
-            dself->resolvedDeps = NULL;
-        }
-        if (dself->unkDbs != NULL) {
-            pd->fcts.pdFree(pd, dself->unkDbs);
-            dself->unkDbs = NULL;
-        }
-        pd->fcts.pdFree(pd, self);
+    ocrTaskHc_t* dself = (ocrTaskHc_t*)self;
+    if (dself->resolvedDeps != NULL) {
+        pd->fcts.pdFree(pd, dself->resolvedDeps);
+        dself->resolvedDeps = NULL;
     }
-#endif
+    if (dself->unkDbs != NULL) {
+        pd->fcts.pdFree(pd, dself->unkDbs);
+        dself->unkDbs = NULL;
+    }
+    pd->fcts.pdFree(pd, self);
     return 0;
 }
 #endif

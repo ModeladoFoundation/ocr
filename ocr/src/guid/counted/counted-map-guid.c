@@ -590,7 +590,7 @@ u64 getSerializationSizeMdProxy(MdProxy_t *mdProxy) {
         while (queueNode != ((void*) REG_OPEN)) { // sentinel value
             mdProxySize += sizeof(MdProxyNode_t);
             u64 baseSize = 0, marshalledSize = 0;
-            ocrPolicyMsgGetMsgSize(queueNode->msg, &baseSize, &marshalledSize, MARSHALL_NSADDR);
+            ocrPolicyMsgGetMsgSize(queueNode->msg, &baseSize, &marshalledSize, MARSHALL_FULL_COPY | MARSHALL_NSADDR);
             mdProxySize += baseSize + marshalledSize;
             mdProxy->numNodes++;
             queueNode = queueNode->next;
@@ -688,7 +688,7 @@ u64 deserializeMdProxy(u8* buffer, MdProxy_t **proxy) {
             len = msgBuf->bufferSize;
             ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)pd->fcts.pdMalloc(pd, len);
             initializePolicyMessage(msg, len);
-            ocrPolicyMsgUnMarshallMsg(buffer, NULL, msg, MARSHALL_FULL_COPY);
+            ocrPolicyMsgUnMarshallMsg(buffer, NULL, msg, MARSHALL_FULL_COPY | MARSHALL_NSADDR);
             mdProxyNode->msg = msg;
             buffer += len;
         }
@@ -773,6 +773,7 @@ void calcSerializationSize(void * key, void * value, void * args) {
             ASSERT(ocrGuidIsEq(guid, db->guid));
             ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.getSerializationSize(db, &mdSize);
         } else {
+            ocrObj->guid = guid;
             getSerializationSizeProxyDb(value, &mdSize);
         }
         ASSERT(mdSize > 0 || ocrObj->size == mdSize);
@@ -833,7 +834,10 @@ u8 getSerializationSizeGuidProviderCounted(ocrGuidProvider_t* self, u64* size) {
     *size = 0;
     GP_HASHTABLE_ITERATE(derived->guidImplTable, calcSerializationSize, (void*)size);
     ASSERT(derived->objectsCounted > 0 && *size > 0);
-    *size += sizeof(ocrObject_t);
+    *size += sizeof(ocrObject_t) + sizeof(u64);
+#ifdef GUID_PROVIDER_WID_INGUID
+#error "Unsupported option for resiliency"
+#endif
     self->base.size = *size;
     self->base.kind = OCR_GUID_GUIDMAP;
     return 0;
@@ -954,6 +958,9 @@ u8 serializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
     ocrObject_t * ocrObj = (ocrObject_t *)bufferHead;
     *ocrObj = self->base;
     buffer += sizeof(ocrObject_t);
+    u64 *guidCounter = (u64*)buffer;
+    *guidCounter = derived->guidCounter;
+    buffer += sizeof(u64);
 
     GP_HASHTABLE_ITERATE(derived->guidImplTable, serializeGuid, (void*)(&buffer));
 
@@ -975,6 +982,9 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
     ASSERT(ocrObj->kind == OCR_GUID_GUIDMAP);
     u8* endOfBuffer = buffer + ocrObj->size;
     buffer += sizeof(ocrObject_t);
+    u64 *guidCounter = (u64*)buffer;
+    derived->guidCounter = *guidCounter;
+    buffer += sizeof(u64);
 
     while(buffer < endOfBuffer) {
         ocrGuid_t guid = *((ocrGuid_t*)buffer);

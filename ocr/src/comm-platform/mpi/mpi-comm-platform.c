@@ -120,6 +120,20 @@ static ocrPolicyMsg_t * allocateNewMessage(ocrCommPlatform_t * self, u32 size) {
     return message;
 }
 
+#ifdef ENABLE_RESILIENCY
+#define CODE_RESIZE_POOL(SZ, MAX, POOL, HDL) \
+    ocrCommPlatform_t * self = (ocrCommPlatform_t *) mpiComm; \
+    u32 curSize = SZ; \
+    MPI_Request * newPool = self->pd->fcts.pdMalloc(self->pd, sizeof(MPI_Request) * curSize * 2); \
+    mpiCommHandle_t * newHdlPool = self->pd->fcts.pdMalloc(self->pd, sizeof(mpiCommHandle_t) * curSize * 2); \
+    hal_memCopy(newPool, POOL, sizeof(MPI_Request) * curSize, false); \
+    hal_memCopy(newHdlPool, HDL, sizeof(mpiCommHandle_t) * curSize, false); \
+    self->pd->fcts.pdFree(self->pd, POOL); \
+    self->pd->fcts.pdFree(self->pd, HDL); \
+    POOL = newPool; \
+    HDL = newHdlPool; \
+    MAX = curSize * 2;
+#else
 #define CODE_RESIZE_POOL(SZ, MAX, POOL, HDL) \
     ocrCommPlatform_t * self = (ocrCommPlatform_t *) mpiComm; \
     u32 curSize = SZ; \
@@ -136,6 +150,7 @@ static ocrPolicyMsg_t * allocateNewMessage(ocrCommPlatform_t * self, u32 size) {
     POOL = newPool; \
     HDL = newHdlPool; \
     MAX = curSize * 2;
+#endif
 
 static void resizeSendPool(ocrCommPlatformMPI_t * mpiComm) {
     CODE_RESIZE_POOL(mpiComm->sendPoolSz, mpiComm->sendPoolMax, mpiComm->sendPool, mpiComm->sendHdlPool);
@@ -153,6 +168,19 @@ static void resizeRecvFxdPool(ocrCommPlatformMPI_t * mpiComm) {
 // The sentinel is set when the pool is compacted
 #define MPI_CP_DEBUG_SENTINEL (-2)
 
+#ifdef ENABLE_RESILIENCY
+#define CODE_COMPACT_POOL(SZ, POOL, HDL) \
+    SZ--; \
+    if ((SZ != 0) && ((SZ != idx))) { \
+        ocrPolicyDomain_t *pd = mpiComm->base.pd;\
+        pd->fcts.pdFree(pd, HDL[idx].base.status);\
+        POOL[idx] = POOL[SZ]; \
+        HDL[idx] = HDL[SZ]; \
+        ASSERT(HDL[idx].base.msgId != -2); \
+    } \
+    DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRId32"] compactPool set to MPI_CP_DEBUG_SENTINEL hdl_addr=%p idx=%"PRIu32" msgId=%"PRIu64"\n", \
+        locationToMpiRank(((ocrCommPlatform_t *)mpiComm)->pd->myLocation), &POOL[SZ], SZ, HDL[SZ].base.msgId);
+#else
 #define CODE_COMPACT_POOL(SZ, POOL, HDL) \
     SZ--; \
     if ((SZ != 0) && ((SZ != idx))) { \
@@ -163,6 +191,7 @@ static void resizeRecvFxdPool(ocrCommPlatformMPI_t * mpiComm) {
     } \
     DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRId32"] compactPool set to MPI_CP_DEBUG_SENTINEL hdl_addr=%p idx=%"PRIu32" msgId=%"PRIu64"\n", \
         locationToMpiRank(((ocrCommPlatform_t *)mpiComm)->pd->myLocation), &POOL[SZ], SZ, HDL[SZ].base.msgId);
+#endif
 
 static void compactSendPool(ocrCommPlatformMPI_t * mpiComm, u32 idx) {
     CODE_COMPACT_POOL(mpiComm->sendPoolSz, mpiComm->sendPool, mpiComm->sendHdlPool)
@@ -189,6 +218,22 @@ static inline u32 resolveHandleIdx(ocrCommPlatformMPI_t * mpiComm, mpiCommHandle
     return hdl - hdlPool;
 }
 
+#ifdef ENABLE_RESILIENCY
+#define CODE_MV_HDL(SZ, MAX, POOL, HDL, RESIZE, TYPE) \
+    u32 idx = SZ; \
+    HDL[idx] = *hdl; \
+    ocrPolicyDomain_t *pd = mpiComm->base.pd;\
+    HDL[idx].base.status = pd->fcts.pdMalloc(pd, sizeof(MPI_Request)); \
+    SZ++; \
+    DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRId32"] Moved send msgId=%"PRIu64" " TYPE " @idx=%"PRIu32" checked as=%"PRIu32" \n", \
+        locationToMpiRank(((ocrCommPlatform_t *)mpiComm)->pd->myLocation), hdl->base.msgId, idx, resolveHandleIdx(mpiComm, &HDL[idx], HDL)); \
+    ASSERT(hdl->base.msgId != MPI_CP_DEBUG_SENTINEL); \
+    ASSERT(HDL[idx].base.msgId != -1); \
+    if (SZ == MAX) { \
+        RESIZE(mpiComm); \
+    } \
+    return &HDL[idx];
+#else
 #define CODE_MV_HDL(SZ, MAX, POOL, HDL, RESIZE, TYPE) \
     u32 idx = SZ; \
     HDL[idx] = *hdl; \
@@ -202,6 +247,7 @@ static inline u32 resolveHandleIdx(ocrCommPlatformMPI_t * mpiComm, mpiCommHandle
         RESIZE(mpiComm); \
     } \
     return &HDL[idx];
+#endif
 
 
 static mpiCommHandle_t * moveHdlSendToRecv(ocrCommPlatformMPI_t * mpiComm, mpiCommHandle_t * hdl) {
@@ -244,7 +290,11 @@ static mpiCommHandle_t * initMpiHandle(ocrCommPlatform_t * self, mpiCommHandle_t
 static mpiCommHandle_t * createMpiSendHandle(ocrCommPlatform_t * self, u64 id, u32 properties, ocrPolicyMsg_t * msg, u8 deleteSendMsg) {
     ocrCommPlatformMPI_t * dself = (ocrCommPlatformMPI_t *) self;
     mpiCommHandle_t * hdl = &dself->sendHdlPool[dself->sendPoolSz];
+#ifdef ENABLE_RESILIENCY
+    hdl->base.status = self->pd->fcts.pdMalloc(self->pd, sizeof(MPI_Request));
+#else
     hdl->base.status = &dself->sendPool[dself->sendPoolSz];
+#endif
     dself->sendPoolSz++;
     initMpiHandle(self, hdl, id, properties, msg, deleteSendMsg);
     if (dself->sendPoolSz == dself->sendPoolMax) {
@@ -257,7 +307,11 @@ static mpiCommHandle_t * createMpiSendHandle(ocrCommPlatform_t * self, u64 id, u
 static mpiCommHandle_t * createMpiRecvFxdHandle(ocrCommPlatform_t * self, u64 id, u32 properties, ocrPolicyMsg_t * msg, u8 deleteSendMsg) {
     ocrCommPlatformMPI_t * dself = (ocrCommPlatformMPI_t *) self;
     mpiCommHandle_t * hdl = &dself->recvFxdHdlPool[dself->recvFxdPoolSz];
+#ifdef ENABLE_RESILIENCY
+    hdl->base.status = self->pd->fcts.pdMalloc(self->pd, sizeof(MPI_Request));
+#else
     hdl->base.status = &dself->recvFxdPool[dself->recvFxdPoolSz];
+#endif
     dself->recvFxdPoolSz++;
     initMpiHandle(self, hdl, id, properties, msg, deleteSendMsg);
     if (dself->recvFxdPoolSz == dself->recvFxdPoolMax) {
@@ -267,6 +321,22 @@ static mpiCommHandle_t * createMpiRecvFxdHandle(ocrCommPlatform_t * self, u64 id
     return &dself->recvFxdHdlPool[dself->recvFxdPoolSz-1];
 }
 
+#ifdef ENABLE_RESILIENCY
+int ocrMPI_Testany(int count, mpiCommHandle_t array_of_handles[], int *indx, int *flag, MPI_Status *status) {
+    u32 i;
+    for (i = 0; i < count; i++) {
+        MPI_Request *req = array_of_handles[i].base.status;
+        RESULT_ASSERT(MPI_Test(req, flag, status), ==, MPI_SUCCESS);
+        if (*flag) {
+            *indx = i;
+            return MPI_SUCCESS;
+        }
+    }
+    *indx = MPI_UNDEFINED;
+    *flag = 0;
+    return MPI_SUCCESS;
+}
+#endif
 
 //
 // Communication API
@@ -329,12 +399,6 @@ static u8 probeIncoming(ocrCommPlatform_t *self, int src, int tag, ocrPolicyMsg_
         ocrPolicyDomain_t * pd = self->pd;
         ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
         ASSERT((hcPolicy->commStopped == 0) || (((*msg)->type & PD_MSG_TYPE_ONLY) == PD_MSG_RESILIENCY_CHECKPOINT));
-        if ((*msg)->type & PD_MSG_RESPONSE) {
-            hcPolicy->outstandingRequests--;
-        } else if ((*msg)->type & PD_MSG_REQ_RESPONSE) {
-            ASSERT((*msg)->type & PD_MSG_REQUEST);
-            hcPolicy->outstandingResponses++;
-        }
 #endif
 
         // Unmarshall the message. We check to make sure the size is OK
@@ -375,7 +439,11 @@ static u8 testRecvFixedSzMsg(ocrCommPlatformMPI_t * mpiComm, ocrPolicyMsg_t ** m
     int idx;
     int completed;
 #ifdef OCR_ASSERT
+#ifdef ENABLE_RESILIENCY
+    int ret = ocrMPI_Testany(mpiComm->recvFxdPoolSz, mpiComm->recvFxdHdlPool, &idx, &completed, &status);
+#else
     int ret = MPI_Testany(mpiComm->recvFxdPoolSz, mpiComm->recvFxdPool, &idx, &completed, &status);
+#endif
     if (ret != MPI_SUCCESS) {
         char str[MPI_MAX_ERROR_STRING];
         int restr;
@@ -384,7 +452,11 @@ static u8 testRecvFixedSzMsg(ocrCommPlatformMPI_t * mpiComm, ocrPolicyMsg_t ** m
         ASSERT(false);
     }
 #else
+#ifdef ENABLE_RESILIENCY
+    RESULT_ASSERT(ocrMPI_Testany(mpiComm->recvFxdPoolSz, mpiComm->recvFxdHdlPool, &idx, &completed, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
+#else
     RESULT_ASSERT(MPI_Testany(mpiComm->recvFxdPoolSz, mpiComm->recvFxdPool, &idx, &completed, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
+#endif
 #endif
     if (idx != MPI_UNDEFINED) {
         ASSERT(completed);
@@ -461,7 +533,11 @@ static u8 MPICommPollMessageInternal(ocrCommPlatform_t *self, ocrPolicyMsg_t **m
         START_PROFILE(commplt_MPICommPollMessageInternal_progress_send);
         int idx;
         int completed;
+#ifdef ENABLE_RESILIENCY
+        RESULT_ASSERT(ocrMPI_Testany(mpiComm->sendPoolSz, mpiComm->sendHdlPool, &idx, &completed, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
+#else
         RESULT_ASSERT(MPI_Testany(mpiComm->sendPoolSz, mpiComm->sendPool, &idx, &completed, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
+#endif
         if (idx != MPI_UNDEFINED) { // found
             ASSERT(completed);
             ASSERT((idx < mpiComm->sendPoolSz) && (idx >= 0));
@@ -612,10 +688,6 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
     // If we're sending a request, set the message's msgId to this communication id
     if (message->type & PD_MSG_REQUEST) {
         message->msgId = mpiId;
-#ifdef ENABLE_RESILIENCY
-        if (message->type & PD_MSG_REQ_RESPONSE)
-            hcPolicy->outstandingRequests++;
-#endif
     } else {
         // For response in ASYNC set the message ID as any.
         ASSERT(message->type & PD_MSG_RESPONSE);
@@ -625,9 +697,6 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
         }
         // else, for regular responses, just keep the original
         // message's msgId the calling PD is waiting on.
-#ifdef ENABLE_RESILIENCY
-        hcPolicy->outstandingResponses--;
-#endif
     }
 
     ocrPolicyMsg_t * messageBuffer = message;
@@ -777,7 +846,11 @@ static u8 verifyOutgoing(ocrCommPlatformMPI_t *mpiComm) {
         START_PROFILE(commplt_MPICommPollMessageInternal_progress_send);
         int idx;
         int completed;
+#ifdef ENABLE_RESILIENCY
+        RESULT_ASSERT(ocrMPI_Testany(mpiComm->sendPoolSz, mpiComm->sendHdlPool, &idx, &completed, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
+#else
         RESULT_ASSERT(MPI_Testany(mpiComm->sendPoolSz, mpiComm->sendPool, &idx, &completed, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
+#endif
         if (idx != MPI_UNDEFINED) { // found
             ASSERT(completed);
             ASSERT((idx < mpiComm->sendPoolSz) && (idx >= 0));
@@ -855,6 +928,9 @@ static u8 verifyIncomingFixedSzMsgMT(ocrCommPlatformMPI_t * mpiComm, ocrPolicyMs
     int idx;
     int completed;
 #ifdef OCR_ASSERT
+#ifdef ENABLE_RESILIENCY
+    ASSERT(0);
+#endif
     int ret = MPI_Testany(mpiComm->recvFxdPoolSz, mpiComm->recvFxdPool, &idx, &completed, &status);
     if (ret != MPI_SUCCESS) {
         char str[MPI_MAX_ERROR_STRING];

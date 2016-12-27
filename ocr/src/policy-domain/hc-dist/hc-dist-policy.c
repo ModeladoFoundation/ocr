@@ -607,9 +607,26 @@ u8 deserializeProxyDb(u8* buffer, void **value) {
             ocrPolicyMsg_t *msg = pd->fcts.pdMalloc(pd, len);
             initializePolicyMessage(msg, len);
             hal_memCopy(msg, buffer, len, false);
+            ASSERT((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE);
+        #define PD_MSG msg
+        #define PD_TYPE PD_MSG_DB_ACQUIRE
+            PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+            PD_MSG_FIELD_IO(edt.metaDataPtr) = NULL;
+        #undef PD_MSG
+        #undef PD_TYPE
             queueAddLast(proxyDb->acquireQueue, msg);
             buffer += len;
         }
+    }
+
+    if (proxyDb->db != NULL) {
+        ocrFatGuid_t tGuid;
+        RESULT_ASSERT(((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->instantiate(
+                          ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx])), &tGuid, pd->allocators[0]->fguid, pd->fguid,
+                          proxyDb->size, proxyDb->ptr, NULL_HINT, DB_PROP_RT_PROXY, NULL), ==, 0);
+        proxyDb->db = (ocrDataBlock_t*)tGuid.metaDataPtr;
+        ASSERT(!ocrGuidIsNull(proxyDb->base.guid));
+        proxyDb->db->guid = proxyDb->base.guid;
     }
 
     ASSERT((buffer - bufferHead) == proxyDb->base.size);
@@ -1695,11 +1712,6 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     case PD_MSG_RESILIENCY_CHECKPOINT: {
         // Resiliency manager sets dest location
         DPRINTF(DEBUG_LVL_VVERB, "RESILIENCY_CHECKPOINT: target is %"PRId32"\n", (u32)msg->destLocation);
-        break;
-    }
-    case PD_MSG_RESILIENCY_RESTORE: {
-        // Resiliency manager sets dest location
-        DPRINTF(DEBUG_LVL_VVERB, "RESILIENCY_RESTORE: target is %"PRId32"\n", (u32)msg->destLocation);
         break;
     }
     case PD_MSG_DEP_UNREGSIGNALER: {
