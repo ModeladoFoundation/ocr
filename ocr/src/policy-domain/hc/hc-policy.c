@@ -968,7 +968,10 @@ static void checkinWorkerForCheckpoint(ocrPolicyDomain_t *self, ocrWorker_t *wor
     u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, 1);
     if(oldVal == (rself->computeWorkerCount - 1)) {
         DPRINTF(DEBUG_LVL_VERB, "All workers checked in for checkpoint...\n");
+        ASSERT(rself->quiesceComms == 0);
+#ifdef ENABLE_RESILIENCY_CHECKPOINT_RESTART
         rself->quiesceComms = 1;
+#endif
         while (rself->quiesceComms != 0 && rself->stateOfCheckpoint != 0)
             ;
         hal_fence();
@@ -1003,7 +1006,10 @@ static void startPdCheckpoint(ocrPolicyDomain_t *self) {
     hal_fence();
 
     //First quiesce all comms
+    ASSERT(rself->quiesceComms == 0);
+#ifdef ENABLE_RESILIENCY_CHECKPOINT_RESTART
     rself->quiesceComms = 1;
+#endif
     while (rself->quiesceComms != 0 && rself->stateOfCheckpoint != 0)
         ;
     hal_fence();
@@ -1025,7 +1031,9 @@ static void startPdCheckpoint(ocrPolicyDomain_t *self) {
     }
 
     //No turning back:
+#ifdef ENABLE_RESILIENCY_CHECKPOINT_RESTART
     ASSERT(rself->quiesceComms == 0 && rself->commStopped != 0);
+#endif
     ASSERT(self->schedulers[0]->fcts.count(self->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0);
 
     char *chkptName = NULL;
@@ -1184,7 +1192,10 @@ static void startPdRestart(ocrPolicyDomain_t *self) {
     hal_fence();
 
     //First quiesce all comms
+    ASSERT(rself->quiesceComms == 0);
+#ifdef ENABLE_RESILIENCY_CHECKPOINT_RESTART
     rself->quiesceComms = 1;
+#endif
     while (rself->quiesceComms != 0 && rself->stateOfRestart != 0)
         ;
     hal_fence();
@@ -1264,7 +1275,10 @@ static void checkinWorkerForRestart(ocrPolicyDomain_t *self, ocrWorker_t *worker
     u32 oldVal = hal_xadd32(&rself->restartWorkerCounter, 1);
     if(oldVal == (rself->computeWorkerCount - 1)) {
         DPRINTF(DEBUG_LVL_VERB, "All workers checked in for restart...\n");
+        ASSERT(rself->quiesceComms == 0);
+#ifdef ENABLE_RESILIENCY_CHECKPOINT_RESTART
         rself->quiesceComms = 1;
+#endif
         while (rself->quiesceComms != 0 && rself->stateOfRestart != 0)
             ;
         hal_fence();
@@ -3425,7 +3439,38 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         getCurrentEnv(NULL, &worker, NULL, NULL);
         ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
         if (rself->shutdownInProgress == 0) {
-            if (rself->fault != 0) { //Fault detected
+            bool doMonitorFault = false;
+            bool doMonitorCheckpoint = false;
+            ocrResiliencyMonitorProp prop = PD_MSG_FIELD_I(properties);
+            PD_MSG_FIELD_O(returnDetail) = 0;
+            switch(prop) {
+            case OCR_RESILIENCY_MONITOR_FAULT:
+                {
+                    doMonitorFault = true;
+                }
+                break;
+            case OCR_RESILIENCY_MONITOR_CHECKPOINT:
+                {
+#ifdef ENABLE_RESILIENCY_CHECKPOINT_RESTART
+                    doMonitorCheckpoint = true;
+#endif
+                }
+                break;
+            case OCR_RESILIENCY_MONITOR_DEFAULT:
+                {
+                    doMonitorFault = true;
+#ifdef ENABLE_RESILIENCY_CHECKPOINT_RESTART
+                    doMonitorCheckpoint = true;
+#endif
+                }
+                break;
+            default:
+                // Not handled
+                ASSERT(0);
+                break;
+            }
+
+            if (doMonitorFault && rself->fault != 0) { //Fault detected
 
                 // Read fault data:
                 PD_MSG_FIELD_O(faultArgs) = rself->faultArgs;
@@ -3484,78 +3529,82 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
                 // Resume:
                 PD_MSG_FIELD_O(returnDetail) = OCR_EFAULT;
-            } else if (worker->id == 1 &&
-                       rself->stateOfCheckpoint == 0 &&
-                       rself->stateOfRestart == 0 &&
-                       rself->initialCheckForRestart != 0)
-            {
-                u64 curTime = salGetTime();
-                u64 prevTime = rself->timestamp;
-                if ((curTime - prevTime) > rself->checkpointInterval) {
-                    if (prevTime > 0) {
-                        rself->timestamp = curTime;
-                        DPRINTF(DEBUG_LVL_VERB, "Ready to checkpoint...\n");
-                        rself->stateOfCheckpoint = 1;
+            }
+
+            if (doMonitorCheckpoint) {
+                if (worker->id == 1 &&
+                    rself->stateOfCheckpoint == 0 &&
+                    rself->stateOfRestart == 0 &&
+                    rself->initialCheckForRestart != 0)
+                {
+                    u64 curTime = salGetTime();
+                    u64 prevTime = rself->timestamp;
+                    if ((curTime - prevTime) > rself->checkpointInterval) {
+                        if (prevTime > 0) {
+                            rself->timestamp = curTime;
+                            DPRINTF(DEBUG_LVL_VERB, "Ready to checkpoint...\n");
+                            rself->stateOfCheckpoint = 1;
+                        }
                     }
-                }
-            } else if (rself->stateOfCheckpoint != 0 &&
-                       worker->stateOfCheckpoint == 0 &&
-                       worker->isIdle)
-            {
-                checkinWorkerForCheckpoint(self, worker);
-            } else if (rself->stateOfRestart != 0 &&
-                       worker->stateOfRestart == 0 &&
-                       worker->isIdle)
-            {
-                checkinWorkerForRestart(self, worker);
-            } else if (rself->quiesceComps != 0 && worker->isIdle) {
-                hal_xadd32(&rself->quiesceComps, 1);
-                DPRINTF(DEBUG_LVL_VERB, "Waiting at quiesceComps...\n");
-                while (rself->quiesceComps != 0)
-                    ;
-                DPRINTF(DEBUG_LVL_VERB, "Checking out of quiesceComps...\n");
-            } else if (rself->resumeAfterCheckpoint != 0) {
-                ASSERT(worker->stateOfCheckpoint != 0);
-                worker->stateOfCheckpoint = 0;
-                u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, -1);
-                ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
-                if (oldVal == 1) {
-                    DPRINTF(DEBUG_LVL_VERB, "Resuming after checkpoint...\n");
-                    rself->stateOfCheckpoint = 0;
-                } else {
-                    DPRINTF(DEBUG_LVL_VERB, "Waiting to resume after checkpoint...\n");
-                    while (rself->stateOfCheckpoint != 0)
+                } else if (rself->stateOfCheckpoint != 0 &&
+                           worker->stateOfCheckpoint == 0 &&
+                           worker->isIdle)
+                {
+                    checkinWorkerForCheckpoint(self, worker);
+                } else if (rself->stateOfRestart != 0 &&
+                           worker->stateOfRestart == 0 &&
+                           worker->isIdle)
+                {
+                    checkinWorkerForRestart(self, worker);
+                } else if (rself->quiesceComps != 0 && worker->isIdle) {
+                    hal_xadd32(&rself->quiesceComps, 1);
+                    DPRINTF(DEBUG_LVL_VERB, "Waiting at quiesceComps...\n");
+                    while (rself->quiesceComps != 0)
                         ;
+                    DPRINTF(DEBUG_LVL_VERB, "Checking out of quiesceComps...\n");
+                } else if (rself->resumeAfterCheckpoint != 0) {
+                    ASSERT(worker->stateOfCheckpoint != 0);
+                    worker->stateOfCheckpoint = 0;
+                    u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, -1);
+                    ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
+                    if (oldVal == 1) {
+                        DPRINTF(DEBUG_LVL_VERB, "Resuming after checkpoint...\n");
+                        rself->stateOfCheckpoint = 0;
+                    } else {
+                        DPRINTF(DEBUG_LVL_VERB, "Waiting to resume after checkpoint...\n");
+                        while (rself->stateOfCheckpoint != 0)
+                            ;
+                    }
+                    if (hal_cmpswap32(&rself->resumeAfterCheckpoint, 1, 0) == 1) {
+                        ASSERT(rself->checkpointWorkerCounter == 0);
+                    }
+                    ASSERT(rself->resumeAfterCheckpoint == 0);
+                } else if (rself->resumeAfterRestart != 0) {
+                    ASSERT(worker->stateOfRestart != 0);
+                    worker->stateOfRestart = 0;
+                    u32 oldVal = hal_xadd32(&rself->restartWorkerCounter, -1);
+                    ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
+                    if (oldVal == 1) {
+                        DPRINTF(DEBUG_LVL_VERB, "Resuming after restart...\n");
+                        rself->timestamp = salGetTime();
+                        hal_fence();
+                        rself->stateOfRestart = 0;
+                    } else {
+                        DPRINTF(DEBUG_LVL_VERB, "Waiting to resume after restart...\n");
+                        while (rself->stateOfRestart != 0)
+                            ;
+                    }
+                    if (hal_cmpswap32(&rself->resumeAfterRestart, 1, 0) == 1) {
+                        ASSERT(rself->restartWorkerCounter == 0);
+                    }
+                    ASSERT(rself->resumeAfterRestart == 0);
+                } else if (rself->stateOfCheckpoint == 0 &&
+                           worker->stateOfCheckpoint != 0) {
+                    //Checkpoint got canceled
+                    worker->stateOfCheckpoint = 0;
+                    u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, -1);
+                    ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
                 }
-                if (hal_cmpswap32(&rself->resumeAfterCheckpoint, 1, 0) == 1) {
-                    ASSERT(rself->checkpointWorkerCounter == 0);
-                }
-                ASSERT(rself->resumeAfterCheckpoint == 0);
-            } else if (rself->resumeAfterRestart != 0) {
-                ASSERT(worker->stateOfRestart != 0);
-                worker->stateOfRestart = 0;
-                u32 oldVal = hal_xadd32(&rself->restartWorkerCounter, -1);
-                ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
-                if (oldVal == 1) {
-                    DPRINTF(DEBUG_LVL_VERB, "Resuming after restart...\n");
-                    rself->timestamp = salGetTime();
-                    hal_fence();
-                    rself->stateOfRestart = 0;
-                } else {
-                    DPRINTF(DEBUG_LVL_VERB, "Waiting to resume after restart...\n");
-                    while (rself->stateOfRestart != 0)
-                        ;
-                }
-                if (hal_cmpswap32(&rself->resumeAfterRestart, 1, 0) == 1) {
-                    ASSERT(rself->restartWorkerCounter == 0);
-                }
-                ASSERT(rself->resumeAfterRestart == 0);
-            } else if (rself->stateOfCheckpoint == 0 &&
-                       worker->stateOfCheckpoint != 0) {
-                //Checkpoint got canceled
-                worker->stateOfCheckpoint = 0;
-                u32 oldVal = hal_xadd32(&rself->checkpointWorkerCounter, -1);
-                ASSERT(oldVal > 0 && oldVal <= rself->computeWorkerCount);
             }
         } else {
             //When shutting down, reset the resiliency state

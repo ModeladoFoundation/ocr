@@ -18,7 +18,7 @@
 /******************************************************/
 
 #ifndef OCR_CHECKPOINT_INTERVAL
-#define OCR_CHECKPOINT_INTERVAL   1000000000UL /* 1 second */
+#define OCR_CHECKPOINT_INTERVAL     10000000UL /* 10 miliseconds */
 #endif
 
 typedef struct {

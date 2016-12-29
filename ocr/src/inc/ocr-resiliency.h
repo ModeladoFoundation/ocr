@@ -12,6 +12,12 @@
 #define OCR_FAULT_ARG_FIELD(kind) data.OCR_FAULT_ARG_NAME(kind)
 
 typedef enum {
+    OCR_RESILIENCY_MONITOR_DEFAULT,
+    OCR_RESILIENCY_MONITOR_FAULT,
+    OCR_RESILIENCY_MONITOR_CHECKPOINT,
+} ocrResiliencyMonitorProp;
+
+typedef enum {
     OCR_FAULT_NONE = 0,
     OCR_FAULT_DATABLOCK_CORRUPTION,
 } ocrFaultKind;

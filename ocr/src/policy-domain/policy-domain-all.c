@@ -1587,6 +1587,37 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
     fatGuid->metaDataPtr = (void *) val;
     return 0;
 }
+
+void getSerializationSizeProxyDb(void *value, u64 *size) {
+    ASSERT(false);
+    return;
+}
+
+u8 serializeProxyDb(void *value, u8* buffer) {
+    ASSERT(false);
+    return 0;
+}
+
+u8 deserializeProxyDb(u8* buffer, void **value) {
+    ASSERT(false);
+    return 0;
+}
+
+u8 fixupProxyDb(void *value) {
+    ASSERT(false);
+    return 0;
+}
+
+u8 destructProxyDb(void *value) {
+    ASSERT(false);
+    return 0;
+}
+
+void* getProxyDbPtr(void *value) {
+    ASSERT(false);
+    return NULL;
+}
+
 #endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE

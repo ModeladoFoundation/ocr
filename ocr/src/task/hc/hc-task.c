@@ -1482,7 +1482,7 @@ static u8 checkForFaults(ocrTask_t *base, bool postCheck) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_RESILIENCY_MONITOR
     msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_I(properties) = 0;
+    PD_MSG_FIELD_I(properties) = OCR_RESILIENCY_MONITOR_FAULT;
     RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
     u32 returnDetail = PD_MSG_FIELD_O(returnDetail);
     ocrFaultArgs_t faultArgs = PD_MSG_FIELD_O(faultArgs);

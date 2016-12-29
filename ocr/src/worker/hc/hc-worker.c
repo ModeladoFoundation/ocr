@@ -63,7 +63,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_RESILIENCY_MONITOR
         msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_I(properties) = 0;
+        PD_MSG_FIELD_I(properties) = OCR_RESILIENCY_MONITOR_DEFAULT;
         RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
 #undef PD_MSG
 #undef PD_TYPE
@@ -217,18 +217,9 @@ static void hcWorkShift(ocrWorker_t * worker) {
         } else {
 #ifdef ENABLE_RESILIENCY
             if (worker->isIdle == 0 && worker->edtDepth == 0) {
-#if 0
-                worker->isIdle = 1;
-#else
-                //ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)pd;
-                //if (hcPolicy->stateOfCheckpoint) {
-                    if (pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0) {
-                        worker->isIdle = 1;
-                    }
-                //} else {
-                //    worker->isIdle = 1;
-                //}
-#endif
+                if (pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0) {
+                    worker->isIdle = 1;
+                }
             }
 #endif
         }
@@ -242,7 +233,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_RESILIENCY_MONITOR
         msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_I(properties) = 0;
+        PD_MSG_FIELD_I(properties) = OCR_RESILIENCY_MONITOR_FAULT;
         RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
 #undef PD_MSG
 #undef PD_TYPE
