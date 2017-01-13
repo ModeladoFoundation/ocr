@@ -1154,9 +1154,11 @@ static u8 ceAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
 
     if (preferredLevel > 0) {
         *ptr = allocateDatablock (self, size, engineIndex, prescription, preferredLevel, &idx);
-        if (!*ptr) {
+        if (!*ptr && (ocrGetHintValue(hint, OCR_HINT_DB_FAIL_IF_TOO_FAR, &hintValue) != 0 || !hintValue) {
             DPRINTF(DEBUG_LVL_WARN, "ceAllocateDb ignores preferredLevel hint to be successful in alloc %"PRId32"\n", preferredLevel);
             *ptr = allocateDatablock (self, size, engineIndex, prescription, 0, &idx);
+        } else {
+            DPRINTF(DEBUG_LVL_INFO, "Hint prevented going further than prescribed level\n");
         }
     } else {
         *ptr = allocateDatablock (self, size, engineIndex, prescription, 0, &idx);

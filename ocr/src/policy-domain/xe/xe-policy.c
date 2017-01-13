@@ -706,6 +706,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
 //    void* result = allocateDddatablock (self, size, engineIndex, prescription, &idx);
 
     int preferredLevel = 0;
+    bool limitLevel = false;
     u64 hintValue = 0ULL;
     if (hint != NULL_HINT) {
         if (ocrGetHintValue(hint, OCR_HINT_DB_NEAR, &hintValue) == 0 && hintValue) {
@@ -715,7 +716,11 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         } else if (ocrGetHintValue(hint, OCR_HINT_DB_FAR, &hintValue) == 0 && hintValue) {
             preferredLevel = 3;
         }
-        DPRINTF(DEBUG_LVL_VERB, "xeAllocateDb preferredLevel set to %"PRId32"\n", preferredLevel);
+        if (ocrGetHindValue(hint, OCR_HINT_DB_FAIL_IF_TOO_FAR, &hintValue) == 0 && hintValue) {
+            limitLevel = true;
+        }
+        DPRINTF(DEBUG_LVL_VERB, "xeAllocateDb preferredLevel set to %"PRId32" and limitLevel to %"PRId32"\n", preferredLevel,
+            (u32)limitLevel);
         if (preferredLevel >= 2) {
             return OCR_ENOMEM;
         }
@@ -735,6 +740,11 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         }
         return returnValue;
     } else {
+        // This means that there is no point going to the CE anyways since we are not
+        // supposed to go out of L1.
+        if(limitLevel) {
+            return OCR_ENOSPC;
+        }
         return OCR_ENOMEM;
     }
 }
@@ -869,6 +879,11 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             break;
         } else if(ret == OCR_EGUIDEXISTS) {
             // No point falling out to the CE if the GUID exists; it will only tell us the same thing
+            EXIT_PROFILE;
+            break;
+        } else if(ret == OCR_ENOSPC) {
+            // If we shouldn't go to the CE, we just break out completely
+            DPRINTF(DEBUG_LVL_INFO, "Hint prevented XE from asking CE for higher level memories\n");
             EXIT_PROFILE;
             break;
         }
