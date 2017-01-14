@@ -68,6 +68,9 @@ typedef struct _dbWaiter_t {
     u32 properties; // properties specified with the acquire request
     bool isInternal;
     struct _dbWaiter_t * next;
+#ifdef OCR_HACK_DB_MOVE
+    ocrDbAccessMode_t mode;
+#endif /* OCR_HACK_DB_MOVE */
 } dbWaiter_t;
 
 // Forward declaration
@@ -164,7 +167,8 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
         *ptr = self->ptr;
         return 0;
     }
-
+    DPRINTF(DEBUG_LVL_VERB, "Attempting to acquire DB %p (GUID "GUIDF") in mode %"PRId32" on slot %"PRIu32"\n",
+        self, GUIDA(self->guid), (s32)mode, edtSlot);
     // mode == DB_MODE_RO just fall through
 
     if (mode == DB_MODE_CONST) {
@@ -245,6 +249,30 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
         }
     }
 
+#ifdef OCR_HACK_DB_MOVE
+    // At this point, if we get here, we have determined that we can acquire the DB based on
+    // mode conflicts. We now check if the DB is being moved or something
+    if(rself->attributes.isMoving || rself->attributes.needsEvict) {
+        DPRINTF(OCR_HACK_DEBUG_LVL, "DB (GUID: "GUIDF") is being moved or needs eviction -- delaying acquire from EDT (GUID: "GUIDF")\n",
+            GUIDA(rself->base.guid), GUIDA(edt.guid));
+            //MD: becomes a continuation
+            ASSERT(edtSlot != EDT_SLOT_NONE);
+            // The DB is already in use
+            ocrPolicyDomain_t * pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            dbWaiter_t * waiterEntry = (dbWaiter_t *) pd->fcts.pdMalloc(pd, sizeof(dbWaiter_t));
+            waiterEntry->guid = edt.guid;
+            waiterEntry->destLoc = destLoc;
+            waiterEntry->slot = edtSlot;
+            waiterEntry->isInternal = isInternal;
+            waiterEntry->properties = properties;
+            waiterEntry->mode = mode; // We need to save the mode
+            waiterEntry->next = rself->otherWaiterList;
+            rself->otherWaiterList = waiterEntry;
+            *ptr = NULL; // not contractual, but should ease debug if misread
+            return OCR_EBUSY;
+    }
+#endif /* OCR_HACK_DB_MOVE */
     rself->attributes.numUsers += 1;
     DPRINTF(DEBUG_LVL_VERB, "Acquiring DB @ 0x%"PRIx64" (GUID: "GUIDF") from EDT (GUID: "GUIDF") (runtime acquire: %"PRId32") (mode: %"PRId32") (numUsers: %"PRId32") (modeLock: %"PRId32")\n",
             (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal, (int) mode,
@@ -259,6 +287,40 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
     return 0;
 }
 
+
+#ifdef OCR_HACK_DB_MOVE
+static void processAcquireCallback(ocrDataBlock_t *self, dbWaiter_t * waiter,
+                                   ocrDbAccessMode_t waiterMode,
+                                   u32 properties, ocrPolicyMsg_t * msg);
+
+/**
+ * @brief Process all the waiters waiting on a move or eviction
+ *
+ * Lock must be held and isMoving and needsEvict need to both be false.
+ * This will cause any possible waiters to acquire or put them back on the
+ * other proper lists for their mode. There is *NO* optimization to maximize
+ * the maximum number of acquires after a move.
+ */
+static void processMoveWaiters(ocrDataBlock_t *self) {
+    ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
+    ocrPolicyDomain_t * pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    ASSERT(rself->attributes.isMoving == 0 && rself->attributes.needsEvict == 0);
+
+    dbWaiter_t * waiter = rself->otherWaiterList;
+    dbWaiter_t * next = NULL;
+    while(waiter) {
+        PD_MSG_STACK(msg);
+        processAcquireCallback(self, waiter, waiter->mode, waiter->properties, &msg);
+        next = waiter->next;
+        rself->otherWaiterList = next;
+        pd->fcts.pdFree(pd, waiter);
+        waiter = next;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+    }
+}
+#endif /* OCR_HACK_DB_MOVE */
 
 /**
  * @brief Setup a callback response message and acquire on behalf of the waiter
@@ -356,6 +418,47 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
         DPRINTF(DEBUG_LVL_VERB, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
     }
 #endif
+
+#ifdef OCR_HACK_DB_MOVE
+    // If the number of users reaches 0 and we need to evict, we do that
+    // BEFORE trying to give the DB to any other EDT
+    ASSERT(rself->attributes.isMoving == 0); // The DB should never be moving prior to a release
+
+    // If the location that directed the move releases, we need to evict
+    if(srcLoc == rself->acquireLocation)
+        rself->attributes.needsEvict = 1;
+    // Don't move back if there is a free requested.
+    if (rself->attributes.numUsers == 0 && rself->attributes.needsEvict == 1 &&
+        (rself->attributes.freeRequested == 0 || rself->attributes.internalUsers != 0)) {
+        ocrPolicyDomain_t * pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        ASSERT(rself->originalPtr);
+        // Move the data-block back to its original location
+        DPRINTF(OCR_HACK_DEBUG_LVL, "Moving DB (GUID: "GUIDF") moving from %p to %p\n", GUIDA(self->guid),
+            self->ptr, rself->originalPtr);
+        hal_memCopy(rself->originalPtr, self->ptr, self->size, false);
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_MEM_UNALLOC
+        msg.type = PD_MSG_MEM_UNALLOC | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(allocatingPD.guid) = self->allocatingPD;
+        PD_MSG_FIELD_I(allocatingPD.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(allocator.guid) = self->allocator;
+        PD_MSG_FIELD_I(allocator.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(ptr) = self->ptr;
+        PD_MSG_FIELD_I(type) = DB_MEMTYPE;
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, false));
+#undef PD_MSG
+#undef PD_TYPE
+        self->ptr = rself->originalPtr;
+        rself->originalPtr = NULL;
+
+        rself->attributes.needsEvict = 0;
+        processMoveWaiters(self);
+    }
+#endif /* OCR_HACK_DB_MOVE */
 
     //IMPL: this is probably not very fair
     if (rself->attributes.numUsers == 0) {
@@ -548,6 +651,22 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
         statsDB_DESTROY(pd, task->guid, task, self->allocator, NULL, self->guid, self);
     }
 #endif /* OCR_ENABLE_STATISTICS */
+
+#ifdef OCR_HACK_DB_MOVE
+    if(rself->originalPtr) {
+        PD_MSG_RESET;
+        msg.type = PD_MSG_MEM_UNALLOC | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(allocatingPD.guid) = self->allocatingPD;
+        PD_MSG_FIELD_I(allocatingPD.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(allocator.guid) = self->allocator;
+        PD_MSG_FIELD_I(allocator.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(ptr) = rself->originalPtr;
+        PD_MSG_FIELD_I(type) = DB_MEMTYPE;
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, false));
+    }
+#endif /* OCR_HACK_DB_MOVE */
+
 #undef PD_TYPE
 #define PD_TYPE PD_MSG_GUID_DESTROY
     getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -687,6 +806,15 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     result->ewWaiterList = NULL;
     result->roWaiterList = NULL;
     result->itwWaiterList = NULL;
+#ifdef OCR_HACK_DB_MOVE
+    result->attributes.isMoving = 0;
+    result->attributes.needsEvict = 0;
+    result->otherWaiterList = NULL;
+#ifdef ENABLE_RESILIENCY
+    result->otherWaiterCount = 0;
+#endif
+    result->originalPtr = NULL;
+#endif
     result->itwLocation = INVALID_LOCATION;
     result->worker = NULL;
 #ifdef ENABLE_RESILIENCY
@@ -741,15 +869,58 @@ ocrRuntimeHint_t* getRuntimeHintDbLockable(ocrDataBlock_t* self) {
     return &(derived->hint);
 }
 
+#ifdef OCR_HACK_DB_MOVE
+u8 prepareForMoveLockable(ocrDataBlock_t *self, ocrLocation_t acquireLocation, bool* moveAllowed) {
+    ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
+    bool unlock = lockButSelf(rself);
+    if(rself->attributes.numUsers == 1 && rself->attributes.needsEvict == 0) {
+        // We are a user so this means we can move the block
+        ASSERT(rself->attributes.isMoving == 0); // No-one else should be moving
+        rself->attributes.isMoving = 1;
+        *moveAllowed = true;
+        rself->acquireLocation = acquireLocation;
+    } else {
+        *moveAllowed = false;
+    }
+    if(unlock) {
+        rself->worker = NULL;
+        hal_unlock(&rself->lock);
+    }
+    return 0;
+}
+
+u8 finalizeMoveLockable(ocrDataBlock_t *self, void* newAddress) {
+    ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
+    bool unlock = lockButSelf(rself);
+    ASSERT(rself->attributes.numUsers == 1 && rself->attributes.isMoving == 1);
+    rself->attributes.isMoving = 0;
+    rself->originalPtr = self->ptr;
+    self->ptr = newAddress;
+    processMoveWaiters(self);
+    if(unlock) {
+        rself->worker = NULL;
+        hal_unlock(&rself->lock);
+    }
+    return 0;
+}
+
+#endif
+
 #ifdef ENABLE_RESILIENCY
 u8 getSerializationSizeDataBlockLockable(ocrDataBlock_t* self, u64* size) {
     ocrDataBlockLockable_t *derived = (ocrDataBlockLockable_t*)self;
     u32 ewWaiterCount, itwWaiterCount, roWaiterCount;
+#ifdef OCR_HACK_DB_MOVE
+    u32 otherWaiterCount;
+#endif /* OCR_HACK_DB_MOVE */
     dbWaiter_t *waiter;
 
     for (waiter = derived->ewWaiterList,  ewWaiterCount  = 0; waiter != NULL; waiter = waiter->next, ewWaiterCount++ );
     for (waiter = derived->itwWaiterList, itwWaiterCount = 0; waiter != NULL; waiter = waiter->next, itwWaiterCount++);
     for (waiter = derived->roWaiterList,  roWaiterCount  = 0; waiter != NULL; waiter = waiter->next, roWaiterCount++ );
+#ifdef OCR_HACK_DB_MOVE
+    for (waiter = derived->otherWaiterList,  otherWaiterCount  = 0; waiter != NULL; waiter = waiter->next, otherWaiterCount++ );
+#endif /* OCR_HACK_DB_MOVE */
 
     u64 dbSize =    sizeof(ocrDataBlockLockable_t) +
                     (derived->hint.hintVal ? OCR_HINT_COUNT_DB_LOCKABLE*sizeof(u64) : 0) +
@@ -757,10 +928,16 @@ u8 getSerializationSizeDataBlockLockable(ocrDataBlock_t* self, u64* size) {
                     ewWaiterCount*sizeof(dbWaiter_t) +
                     itwWaiterCount*sizeof(dbWaiter_t) +
                     roWaiterCount*sizeof(dbWaiter_t);
+#ifdef OCR_HACK_DB_MOVE
+    dbSize += otherWaiterCount*sizeof(dbWaiter_t);
+#endif /* OCR_HACK_DB_MOVE */
 
     derived->ewWaiterCount = ewWaiterCount;
     derived->itwWaiterCount = itwWaiterCount;
     derived->roWaiterCount = roWaiterCount;
+#ifdef OCR_HACK_DB_MOVE
+    derived->otherWaiterCount = otherWaiterCount;
+#endif /* OCR_HACK_DB_MOVE */
 
     self->base.size = dbSize;
     *size = dbSize;
@@ -823,6 +1000,18 @@ u8 serializeDataBlockLockable(ocrDataBlock_t* self, u8* buffer) {
         }
         ASSERT(derived->roWaiterCount == roWaiterCount);
     }
+#ifdef OCR_HACK_DB_MOVE
+    if (derived->otherWaiterList) {
+        dbBuf->otherWaiterList = (dbWaiter_t*)buffer;
+        u32 otherWaiterCount = 0;
+        for (waiter = derived->otherWaiterList; waiter != NULL; waiter = waiter->next, buffer += len, otherWaiterCount++) {
+            hal_memCopy(buffer, waiter, len, false);
+            dbWaiter_t *waiterBuf = (dbWaiter_t*)buffer;
+            waiterBuf->next = waiter->next ? (dbWaiter_t*)(buffer + len) : NULL;
+        }
+        ASSERT(derived->otherWaiterCount == otherWaiterCount);
+    }
+#endif /* OCR_HACK_DB_MOVE */
 
     ASSERT((buffer - bufferHead) == self->base.size);
     return 0;
@@ -904,6 +1093,19 @@ u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
         }
         waiterPrev = waiter;
     }
+#ifdef OCR_HACK_DB_MOVE
+    for (i = 0, waiterPrev = NULL; i < dbLockable->otherWaiterCount; i++, buffer += len) {
+        dbWaiter_t *waiter = (dbWaiter_t*)pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(waiter, buffer, len, false);
+        waiter->next = NULL;
+        if (waiterPrev != NULL) {
+            waiterPrev->next = waiter;
+        } else {
+            dbLockable->otherWaiterList = waiter;
+        }
+        waiterPrev = waiter;
+    }
+#endif /* OCR_HACK_DB_MOVE */
 
     *self = db;
     ASSERT((buffer - bufferHead) == (*self)->base.size);
@@ -968,6 +1170,10 @@ ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrHint_t*), lockableSetHint);
     base->fcts.getHint = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrHint_t*), lockableGetHint);
     base->fcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrDataBlock_t*), getRuntimeHintDbLockable);
+#ifdef OCR_HACK_DB_MOVE
+    base->fcts.prepareForMove = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrLocation_t, bool*), prepareForMoveLockable);
+    base->fcts.finalizeMove   = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void*), finalizeMoveLockable);
+#endif /* OCR_HACK_DB_MOVE */
 #ifdef ENABLE_RESILIENCY
     base->fcts.getSerializationSize = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, u64*), getSerializationSizeDataBlockLockable);
     base->fcts.serialize = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, u8*), serializeDataBlockLockable);

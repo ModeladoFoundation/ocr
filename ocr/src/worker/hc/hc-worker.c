@@ -83,6 +83,9 @@ static void hcWorkShift(ocrWorker_t * worker) {
     PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_EDT_USER;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
+#ifdef OCR_HACK_DB_MOVE
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount = 0;
+#endif
 
 #ifdef OCR_MONITOR_SCHEDULER
     if(!worker->isSeeking){

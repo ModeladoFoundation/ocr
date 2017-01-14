@@ -425,6 +425,9 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDom
     task->countUnkDbs = 0;
     task->maxUnkDbs = 0;
     task->resolvedDeps = NULL;
+#ifdef OCR_HACK_DB_MOVE
+    task->resolvedSizes = NULL;
+#endif /* OCR_HACK_DB_MOVE */
     task->mdState = MD_STATE_EDT_MASTER;
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
@@ -526,6 +529,9 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 // else, acquire took place and was successful, continue iterating
                 ASSERT(msg.type & PD_MSG_RESPONSE); // 2x check
                 rself->resolvedDeps[depv[i].slot].ptr = PD_MSG_FIELD_O(ptr);
+#ifdef OCR_HACK_DB_MOVE
+                rself->resolvedSizes[depv[i].slot] = PD_MSG_FIELD_O(size);
+#endif /* OCR_HACK_DB_MOVE */
 #undef PD_MSG
 #undef PD_TYPE
             }
@@ -604,6 +610,9 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
         u32 depc = self->depc;
         ocrEdtDep_t * resolvedDeps = pd->fcts.pdMalloc(pd, sizeof(ocrEdtDep_t)* depc);
         rself->resolvedDeps = resolvedDeps;
+#ifdef OCR_HACK_DB_MOVE
+        rself->resolvedSizes = (u64*)pd->fcts.pdMalloc(pd, sizeof(u64)*depc);
+#endif /* OCR_HACK_DB_MOVE */
         regNode_t * signalers = rself->signalers;
         u32 i = 0;
         while(i < depc) {
@@ -615,6 +624,9 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
             resolvedDeps[i].guid = signalers[i].guid; // DB guids by now
             resolvedDeps[i].ptr = NULL; // resolved by acquire messages
             resolvedDeps[i].mode = signalers[i].mode;
+#ifdef OCR_HACK_DB_MOVE
+            rself->resolvedSizes[i] = 0;
+#endif /*OCR_HACK_DB_MOVE */
             i++;
         }
         // Sort regnode in guid's ascending order.
@@ -1014,7 +1026,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     return 0;
 }
 
-u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPtr, u32 slot) {
+u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPtr, u64 localSize, u32 slot) {
     ocrTaskHc_t * rself = (ocrTaskHc_t *) self;
     //BUG #924 - We need to decouple satisfy and acquire. Until then, we will
     //use this workaround of using the slot info to do that.
@@ -1039,6 +1051,9 @@ u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPt
         // must match the frontier's DB and we do not need to lock this code
         ASSERT(ocrGuidIsEq(dbGuid, rself->signalers[rself->frontierSlot-1].guid));
         rself->resolvedDeps[rself->signalers[rself->frontierSlot-1].slot].ptr = localDbPtr;
+#ifdef OCR_HACK_DB_MOVE
+        rself->resolvedSizes[rself->signalers[rself->frontierSlot-1].slot] = localSize;
+#endif /* OCR_HACK_DB_MOVE */
     }
     if (!iterateDbFrontier(self)) {
         scheduleTask(self);
@@ -2067,6 +2082,9 @@ ocrRuntimeHint_t* getRuntimeHintTaskHc(ocrTask_t* self) {
 #define SZ_HINTS(self)          ((hasProperty(((ocrTask_t*)self)->flags, OCR_TASK_FLAG_USES_HINTS) ? OCR_HINT_COUNT_EDT_HC : 0)*sizeof(u64))
 #define SZ_UNKDBS(self)         (((ocrTaskHc_t *)self)->countUnkDbs*sizeof(ocrGuid_t))
 #define SZ_RESOLVEDDEPS(self)   ((((ocrTaskHc_t *)self)->resolvedDeps == NULL) ? 0 : (((ocrTask_t*)self)->depc*sizeof(ocrEdtDep_t)))
+#ifdef OCR_HACK_DB_MOVE
+#define SZ_RESOLVEDSIZES(self)  ((((ocrTaskHc_t *)self)->resolvedSizes == NULL) ? 0 : (((ocrTask_t*)self)->depc*sizeof(u64)))
+#endif
 
 // Computes the address of a data-structure embedded in 'self'
 #define OFF_PARAMV(self)            (((char *) self) + sizeof(ocrTaskHc_t))
@@ -2074,6 +2092,9 @@ ocrRuntimeHint_t* getRuntimeHintTaskHc(ocrTask_t* self) {
 #define OFF_HINTS(self)             (OFF_SIGNALERS(self) + SZ_SIGNALERS(self))
 #define OFF_UNKDBS(self)            (OFF_HINTS(self) + SZ_HINTS(self))
 #define OFF_RESOLVEDDEPS(self)      (OFF_UNKDBS(self) + SZ_UNKDBS(self))
+#ifdef OCR_HACK_DB_MOVE
+#define OFF_RESOLVEDSIZES(self)      (OFF_RESOLVEDDEPS(self) + SZ_RESOLVEDDEPS(self))
+#endif
 
 //TODO-MD-EDT:
 //This is returning the size for a deep copy. Mode, whether it is an action or a type of size should reflect that.
@@ -2081,6 +2102,9 @@ u8 mdSizeTaskFactoryHc(ocrObject_t *dest, u64 mode, u64 * size) {
     ocrTask_t * self = (ocrTask_t *) dest;
     *size = sizeof(ocrTaskHc_t) +
         SZ_PARAMV(self) + SZ_SIGNALERS(self) + SZ_HINTS(self) + SZ_UNKDBS(self) + SZ_RESOLVEDDEPS(self);
+#ifdef OCR_HACK_DB_MOVE
+    *size += SZ_RESOLVEDSIZES(self);
+#endif /* OCR_HACK_DB_MOVE */
     return 0;
 }
 
@@ -2108,6 +2132,9 @@ u8 serializeTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
     ASSERT(dself->unkDbs == NULL); // No use for it currently but code is here
     SER_WRITE(cur, dself->unkDbs, SZ_UNKDBS(dself));
     SER_WRITE(cur, dself->resolvedDeps, SZ_RESOLVEDDEPS(dself));
+#ifdef OCR_HACK_DB_MOVE
+    SER_WRITE(cur, dself->resolvedSizes, SZ_RESOLVEDSIZES(dself));
+#endif /* OCR_HACK_DB_MOVE */
     return 0;
 }
 
@@ -2143,6 +2170,11 @@ u8 deserializeTaskFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t edtGuid, oc
     ASSERT(((SZ_RESOLVEDDEPS(src) == 0) && (dst->resolvedDeps == NULL)) || 1);
     dst->resolvedDeps = pd->fcts.pdMalloc(pd, SZ_RESOLVEDDEPS(src));
     hal_memCopy(dst->resolvedDeps, OFF_RESOLVEDDEPS(src), SZ_RESOLVEDDEPS(src), false);
+#ifdef OCR_HACK_DB_MOVE
+    ASSERT(((SZ_RESOLVEDSIZES(src) == 0) && (dst->resolvedSizes == NULL)) || 1);
+    dst->resolvedSizes = pd->fcts.pdMalloc(pd, SZ_RESOLVEDSIZES(src));
+    hal_memCopy(dst->resolvedSizes, OFF_RESOLVEDSIZES(src), SZ_RESOLVEDSIZES(src), false);
+#endif /* OCR_HACK_DB_MOVE */
     *dest = (ocrObject_t *) dst;
     return 0;
 }
@@ -2217,6 +2249,9 @@ u8 getSerializationSizeTaskHc(ocrTask_t* self, u64* size) {
                (derived->hint.hintVal ? OCR_HINT_COUNT_EDT_HC*sizeof(u64) : 0) +
                (derived->resolvedDeps ? self->depc*sizeof(ocrEdtDep_t) : 0) +
                (derived->unkDbs ? derived->countUnkDbs*sizeof(ocrGuid_t) : 0);
+#ifdef OCR_HACK_DB_MOVE
+    taskSize += derived->resolvedSizes ? self->depc*sizeof(u64) : 0;
+#endif /* OCR_HACK_DB_MOVE */
 #endif
     self->base.size = taskSize;
     *size = taskSize;
@@ -2270,6 +2305,15 @@ u8 serializeTaskHc(ocrTask_t* self, u8* buffer) {
         taskHcBuf->resolvedDeps = (ocrEdtDep_t*)buffer;
         buffer += len;
     }
+
+#ifdef OCR_HACK_DB_MOVE
+    if (derived->resolvedSizes) {
+        len = self->depc*sizeof(u64);
+        hal_memCopy(buffer, derived->resolvedSizes, len, false);
+        taskHcBuf->resolvedSizes = (u64*)buffer;
+        buffer += len;
+    }
+#endif /* OCR_HACK_DB_MOVE */
 
     if (derived->unkDbs) {
         len = derived->countUnkDbs*sizeof(ocrGuid_t);
@@ -2337,6 +2381,15 @@ u8 deserializeTaskHc(u8* buffer, ocrTask_t** self) {
         buffer += len;
     }
 
+#ifdef OCR_HACK_DB_MOVE
+    if (taskHc->resolvedSizes) {
+        len = task->depc*sizeof(u64);
+        taskHc->resolvedSizes = (u64*)pd->fcts.pdMalloc(pd, len);
+        hal_memCopy(taskHc->resolvedSizes, buffer, len, false);
+        buffer += len;
+    }
+#endif /* OCR_HACK_DB_MOVE */
+
     if (taskHc->unkDbs) {
         len = taskHc->countUnkDbs*sizeof(ocrGuid_t);
         taskHc->unkDbs = (ocrGuid_t*)pd->fcts.pdMalloc(pd, len);
@@ -2392,6 +2445,13 @@ u8 resetTaskHc(ocrTask_t *self) {
         pd->fcts.pdFree(pd, dself->resolvedDeps);
         dself->resolvedDeps = NULL;
     }
+#ifdef OCR_HACK_DB_MOVE
+    if (dself->resolvedSizes != NULL) {
+        pd->fcts.pdFree(pd, dself->resolvedSizes);
+        dself->resolvedSizes = NULL;
+    }
+#endif /* OCR_HACK_DB_MOVE */
+
     if (dself->unkDbs != NULL) {
         pd->fcts.pdFree(pd, dself->unkDbs);
         dself->unkDbs = NULL;
@@ -2435,7 +2495,7 @@ ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) 
     base->fcts.notifyDbAcquire = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrFatGuid_t), notifyDbAcquireTaskHc);
     base->fcts.notifyDbRelease = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrFatGuid_t), notifyDbReleaseTaskHc);
     base->fcts.execute = FUNC_ADDR(u8 (*)(ocrTask_t*), taskExecute);
-    base->fcts.dependenceResolved = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrGuid_t, void*, u32), dependenceResolvedTaskHc);
+    base->fcts.dependenceResolved = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrGuid_t, void*, u64, u32), dependenceResolvedTaskHc);
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrHint_t*), setHintTaskHc);
     base->fcts.getHint = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrHint_t*), getHintTaskHc);
     base->fcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrTask_t*), getRuntimeHintTaskHc);

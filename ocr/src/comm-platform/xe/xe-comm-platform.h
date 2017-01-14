@@ -28,8 +28,15 @@
 // in communication (XE receiving message so incoming XE buffer full, CE tries to
 // reply to second message (getting memory) but can't respond because incoming XE buffer
 // full)
+#ifdef OCR_HACK_DB_MOVE
+// The size of a message has padding in this case so we don't need as much buffer
+// If we use too much buffer, it makes the blob too big
+#define XE_HACK_BUFFER_COUNT 1
+#define XE_HACK_BUFFER_SIZE (sizeof(ocrPolicyMsg_t))
+#else
 #define XE_HACK_BUFFER_COUNT 2
 #define XE_HACK_BUFFER_SIZE (sizeof(ocrPolicyMsg_t)*XE_HACK_BUFFER_COUNT)
+#endif
 
 typedef struct {
     ocrCommPlatformFactory_t base;

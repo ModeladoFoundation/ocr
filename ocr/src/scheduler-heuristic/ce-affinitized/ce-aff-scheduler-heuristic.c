@@ -713,6 +713,9 @@ static u8 makeWorkRequestAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristi
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).discardAffinity = (ceContext->outWorkRequestPending == AFF_REQUEST_FAIL);
+#ifdef OCR_HACK_DB_MOVE
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount = 0;
+#endif
     PD_MSG_FIELD_I(properties) = 0;
 
     if (isBlocking) {
@@ -780,6 +783,9 @@ static u8 respondWorkRequestAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuri
     PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_EDT_USER;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = *fguid;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).discardAffinity = false; // Irrelevant on response but being clean
+#ifdef OCR_HACK_DB_MOVE
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount = 0;
+#endif
     PD_MSG_FIELD_I(properties) = 0;
     if (ceMessage) {
         RESULT_ASSERT(pd->fcts.sendMessage(pd, msg.destLocation, &msg, NULL, 0), ==, 0);

@@ -283,6 +283,20 @@ endif
 # Requires OCR_TRACE_BINARY
 # CFLAGS += -DOCR_ENABLE_SIMULATOR -DOCR_TRACE_BINARY
 
+
+# **** Hacks ****
+
+## Hacks related to memory movement (TG only)
+# Define whether or not DBs move on TG
+CFLAGS += -DOCR_HACK_DB_MOVE
+# Define whether or not L1 is reserved for RT objects on the XEs
+CFLAGS += -DOCR_HACK_L1_RT_ONLY
+# Define whether or not user datablocks are pushed to L3 and beyond
+CFLAGS += -DOCR_HACK_L3_DBS
+
+# Set to WARN if you want to get them
+CFLAGS += -DOCR_HACK_DEBUG_LVL=DEBUG_LVL_VERB
+
 ####################################################
 # Experimental flags
 ####################################################
@@ -330,7 +344,7 @@ CFLAGS += -DOCR_DEBUG_API
 # individual module, either raising or lowering it
 CFLAGS += -DOCR_DEBUG_ALLOCATOR
 CFLAGS += -DOCR_DEBUG_COMP_PLATFORM
-CFLAGS += -DOCR_DEBUG_COMM_PLATFORM
+CFLAGS += -DOCR_DEBUG_COMM_PLATFORM #-DDEBUG_LVL_COMM_PLATFORM=DEBUG_LVL_VVERB
 CFLAGS += -DOCR_DEBUG_COMM_API
 CFLAGS += -DOCR_DEBUG_COMM_WORKER
 CFLAGS += -DOCR_DEBUG_COMP_TARGET

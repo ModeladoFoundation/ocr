@@ -66,6 +66,9 @@ static void workerLoop(ocrWorker_t * worker) {
         PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
         PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
         PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).discardAffinity = !requestIsAffinitized;
+#ifdef OCR_HACK_DB_MOVE
+        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount = 0;
+#endif
         PD_MSG_FIELD_I(properties) = 0;
         if(pd->fcts.processMessage(pd, &msg, true) == 0) {
             // We got a response
@@ -84,6 +87,55 @@ static void workerLoop(ocrWorker_t * worker) {
                 else DPRINTF(DEBUG_LVL_VVERB, "Steady state reached\n");
 #endif
 
+#ifdef OCR_HACK_DB_MOVE
+                {
+                    // Here we need to marshall all the data-blocks into the locations determined
+                    // by what the CE indicated. We launch a whole bunch of DMAs and then fence on all
+                    // of them. We then update the pointers and flags for the data-blocks.
+                    // This is really hacky because ideally this would be a call on the DB but that would
+                    // require a lot more invasive changes
+                    u64 numDbsToMove = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount;
+                    u64 i = 0;
+                    void** startPtr = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart;
+                    void** endPtr   = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd;
+                    ocrGuid_t* guidPtr  = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid;
+                    u64* sizePtr    = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize;
+
+                    void** savedEndPtr = endPtr;
+                    ocrGuid_t *savedGuidPtr = guidPtr;
+                    // Launch the DMA copies
+                    for(; i < numDbsToMove; ++i) {
+                        DPRINTF(OCR_HACK_DEBUG_LVL, "Moving DB GUID "GUIDF" from %p to %p (sz: %"PRIu64")\n",
+                                GUIDA(*guidPtr), *startPtr, *endPtr, *sizePtr);
+
+                        hal_memCopy(*endPtr, *startPtr, *sizePtr, true);
+                        ++endPtr; ++startPtr; ++sizePtr; ++guidPtr;
+                    }
+
+                    // Now we wait for all the DMAs to finish and then we update the data-blocks
+                    hal_fence();
+                    DPRINTF(OCR_HACK_DEBUG_LVL, "Done moving all data-blocks -- notifying CE\n");
+                    // To be *slightly* more effective, we are actually going to concoct a new message for the CE
+                    // telling it about all the DBs that need to be finalized
+#undef PD_MSG
+#undef PD_TYPE
+                    if(numDbsToMove) {
+                        PD_MSG_STACK(msg2);
+#define PD_MSG (&msg2)
+#define PD_TYPE PD_MSG_DB_MOVE_FINALIZE
+                        msg2.type = PD_MSG_DB_MOVE_FINALIZE | PD_MSG_REQUEST;
+                        PD_MSG_FIELD_I(count) = numDbsToMove;
+                        PD_MSG_FIELD_I(guids) = savedGuidPtr;
+                        PD_MSG_FIELD_I(addresses) = savedEndPtr;
+                        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg2, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+                    }
+                    DPRINTF(OCR_HACK_DEBUG_LVL, "Done informing CE -- moving to execution\n");
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_GET_WORK
+                }
+#endif /* OCR_HACK_DB_MOVE */
                 ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(worker->curTask);
 
 #ifdef ENABLE_EXTENSION_PERF

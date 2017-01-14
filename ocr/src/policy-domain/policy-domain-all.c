@@ -203,11 +203,19 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
 #endif
     case PD_MSG_SCHED_GET_WORK:
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
+        *marshalledSize = 0;
         switch(PD_MSG_FIELD_IO(schedArgs).kind) {
         case OCR_SCHED_WORK_COMM: {
-                *marshalledSize = sizeof(ocrFatGuid_t)*PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount;
-                break;
-            }
+            *marshalledSize = sizeof(ocrFatGuid_t)*PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount;
+            break;
+        }
+#ifdef OCR_HACK_DB_MOVE
+        case OCR_SCHED_WORK_EDT_USER: {
+            *marshalledSize = (2*sizeof(void*)+sizeof(u64)+sizeof(ocrGuid_t)) *
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount;
+            break;
+        }
+#endif /* OCR_HACK_DB_MOVE */
         default:
             break;
         }
@@ -317,6 +325,15 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
         }
         break;
 
+#ifdef OCR_HACK_DB_MOVE
+    case PD_MSG_DB_MOVE_FINALIZE:
+#define PD_TYPE PD_MSG_DB_MOVE_FINALIZE
+        if(isIn) {
+            *marshalledSize = PD_MSG_FIELD_I(count)*(sizeof(ocrGuid_t) + sizeof(void*));
+        }
+#undef PD_TYPE
+        break;
+#endif /* OCR_HACK_DB_MOVE */
     case PD_MSG_HINT_SET:
 #define PD_TYPE PD_MSG_HINT_SET
         if(isIn) {
@@ -597,13 +614,95 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
                                 (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids, curPtr);
                         PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = (ocrFatGuid_t*)curPtr;
                     }
-                    // Finally move the curPtr for the next object (none as of now)
+                    // Finally move the curPtr for the next object (nothing for now)
                     curPtr += s;
                 } else {
                     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = NULL;
                 }
                 break;
             }
+#ifdef OCR_HACK_DB_MOVE
+        case OCR_SCHED_WORK_EDT_USER: {
+            u64 count = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount;
+            if(count) {
+                // We have 4 fields to copy
+                u8* initialCurPtr = curPtr;
+                hal_memCopy(curPtr, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart,
+                    sizeof(void*)*count, false);
+                curPtr += sizeof(void*)*count;
+                hal_memCopy(curPtr, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd,
+                    sizeof(void*)*count, false);
+                curPtr += sizeof(void*)*count;
+                hal_memCopy(curPtr, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize,
+                    sizeof(u64)*count, false);
+                curPtr += sizeof(u64)*count;
+                hal_memCopy(curPtr, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid,
+                    sizeof(ocrGuid_t)*count, false);
+                curPtr += sizeof(ocrGuid_t)*count;
+                // Fixup the current pointer
+                if(fixupPtrs) {
+                    curPtr = initialCurPtr;
+                    DPRINTF(DEBUG_LVL_VVERB, "Converting preOpsStart (0x%"PRIx64") to 0x%"PRIx64"\n",
+                        (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart,
+                        ((u64)(curPtr - startPtr)<<1) + isAddl);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart =
+                        (void**)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                    curPtr += sizeof(void*)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Converting preOpsEnd (0x%"PRIx64") to 0x%"PRIx64"\n",
+                        (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd,
+                        ((u64)(curPtr - startPtr)<<1) + isAddl);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd =
+                        (void**)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                    curPtr += sizeof(void*)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Converting preOpsSize (0x%"PRIx64") to 0x%"PRIx64"\n",
+                        (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize,
+                        ((u64)(curPtr - startPtr)<<1) + isAddl);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize =
+                        (u64*)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                    curPtr += sizeof(u64)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Converting preOpsGuid (0x%"PRIx64") to 0x%"PRIx64"\n",
+                        (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid,
+                        ((u64)(curPtr - startPtr)<<1) + isAddl);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid =
+                        (ocrGuid_t*)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                    curPtr += sizeof(ocrGuid_t)*count;
+                } else {
+                    curPtr = initialCurPtr;
+                    DPRINTF(DEBUG_LVL_VVERB, "Copying preOpsStart %p to %p\n",
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart,
+                        curPtr);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart =
+                        (void**)curPtr;
+                    curPtr += sizeof(void*)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Copying preOpsEnd %p to %p\n",
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd,
+                        curPtr);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd =
+                        (void**)(curPtr);
+                    curPtr += sizeof(void*)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Copying preOpsSize %p to %p\n",
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize,
+                        curPtr);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize =
+                        (u64*)(curPtr);
+                    curPtr += sizeof(u64)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Copying preOpsGuid %p to %p\n",
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid,
+                        curPtr);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid =
+                        (ocrGuid_t*)(curPtr);
+                    curPtr += sizeof(ocrGuid_t)*count;
+                }
+            } else {
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart = NULL;
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd = NULL;
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize = NULL;
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid = NULL;
+
+            }
+            break;
+        }
+#endif /* OCR_HACK_DB_MOVE */
         default:
             break;
         }
@@ -860,6 +959,50 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         break;
     }
 
+#ifdef OCR_HACK_DB_MOVE
+    case PD_MSG_DB_MOVE_FINALIZE: {
+#define PD_TYPE PD_MSG_DB_MOVE_FINALIZE
+        if(isIn) {
+            u64 count = PD_MSG_FIELD_I(count);
+            if(count) {
+                // We have 2 fields to copy
+                u8* initialCurPtr = curPtr;
+                hal_memCopy(curPtr, PD_MSG_FIELD_I(guids), sizeof(ocrGuid_t)*count, false);
+                curPtr += sizeof(ocrGuid_t)*count;
+                hal_memCopy(curPtr, PD_MSG_FIELD_I(addresses), sizeof(void*)*count, false);
+                curPtr += sizeof(void*)*count;
+                // Fixup the current pointer
+                if(fixupPtrs) {
+                    curPtr = initialCurPtr;
+                    DPRINTF(DEBUG_LVL_VVERB, "Converting guids (0x%"PRIx64") to 0x%"PRIx64"\n",
+                        (u64)PD_MSG_FIELD_I(guids), ((u64)(curPtr - startPtr)<<1) + isAddl);
+                    PD_MSG_FIELD_I(guids) = (ocrGuid_t*)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                    curPtr += sizeof(ocrGuid_t)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Converting addresses (0x%"PRIx64") to 0x%"PRIx64"\n",
+                        (u64)PD_MSG_FIELD_I(addresses), ((u64)(curPtr - startPtr)<<1) + isAddl);
+                    PD_MSG_FIELD_I(addresses) = (void**)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                    curPtr += sizeof(void*)*count;
+                } else {
+                    curPtr = initialCurPtr;
+                    DPRINTF(DEBUG_LVL_VVERB, "Copying guids %p to %p\n",
+                        PD_MSG_FIELD_I(guids), curPtr);
+                    PD_MSG_FIELD_I(guids) = (ocrGuid_t*)curPtr;
+                    curPtr += sizeof(ocrGuid_t)*count;
+                    DPRINTF(DEBUG_LVL_VVERB, "Copying addresses %p to %p\n",
+                        PD_MSG_FIELD_I(addresses), curPtr);
+                    PD_MSG_FIELD_I(addresses) = (void**)curPtr;
+                    curPtr += sizeof(void*)*count;
+                }
+            } else {
+                PD_MSG_FIELD_I(guids) = NULL;
+                PD_MSG_FIELD_I(addresses) = NULL;
+            }
+        }
+#undef PD_TYPE
+        break;
+    }
+#endif /* OCR_HACK_DB_MOVE */
+
     case PD_MSG_HINT_SET: {
 #define PD_TYPE PD_MSG_HINT_SET
         if(isIn) {
@@ -1111,6 +1254,40 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                 }
                 break;
             }
+#ifdef OCR_HACK_DB_MOVE
+        case OCR_SCHED_WORK_EDT_USER: {
+            if(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount > 0) {
+                u64 t = (u64)(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart);
+                ASSERT(t);
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart =
+                    (void**)((t&1?localAddlPtr:localMainPtr) + (t>>1));
+                DPRINTF(DEBUG_LVL_VVERB, "Converted field preOpsStart from 0x%"PRIx64" to 0x%"PRIx64"\n",
+                    t, (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart);
+
+                t = (u64)(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd);
+                ASSERT(t);
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd =
+                    (void**)((t&1?localAddlPtr:localMainPtr) + (t>>1));
+                DPRINTF(DEBUG_LVL_VVERB, "Converted field preOpsEnd from 0x%"PRIx64" to 0x%"PRIx64"\n",
+                    t, (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd);
+
+                t = (u64)(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize);
+                ASSERT(t);
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize =
+                    (u64*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
+                DPRINTF(DEBUG_LVL_VVERB, "Converted field preOpsSize from 0x%"PRIx64" to 0x%"PRIx64"\n",
+                    t, (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize);
+
+                t = (u64)(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid);
+                ASSERT(t);
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid =
+                    (ocrGuid_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
+                DPRINTF(DEBUG_LVL_VVERB, "Converted field preOpsGuid from 0x%"PRIx64" to 0x%"PRIx64"\n",
+                    t, (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid);
+            }
+            break;
+        }
+#endif /* OCR_HACK_DB_MOVE */
         default:
             break;
         }
@@ -1280,6 +1457,29 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
         break;
 #undef PD_TYPE
     }
+
+#ifdef OCR_HACK_DB_MOVE
+    case PD_MSG_DB_MOVE_FINALIZE: {
+#define PD_TYPE PD_MSG_DB_MOVE_FINALIZE
+        if(isIn) {
+            if(PD_MSG_FIELD_I(count) > 0) {
+                u64 t = (u64)(PD_MSG_FIELD_I(guids));
+                ASSERT(t);
+                PD_MSG_FIELD_I(guids) = (ocrGuid_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
+                DPRINTF(DEBUG_LVL_VVERB, "Converted field guids from 0x%"PRIx64" to 0x%"PRIx64"\n",
+                    t, (u64)PD_MSG_FIELD_I(guids));
+
+                t = (u64)(PD_MSG_FIELD_I(addresses));
+                ASSERT(t);
+                PD_MSG_FIELD_I(addresses) = (void**)((t&1?localAddlPtr:localMainPtr) + (t>>1));
+                DPRINTF(DEBUG_LVL_VVERB, "Converted field addresses from 0x%"PRIx64" to 0x%"PRIx64"\n",
+                    t, (u64)PD_MSG_FIELD_I(addresses));
+            }
+        }
+        break;
+#undef PD_TYPE
+    }
+#endif /* OCR_HACK_DB_MOVE */
 
     case PD_MSG_HINT_SET: {
 #define PD_TYPE PD_MSG_HINT_SET

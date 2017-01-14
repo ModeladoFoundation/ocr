@@ -320,10 +320,11 @@ typedef struct _ocrTaskFcts_t {
      * @param[in] self        Pointer to this task.
      * @param[in] dbGuid      The guid of the datablock
      * @param[in] localDbPtr  Pointer to a task's dependence DB data pointer
+     * @param[in] size        Size of the DB passed in
      * @param[in] self        The slot of the dependence.
      * @return 0 on success and a non-zero code on failure
      */
-    u8 (*dependenceResolved)(struct _ocrTask_t* self, ocrGuid_t dbGuid, void* localPtr, u32 slot);
+    u8 (*dependenceResolved)(struct _ocrTask_t* self, ocrGuid_t dbGuid, void* localPtr, u64 size, u32 slot);
 
     /**
      * @brief Set user hints for the EDT

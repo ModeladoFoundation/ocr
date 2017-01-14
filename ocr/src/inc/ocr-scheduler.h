@@ -75,6 +75,13 @@ typedef union _ocrSchedWorkData_t {
     struct {
         ocrFatGuid_t edt;                           /* For user EDTs, count is always 1 */
         bool discardAffinity;                       /* If true, the request is for any work, not just work affinitized for me */
+#ifdef OCR_HACK_DB_MOVE
+        u64 preOpsCount;
+        void **preOpsStart;             /**< All following fields are arrays of size count; Source address to copy block from */
+        void **preOpsEnd;               /**< Destination address to copy block to */
+        u64 *preOpsSize;                /**< Size to copy */
+        ocrGuid_t *preOpsGuid;          /**< GUID for the data-block being copied (to update when the copy is done) */
+#endif
     } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_EDT_USER);
     struct {
         ocrFatGuid_t *guids;

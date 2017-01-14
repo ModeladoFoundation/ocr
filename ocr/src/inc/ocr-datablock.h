@@ -185,6 +185,31 @@ typedef struct _ocrDataBlockFcts_t {
      */
     ocrRuntimeHint_t* (*getRuntimeHint)(struct _ocrDataBlock_t* self);
 
+#ifdef OCR_HACK_DB_MOVE
+    /**
+     * @brief Updates the state of the data-block for a move
+     * @details Whether a move is allowed or not is returned in the moveAllowed
+     * parameter
+     *
+     * @param[in] self          Pointer to this data-block
+     * @param[in] mover         Location requesting the move
+     * @param[out] moveAllowed  On return, contains true if the move can proceed or false otherwise
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*prepareForMove)(struct _ocrDataBlock_t* self, ocrLocation_t mover, bool* moveAllowed);
+
+    /**
+     * @brief Called when a move is done
+     * @details The caller that called prepareForMove and got a positive result
+     * needs to call finalizeMove when the move is complete
+     *
+     * @param[in] self          Pointer to this data-block
+     * @param[in] newAddress    New address for the data-block to use
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*finalizeMove)(struct _ocrDataBlock_t *self, void* newAddress);
+#endif /* OCR_HACK_DB_MOVE */
+
 #ifdef ENABLE_RESILIENCY
     /**
      * @brief Get the serialization size

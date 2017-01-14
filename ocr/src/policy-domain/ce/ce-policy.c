@@ -1102,8 +1102,14 @@ static void* allocateDatablock (ocrPolicyDomain_t *self,
         prescription >>= PRESCRIPTION_HINT_NUMBITS;
         levelIndex = prescription & PRESCRIPTION_LEVEL_MASK;
         prescription >>= PRESCRIPTION_LEVEL_NUMBITS;
-        if (levelIndex < preferredLevel) {       // don't try if less than preferredLevel
+        // HACK here: preferred level encodes a minimal level (as before) but also a maximum level. If bits 4-7 are non-zero, they
+        // encode a maximum level. This is compatible with the way things were working before (no maximum level if set to 0)
+        if (levelIndex < (preferredLevel & 0xF)) {       // don't try if less than preferredLevel
             DPRINTF(DEBUG_LVL_VVERB, "allocateDatablock skips level %"PRId64"\n", levelIndex);
+            continue;
+        }
+        if((preferredLevel & 0xF0) && levelIndex > ((preferredLevel & 0xF0) >> 4)) {
+            DPRINTF(DEBUG_LVL_VVERB, "allocateDatablock skip upper level %"PRId64"\n", levelIndex);
             continue;
         }
         allocatorIndex = self->allocatorIndexLookup[engineIndex*NUM_MEM_LEVELS_SUPPORTED+levelIndex]; // Lookup index of allocator to use for requesting engine (aka agent) at prescribed memory hierarchy level.
@@ -1127,7 +1133,7 @@ static u8 ceMemUnalloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator,
 
 static u8 ceAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, u64 size,
                        u32 properties, u64 engineIndex,
-                       ocrHint_t *hint, ocrInDbAllocator_t allocator,
+                       ocrHint_t *hint, ocrDataBlockType_t dbType, ocrInDbAllocator_t allocator,
                        u64 prescription) {
     // This function allocates a data block for the requestor, who is either this computing agent or a
     // different one that sent us a message.  After getting that data block, it "guidifies" the results
@@ -1151,10 +1157,14 @@ static u8 ceAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         }
         DPRINTF(DEBUG_LVL_VERB, "ceAllocateDb preferredLevel set to %"PRId32"\n", preferredLevel);
     }
-
+#ifdef OCR_HACK_L3_DBS
+    preferredLevel = dbType == USER_DBTYPE?3:preferredLevel; // Always put data-blocks in L3 if it is a user data-block
+    DPRINTF(OCR_HACK_DEBUG_LVL, "L3_DBS: allocate level set to %"PRId32" for %s block\n",
+        preferredLevel, dbType == USER_DBTYPE?"user":"rt");
+#endif /* OCR_HACK_L3_DBS */
     if (preferredLevel > 0) {
         *ptr = allocateDatablock (self, size, engineIndex, prescription, preferredLevel, &idx);
-        if (!*ptr && (ocrGetHintValue(hint, OCR_HINT_DB_FAIL_IF_TOO_FAR, &hintValue) != 0 || !hintValue) {
+        if (!*ptr && (ocrGetHintValue(hint, OCR_HINT_DB_FAIL_IF_TOO_FAR, &hintValue) != 0 || !hintValue)) {
             DPRINTF(DEBUG_LVL_WARN, "ceAllocateDb ignores preferredLevel hint to be successful in alloc %"PRId32"\n", preferredLevel);
             *ptr = allocateDatablock (self, size, engineIndex, prescription, 0, &idx);
         } else {
@@ -1181,7 +1191,7 @@ static u8 ceAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
 
 static u8 ceMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
                      u64 engineIndex, ocrMemType_t memType, void** ptr,
-                     u64 prescription) {
+                     u64 prescription, u64 preferredLevel) {
     // Like hcAllocateDb, this function also allocates a data block.  But it does NOT guidify
     // the results.  The main usage of this function is to allocate space for the guid needed
     // by ceAllocateDb; so if this function also guidified its results, you'd be in an infinite
@@ -1189,7 +1199,7 @@ static u8 ceMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
     void* result;
     u64 idx;
     ASSERT (memType == GUID_MEMTYPE || memType == DB_MEMTYPE);
-    result = allocateDatablock (self, size, engineIndex, prescription, 0, &idx);
+    result = allocateDatablock (self, size, engineIndex, prescription, preferredLevel, &idx);
 
     if (result) {
         *ptr = result;
@@ -1416,7 +1426,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         PD_MSG_FIELD_O(returnDetail) = ceAllocateDb(
             self, &(PD_MSG_FIELD_IO(guid)), &(PD_MSG_FIELD_O(ptr)), reqSize,
             PD_MSG_FIELD_IO(properties), engineIndex,
-            PD_MSG_FIELD_I(hint), PD_MSG_FIELD_I(allocator), PRESCRIPTION);
+            PD_MSG_FIELD_I(hint), PD_MSG_FIELD_I(dbType), PD_MSG_FIELD_I(allocator), PRESCRIPTION);
         if(PD_MSG_FIELD_O(returnDetail) == 0) {
             ocrDataBlock_t *db= PD_MSG_FIELD_IO(guid.metaDataPtr);
             ASSERT(db);
@@ -1495,7 +1505,8 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             localDeguidify(self, &edtFGuid, NULL);
             // At this point the edt MUST be local as well as the db data pointer.
             ocrTask_t* task = (ocrTask_t*) edtFGuid.metaDataPtr;
-            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->fcts.dependenceResolved(task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), edtSlot);
+            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->fcts.dependenceResolved(
+                task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), PD_MSG_FIELD_O(size), edtSlot);
         }
 #undef PD_MSG
 #undef PD_TYPE
@@ -1544,6 +1555,53 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         EXIT_PROFILE;
         break;
     }
+#ifdef OCR_HACK_DB_MOVE
+    case PD_MSG_DB_MOVE_PREPARE: {
+        START_PROFILE(pd_ce_DbMovePrepare);
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DB_MOVE_PREPARE
+        localDeguidify(self, &(PD_MSG_FIELD_I(guid)), NULL);
+        ocrDataBlock_t *db = (ocrDataBlock_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
+        DPRINTF(OCR_HACK_DEBUG_LVL, "Processing DB_MOVE_PREPARE for GUID "GUIDF" (%p)\n", GUIDA(PD_MSG_FIELD_I(guid.guid)),
+                PD_MSG_FIELD_I(guid.metaDataPtr));
+        ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) =
+            ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.prepareForMove(
+                db, PD_MSG_FIELD_I(mover), &(PD_MSG_FIELD_O(moveAllowed)));
+        returnCode = ceProcessResponse(self, msg, 0);
+#undef PD_MSG
+#undef PD_TYPE
+        EXIT_PROFILE;
+        break;
+    }
+
+    case PD_MSG_DB_MOVE_FINALIZE: {
+        START_PROFILE(pd_ce_DbMoveFinalize);
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DB_MOVE_FINALIZE
+        u64 i = 0;
+        u32 returnDetail = 0;
+        ocrGuid_t* guidPtr = PD_MSG_FIELD_I(guids);
+        void** addrPtr = PD_MSG_FIELD_I(addresses);
+        for( ; i < PD_MSG_FIELD_I(count); ++i) {
+            ocrFatGuid_t t;
+            t.guid = *guidPtr;
+            t.metaDataPtr = NULL;
+            ++guidPtr;
+            localDeguidify(self, &t, NULL);
+            ocrDataBlock_t *db = (ocrDataBlock_t*)t.metaDataPtr;
+            DPRINTF(OCR_HACK_DEBUG_LVL, "Processing DB_MOVE_FINALIZE for GUID "GUIDF" (%p) to %p\n", GUIDA(t.guid), t.metaDataPtr, *addrPtr);
+            ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+            returnDetail |= ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.finalizeMove(
+                db, *addrPtr);
+            ++addrPtr;
+        }
+#undef PD_MSG
+#undef PD_TYPE
+        EXIT_PROFILE;
+        break;
+    }
+#endif /* OCR_HACK_DB_MOVE */
 
     case PD_MSG_MEM_ALLOC: {
         START_PROFILE(pd_ce_MemAlloc);
@@ -1555,7 +1613,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         PD_MSG_FIELD_O(returnDetail) = ceMemAlloc(
             self, &(PD_MSG_FIELD_O(allocator)), PD_MSG_FIELD_I(size),
             engineIndex, PD_MSG_FIELD_I(type), &(PD_MSG_FIELD_O(ptr)),
-            PRESCRIPTION);
+            PRESCRIPTION, PD_MSG_FIELD_I(properties));
         PD_MSG_FIELD_O(allocatingPD) = self->fguid;
         DPRINTF(DEBUG_LVL_VERB, "MEM_ALLOC response: PTR: %p\n",
                 PD_MSG_FIELD_O(ptr));

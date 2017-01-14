@@ -118,6 +118,10 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_DB_RELEASE       0x00054001
 /**< Frees a DB (the last free may trigger a destroy) */
 #define PD_MSG_DB_FREE          0x00085001
+#ifdef OCR_HACK_DB_MOVE
+#define PD_MSG_DB_MOVE_PREPARE  0x00006001
+#define PD_MSG_DB_MOVE_FINALIZE 0x00007001
+#endif
 
 /**< AND with this and if the result non-null, memory chunks
  * related operation (goes directly to allocators) */
@@ -372,7 +376,7 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_SIZE_OUT _PD_MSG_SIZE_OUT(PD_TYPE)
 
 #define PD_MSG_RESET_FULL_SUB(ptr) \
-    do { ptr->destLocation = UNDEF_LOCATION; ptr->msgId = 0; } while(0)
+    do { ptr->destLocation = UNDEFINED_LOCATION; ptr->msgId = 0; } while(0)
 #define PD_MSG_RESET_FULL(ptr) PD_MSG_RESET_FULL_SUB((ptr))
 #define PD_MSG_RESET PD_MSG_RESET_FULL(PD_MSG)
 
@@ -489,7 +493,7 @@ typedef struct _ocrPolicyMsg_t {
             ocrFatGuid_t edt;          /**< In: EDT doing the acquire (whenever relevant) */
             ocrLocation_t destLoc;     /**< In: Destination location for the acquire */
             u32 edtSlot;               /**< In: EDT's slot if applicable else EDT_SLOT_NONE */
-            u32 properties;            /**< In: Properties for acquire. Bit 0: 1 if runtime acquire */
+            u32 properties;            /**< In/Out: Properties for acquire. See ocr-datablock.h for details */
             union {
                 struct {
                 } in;
@@ -531,6 +535,34 @@ typedef struct _ocrPolicyMsg_t {
                 } out;
             } inOrOut __attribute__ (( aligned(8) ));
         } PD_MSG_STRUCT_NAME(PD_MSG_DB_FREE);
+
+#ifdef OCR_HACK_DB_MOVE
+        struct {
+            union {
+                struct {
+                    ocrFatGuid_t guid;          /**< In: GUID of the DB to move */
+                    ocrLocation_t mover;        /**< In: Location requesting the move */
+                } in;
+                struct {
+                    u32 returnDetail;           /**< Out: Success or error code */
+                    bool moveAllowed;           /**< Out: Whether or not the DB can move */
+                } out;
+            } inOrOut __attribute__ (( aligned(8) ));
+        } PD_MSG_STRUCT_NAME(PD_MSG_DB_MOVE_PREPARE);
+
+        struct {
+            union {
+                struct {
+                    u64 count;                  /**< In: Number of GUIDs to finalize the move */
+                    ocrGuid_t *guids;           /**< In: GUIDs of the data-blocks to finalize the move for */
+                    void ** addresses;          /**< In: New addresses for those data-blocks */
+                } in;
+                struct {
+                    u32 returnDetail;           /**< Out: Success or error code */
+                } out;
+            } inOrOut __attribute__ (( aligned(8) ));
+        } PD_MSG_STRUCT_NAME(PD_MSG_DB_MOVE_FINALIZE);
+#endif /* OCR_HACK_DB_MOVE */
 
         struct {
             union {
@@ -1227,6 +1259,11 @@ typedef struct _ocrPolicyMsg_t {
         } PD_MSG_STRUCT_NAME(PD_MSG_RESILIENCY_CHECKPOINT);
 
     } args;
+#ifdef OCR_HACK_DB_MOVE
+    // Padding is required because the responde to getWork includes extra info
+    // on what to move and this needs to all fit within one message (see xe-policy.c
+    char _padding[128];
+#endif
 } ocrPolicyMsg_t;
 
 /**

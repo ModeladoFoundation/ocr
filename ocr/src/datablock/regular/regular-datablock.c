@@ -333,6 +333,16 @@ ocrRuntimeHint_t* getRuntimeHintDbRegular(ocrDataBlock_t* self) {
     return &(derived->hint);
 }
 
+#ifdef OCR_HACK_DB_MOVE
+u8 prepareForMoveRegular(ocrDataBlock_t* self, ocrLocation_t location, bool* moveAllowed) {
+    ASSERT(0);
+    return OCR_ENOTSUP;
+}
+u8 finalizeMoveRegular(ocrDataBlock_t *self, void* newAddress) {
+    ASSERT(0);
+    return OCR_ENOTSUP;
+}
+#endif /* OCR_HACK_DB_MOVE */
 /******************************************************/
 /* OCR DATABLOCK REGULAR FACTORY                      */
 /******************************************************/
@@ -370,6 +380,10 @@ ocrDataBlockFactory_t *newDataBlockFactoryRegular(ocrParamList_t *perType, u32 f
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrHint_t*), regularSetHint);
     base->fcts.getHint = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrHint_t*), regularGetHint);
     base->fcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrDataBlock_t*), getRuntimeHintDbRegular);
+#ifdef OCR_HACK_DB_MOVE
+    base->fcts.prepareForMove = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrLocation_t, bool*), prepareForMoveRegular);
+    base->fcts.finalizeMove   = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void*), finalizeMoveRegular);
+#endif /* OCR_HACK_DB_MOVE */
     base->factoryId = factoryId;
     //Setup hint framework
     base->hintPropMap = (u64*)runtimeChunkAlloc(sizeof(u64)*(OCR_HINT_DB_PROP_END - OCR_HINT_DB_PROP_START - 1), PERSISTENT_CHUNK);

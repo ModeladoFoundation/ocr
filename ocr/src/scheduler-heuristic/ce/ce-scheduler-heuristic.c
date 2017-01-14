@@ -469,6 +469,9 @@ static u8 makeWorkRequest(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCo
     PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_EDT_USER;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
+#ifdef OCR_HACK_DB_MOVE
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount = 0;
+#endif
     PD_MSG_FIELD_I(properties) = 0;
 
     if (isBlocking) {
@@ -527,11 +530,207 @@ static u8 respondWorkRequest(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristi
     msg.msgId = msgId; //HACK: Use the msgId from the original request
     PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_EDT_USER;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = *fguid;
+#ifdef OCR_HACK_DB_MOVE
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount = 0;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart = NULL;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd   = NULL;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize  = NULL;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid  = NULL;
+#endif
     PD_MSG_FIELD_I(properties) = 0;
     if (ceMessage) {
         RESULT_ASSERT(pd->fcts.sendMessage(pd, msg.destLocation, &msg, NULL, 0), ==, 0);
     } else {
+#ifdef OCR_HACK_DB_MOVE
+        // Here, we are going to try to get the data-blocks moved to a slice of L2 if possible
+        // The idea is to sort the data-blocks by size and then attempt to move them to L2. We stop
+        // either when we run out of data-blocks or we run out of space in our slice.
+        // This is quite hacky
+
+        DPRINTF(OCR_HACK_DEBUG_LVL, "DB_MOVE: Going to evaluate DBs to move for EDT "GUIDF"\n", GUIDA(fguid->guid));
+        // First figure out what data-blocks we have acquired (they are all acquired at this point)
+        if(!ocrGuidIsNull(fguid->guid)) {
+            deguidify(pd, fguid, NULL);
+            ocrTaskHc_t *task = (ocrTaskHc_t*)(fguid->metaDataPtr);
+            // Now we have all the sizes in resolvedSizes so we can just sort and start picking.
+            s32 depc = (s32)task->base.depc;
+            if(depc) {
+                u32 *orderOfDbs = (u32*)pd->fcts.pdMalloc(pd, sizeof(u32)*depc);
+                s32 i = 0;
+                // Initialize the vector
+                for( ; i < depc; ++i) {
+                    orderOfDbs[i] = i;
+                }
+                // Sort the vector from smallest size to largest size. We use a stupid
+                // bubble sort for now but this should not be a huge array. We also stop
+                // when we have maxed out the space we could use. Note this assumes that we can
+                // move all data-blocks so this is not always true. Then again, this is
+                // an optimization so...
+
+                // Note that we sort from LARGEST to SMALLEST so that the smallest
+                // element is found in the first loop, then the second smallest, etc.
+                // This allows us to stop earlier.
+                bool didSwap = false;
+                // HACK: This assumes that 1 is the L2 allocator
+                s64 origMaxSizeToMove = (s64)pd->allocators[1]->size >> 3; // We divide by 8 (number of XEs)
+                s64 maxSizeToMove = (s64)origMaxSizeToMove;
+                s32 curMax = (s32)depc;
+                do {
+                    didSwap = false;
+                    for(i = 1; i < curMax; ++i) {
+                        if(task->resolvedSizes[orderOfDbs[i-1]] < task->resolvedSizes[orderOfDbs[i]]) {
+                            u32 t = orderOfDbs[i-1];
+                            orderOfDbs[i-1] = orderOfDbs[i];
+                            orderOfDbs[i] = t;
+                            didSwap = true;
+                        }
+                    }
+                    // At this point, the data-block indexed orderOfDbs[curMax-1] is the next
+                    // smallest one.
+                    if(maxSizeToMove > task->resolvedSizes[curMax-1]) {
+                        maxSizeToMove -= task->resolvedSizes[curMax-1];
+                    } else {
+                        break; // We would never be able to fit these blocks if we started
+                        // with the smallest
+                    }
+                    --curMax;
+                } while(didSwap);
+
+                // At this point, we attempt to move the data-blocks by finding room for them in L2.
+                // We are going to attempt to move them until either:
+                //  - we don't have any more blocks to move
+                //  - we take up too much room in memory
+                //  - we fail to allocate memory for them.
+                maxSizeToMove = origMaxSizeToMove;
+                i = depc-1;
+                DPRINTF(OCR_HACK_DEBUG_LVL, "Sorted data-blocks; had depc %"PRId32" and curMax %"PRId32"\n", depc, curMax);
+                // At most, we will move depc-curMax blocks because that's where we stopped
+                // HACK: Does not properly deal with duplicate data-blocks!! This will try to
+                // prepare them to move twice which will crash in an assert in the lockable-datablock.c prepareToMove.
+                if(depc-curMax > 0) {
+                    void** startPtr = (void**)pd->fcts.pdMalloc(pd, (depc-curMax)*sizeof(void*));
+                    void** endPtr = (void**)pd->fcts.pdMalloc(pd, (depc-curMax)*sizeof(void*));
+                    u64* sizePtr = (u64*)pd->fcts.pdMalloc(pd, (depc-curMax)*sizeof(u64));
+                    ocrGuid_t* guidPtr = (ocrGuid_t*)pd->fcts.pdMalloc(pd, (depc-curMax)*sizeof(ocrGuid_t));
+                    void** origStartPtr = startPtr;
+                    void** origEndPtr = endPtr;
+                    u64* origSizePtr = sizePtr;
+                    ocrGuid_t* origGuidPtr = guidPtr;
+                    u64 countToMove = 0;
+                    while(maxSizeToMove > 0ULL && i > curMax-1) {
+                        *startPtr = task->resolvedDeps[orderOfDbs[i]].ptr;
+                        ASSERT(*startPtr);
+                        *sizePtr = task->resolvedSizes[orderOfDbs[i]];
+                        *guidPtr = task->resolvedDeps[orderOfDbs[i]].guid;
+                        PD_MSG_STACK(msg2);
+                        getCurrentEnv(NULL, NULL, NULL, &msg2);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msg2)
+#define PD_TYPE PD_MSG_MEM_ALLOC
+                        msg2.type = PD_MSG_MEM_ALLOC | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                        PD_MSG_FIELD_I(size) = task->resolvedSizes[orderOfDbs[i]];
+                        PD_MSG_FIELD_I(type) = DB_MEMTYPE;
+                        PD_MSG_FIELD_I(properties) = 2 | (2<<4); // Min and max level of 2; L2
+                        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg2, false), ==, 0);
+                        *endPtr = PD_MSG_FIELD_O(ptr);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_GET_WORK
+                        if(*endPtr) {
+                            DPRINTF(OCR_HACK_DEBUG_LVL, "Allocated L2 memory for DB "GUIDF" of size %"PRIu64" @ %p from %p\n",
+                                GUIDA(*guidPtr), *sizePtr, *endPtr, *startPtr);
+                            // Now, check if the move is allowed
+                            PD_MSG_STACK(msg3);
+                            getCurrentEnv(NULL, NULL, NULL, &msg3);
+                            msg3.type = PD_MSG_DB_MOVE_PREPARE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msg3)
+#define PD_TYPE PD_MSG_DB_MOVE_PREPARE
+                            bool moveAllowed = false;
+                            PD_MSG_FIELD_I(guid.guid) = *guidPtr;
+                            PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+                            PD_MSG_FIELD_I(mover) = context->location;
+                            RESULT_ASSERT(pd->fcts.processMessage(pd, &msg3, false), ==, 0);
+                            moveAllowed = PD_MSG_FIELD_O(moveAllowed);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_GET_WORK
+                            if(moveAllowed) {
+                                // We are all set
+                                DPRINTF(OCR_HACK_DEBUG_LVL, "Move will proceed\n");
+                                maxSizeToMove -= *sizePtr;
+                                ++startPtr; ++endPtr; ++sizePtr; ++guidPtr;
+                                ++countToMove;
+                            } else {
+                                // Move is not allowed/possible
+                                DPRINTF(OCR_HACK_DEBUG_LVL, "Move was NOT allowed -- looking for more candidates\n");
+                                // Free the memory that was allocated
+                                PD_MSG_STACK(msg4);
+                                getCurrentEnv(NULL, NULL, NULL, &msg4);
+                                msg4.type = PD_MSG_MEM_UNALLOC | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msg4)
+#define PD_TYPE PD_MSG_MEM_UNALLOC
+                                PD_MSG_FIELD_I(ptr) = *endPtr;
+                                PD_MSG_FIELD_I(type) = DB_MEMTYPE;
+                                PD_MSG_FIELD_I(properties) = 0;
+                                RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
+
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_GET_WORK
+                            }
+                        } else {
+                            // Can't allocate more memory
+                            DPRINTF(OCR_HACK_DEBUG_LVL, "Failed to allocate L2 memory of size %"PRIu64" -- aborting move requests\n",
+                                *sizePtr);
+                            break;
+                        }
+                        --i; // Move to the next slot
+                    } /* while on size to move and number to move */
+                    DPRINTF(OCR_HACK_DEBUG_LVL, "Found %"PRIu64" blocks to move\n", countToMove);
+                    if(countToMove) {
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount = countToMove;
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart = origStartPtr;
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd   = origEndPtr;
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize  = origSizePtr;
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid  = origGuidPtr;
+                    } else {
+                        // Free stuff that we allocated since we don't need them anymore. Fields are already properly set in
+                        // message
+                        pd->fcts.pdFree(pd, origStartPtr);
+                        pd->fcts.pdFree(pd, origEndPtr);
+                        pd->fcts.pdFree(pd, origSizePtr);
+                        pd->fcts.pdFree(pd, origGuidPtr);
+                    }
+                } else {
+                    DPRINTF(OCR_HACK_DEBUG_LVL, "No candidates to move\n");
+                }
+            } else {
+                DPRINTF(OCR_HACK_DEBUG_LVL, "No dependences to consider moving\n");
+            }
+        }
+#endif /* OCR_HACK_DB_MOVE */
         RESULT_ASSERT(pd->fcts.sendMessage(pd, msg.destLocation, &msg, NULL, 0), ==, 0);
+#ifdef OCR_HACK_DB_MOVE
+        if(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsCount) {
+            // Free the structures that were allocated
+            ASSERT(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart);
+            pd->fcts.pdFree(pd, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsStart);
+            ASSERT(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd);
+            pd->fcts.pdFree(pd, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsEnd);
+            ASSERT(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize);
+            pd->fcts.pdFree(pd, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsSize);
+            ASSERT(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid);
+            pd->fcts.pdFree(pd, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).preOpsGuid);
+        }
+#endif /* OCR_HACK_DB_MOVE */
     }
 #undef PD_MSG
 #undef PD_TYPE

@@ -1885,7 +1885,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             localDeguidify(self, &edtFGuid);
             // At this point the edt MUST be local as well as the acquire's message DB ptr
             ocrTask_t* task = (ocrTask_t*) edtFGuid.metaDataPtr;
-            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.dependenceResolved(task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), edtSlot);
+            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.dependenceResolved(
+                task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), PD_MSG_FIELD_O(size), edtSlot);
         #undef PD_MSG
         #undef PD_TYPE
         }
@@ -2116,7 +2117,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 if (res) {
                     ASSERT(res == OCR_ENOP);
                     ocrTask_t * task = (ocrTask_t *) mdPtr;
-                    RESULT_ASSERT(((ocrTaskFactory_t*) pd->factories[task->fctId])->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
+                    RESULT_ASSERT(((ocrTaskFactory_t*) pd->factories[task->fctId])->fcts.dependenceResolved(
+                        task, NULL_GUID, NULL, 0, EDT_SLOT_NONE), ==, 0);
                 }
     #undef PD_MSG
     #undef PD_TYPE

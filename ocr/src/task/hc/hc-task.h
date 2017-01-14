@@ -76,6 +76,9 @@ typedef struct {
     u32 maxUnkDbs;         /**< Maximum number in unkDbs */
     u32 mdState;           /**< State of this metadata - Impl. specific */
     ocrEdtDep_t * resolvedDeps; /**< List of satisfied dependences */
+#ifdef OCR_HACK_DB_MOVE
+    u64 * resolvedSizes;
+#endif
     u64 doNotReleaseSlots[OCR_MAX_MULTI_SLOT];
     ocrRuntimeHint_t hint;
 #ifdef ENABLE_OCR_API_DEFERRABLE

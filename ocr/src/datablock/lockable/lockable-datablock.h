@@ -40,7 +40,13 @@ typedef union {
         u64 freeRequested: 1;
         u64 modeLock : 2;
         u64 singleAssign : 1;
+#ifdef OCR_HACK_DB_MOVE
+        u64 isMoving : 1;       /**< Data-block is in the process of moving */
+        u64 needsEvict: 1;      /**< Data-block needs to be evicted out whenever possible */
+        u64 _padding : 11;
+#else
         u64 _padding : 13;
+#endif
     };
     u64 data;
 } ocrDataBlockLockableAttr_t;
@@ -58,11 +64,21 @@ typedef struct _ocrDataBlockLockable_t {
     struct _dbWaiter_t * ewWaiterList;  /**< EDTs waiting for exclusive write access */
     struct _dbWaiter_t * itwWaiterList; /**< EDTs waiting for intent-to-write access */
     struct _dbWaiter_t * roWaiterList;  /**< EDTs waiting for read only access */
+#ifdef OCR_HACK_DB_MOVE
+    struct _dbWaiter_t *otherWaiterList;      /**< EDTs waiting because the DB is being moved (no mode restrictions) */
+#endif
     ocrLocation_t itwLocation;
     ocrWorker_t * worker; /**< worker currently owning the DB internal lock */
     ocrRuntimeHint_t hint;
 #ifdef ENABLE_RESILIENCY
     u32 ewWaiterCount, itwWaiterCount, roWaiterCount;
+#ifdef OCR_HACK_DB_MOVE
+    u32 otherWaiterCount;
+#endif /* OCR_HACK_DB_MOVE */
+#endif /* ENABLE_RESILIENCY */
+#ifdef OCR_HACK_DB_MOVE
+    void* originalPtr;  /**< Pointer to the original location of this data-block (copied back here after moving) */
+    ocrLocation_t acquireLocation; /**< Used to determine when to evict (when this guy releases) */
 #endif
 } ocrDataBlockLockable_t;
 

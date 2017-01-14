@@ -708,13 +708,15 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     int preferredLevel = 0;
     bool limitLevel = false;
     u64 hintValue = 0ULL;
-#ifdef OCR_HACK_L1_RT_ONLY
+#if defined(OCR_HACK_L1_RT_ONLY) || defined(OCR_HACK_L3_DBS)
     if(dbType == RUNTIME_DBTYPE) {
         // We over-ride any hint but note that we do allow RT allocations to go out of
         // L1 if needed. This is probably "safer".
+        DPRINTF(OCR_HACK_DEBUG_LVL, "Forcing RT allocation to go to L1\n");
         preferredLevel = 1;
     } else {
-        // Punt all user data-blocks to L2
+        // Punt all user data-blocks to L2 and beyond
+        DPRINTF(OCR_HACK_DEBUG_LVL, "Punting on allocation\n");
         return OCR_ENOMEM;
     }
 #endif
@@ -726,7 +728,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         } else if (ocrGetHintValue(hint, OCR_HINT_DB_FAR, &hintValue) == 0 && hintValue) {
             preferredLevel = 3;
         }
-        if (ocrGetHindValue(hint, OCR_HINT_DB_FAIL_IF_TOO_FAR, &hintValue) == 0 && hintValue) {
+        if (ocrGetHintValue(hint, OCR_HINT_DB_FAIL_IF_TOO_FAR, &hintValue) == 0 && hintValue) {
             limitLevel = true;
         }
         DPRINTF(DEBUG_LVL_VERB, "xeAllocateDb preferredLevel set to %"PRId32" and limitLevel to %"PRId32"\n", preferredLevel,
@@ -929,6 +931,9 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     // First type of messages: things that we offload completely to the CE
     case PD_MSG_DB_DESTROY:
     case PD_MSG_DB_ACQUIRE: case PD_MSG_DB_RELEASE: case PD_MSG_DB_FREE:
+#ifdef OCR_HACK_DB_MOVE
+    case PD_MSG_DB_MOVE_PREPARE: case PD_MSG_DB_MOVE_FINALIZE:
+#endif /* OCR_HACK_DB_MOVE */
     case PD_MSG_MEM_ALLOC: case PD_MSG_MEM_UNALLOC:
     case PD_MSG_WORK_CREATE: case PD_MSG_WORK_DESTROY:
     case PD_MSG_EDTTEMP_CREATE: case PD_MSG_EDTTEMP_DESTROY:
@@ -1199,6 +1204,7 @@ void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
     msg.type = PD_MSG_MEM_ALLOC  | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_I(type) = DB_MEMTYPE;
     PD_MSG_FIELD_I(size) = size;
+    PD_MSG_FIELD_I(properties) = 0;
     ASSERT(self->workerCount == 1);              // Assert this XE has exactly one worker.
     u8 msgResult = xeProcessCeRequest(self, &pmsg);
     if(msgResult == 0) {
