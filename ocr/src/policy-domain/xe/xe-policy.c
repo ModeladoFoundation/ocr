@@ -692,7 +692,7 @@ static void localDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
 
 static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, u64 size,
                        u32 properties, u64 engineIndex,
-                       ocrHint_t *hint, ocrInDbAllocator_t allocator,
+                       ocrHint_t *hint, ocrDataBlockType_t dbType, ocrInDbAllocator_t allocator,
                        u64 prescription) {
     // This function allocates a data block for the requestor, who is either this computing agent or a
     // different one that sent us a message.  After getting that data block, it "guidifies" the results
@@ -708,7 +708,17 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     int preferredLevel = 0;
     bool limitLevel = false;
     u64 hintValue = 0ULL;
-    if (hint != NULL_HINT) {
+#ifdef OCR_HACK_L1_RT_ONLY
+    if(dbType == RUNTIME_DBTYPE) {
+        // We over-ride any hint but note that we do allow RT allocations to go out of
+        // L1 if needed. This is probably "safer".
+        preferredLevel = 1;
+    } else {
+        // Punt all user data-blocks to L2
+        return OCR_ENOMEM;
+    }
+#endif
+    if (hint != NULL_HINT && preferredLevel == 0) {
         if (ocrGetHintValue(hint, OCR_HINT_DB_NEAR, &hintValue) == 0 && hintValue) {
             preferredLevel = 1;
         } else if (ocrGetHintValue(hint, OCR_HINT_DB_INTER, &hintValue) == 0 && hintValue) {
@@ -820,6 +830,9 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
     u8 returnCode = 0;
 
+#ifdef OCR_HACK_L2_LIMIT
+    ocrHint_t tHint;        // Hint to communicate L2 limit preference if needed.
+#endif
 
     DPRINTF(DEBUG_LVL_VVERB, "Going to process message of type 0x%"PRIx64"\n",
             (msg->type & PD_MSG_TYPE_ONLY));
@@ -851,7 +864,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         u8 ret = xeAllocateDb(
             self, &(PD_MSG_FIELD_IO(guid)), &(PD_MSG_FIELD_O(ptr)), reqSize,
             PD_MSG_FIELD_IO(properties), engineIndex,
-            PD_MSG_FIELD_I(hint), PD_MSG_FIELD_I(allocator), 0 /*PRESCRIPTION*/);
+            PD_MSG_FIELD_I(hint), PD_MSG_FIELD_I(dbType), PD_MSG_FIELD_I(allocator), 0 /*PRESCRIPTION*/);
         if (ret == 0) {
             PD_MSG_FIELD_O(returnDetail) = ret;
             if(PD_MSG_FIELD_O(returnDetail) == 0) {
@@ -888,6 +901,27 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             break;
         }
         // fallbacks to CE
+#ifdef OCR_HACK_L2_LIMIT
+        // If we don't want to go past the L2, we are going to set the hint to limit to L2
+        // This only applies to data-blocks, not direct pdmallocs from the runtime.
+        ocrHint_t *hintToUse = NULL_HINT;
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DB_CREATE
+        if(PD_MSG_FIELD_I(hint) == NULL_HINT) {
+            hintToUse = &tHint;
+            ocrHintInit(hintToUse, OCR_HINT_DB_T);
+        } else {
+            hintToUse = PD_MSG_FIELD_I(hint);
+            ocrUnsetHintValue(hintToUse, OCR_HINT_DB_NEAR);
+            ocrUnsetHintValue(hintToUse, OCR_HINT_DB_FAR);
+        }
+        ocrSetHinValue(hintToUse, OCR_HINT_DB_INTER, 1);
+        ocrSetHintValue(hintToUse, OCR_HINT_DB_FAIL_IF_TOO_FAR, 1);
+        PD_MSG_FIELD_I(hint) = hintToUse; // Hint is either something the user set or a stack variable that will be live
+                                          // until call returns from CE
+#undef PD_MSG
+#udnef PD_TYPE
+#endif /* OCR_HACK_L2_LIMIT */
         EXIT_PROFILE;
     }
 
@@ -1143,6 +1177,8 @@ u8 xePdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
 
 void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
     START_PROFILE(pd_xe_pdMalloc);
+
+    // This is only RT allocations and they will "flow-out" to L1 if needed.
 
     void* result;
     s8 allocatorIndex = 0;

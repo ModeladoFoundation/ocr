@@ -161,7 +161,7 @@ typedef struct _ocrAllocator_t {
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
 #endif
-
+    u64 size;                           /**< Size managed by this allocator */
     struct _ocrMemTarget_t **memories; /**< Allocators are mapped to ocrMemTarget_t (0+) */
     u64 memoryCount;                   /**< Number of memories associated */
 

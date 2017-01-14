@@ -70,6 +70,7 @@ void initializeAllocatorOcr(ocrAllocatorFactory_t * factory, ocrAllocator_t * se
     self->pd = NULL;
 
     self->fcts = factory->allocFcts;
+    self->size = ((paramListAllocatorInst_t*)perInstance)->size;
     self->memories = NULL;
     self->memoryCount = 0;
 }

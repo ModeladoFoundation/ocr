@@ -2009,7 +2009,6 @@ void initializeAllocatorQuick(ocrAllocatorFactory_t * factory, ocrAllocator_t * 
 
     ocrAllocatorQuick_t *derived = (ocrAllocatorQuick_t *)self;
     paramListAllocatorQuick_t *perInstanceReal = (paramListAllocatorQuick_t*)perInstance;
-
     derived->poolAddr          = 0ULL;
     derived->poolSize          = perInstanceReal->base.size;
     derived->poolStorageOffset = 0;
