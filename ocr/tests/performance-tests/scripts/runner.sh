@@ -45,6 +45,7 @@ SWEEPFILE_ARG=""
 TARGET_ARG="x86"
 TMPDIR_ARG=""
 NOCLEAN_OPT="no"
+EXPORTVARS_OPT="no"
 
 # Default options are for micro-benchmarks
 RUNNER_TYPE=${RUNNER_TYPE-"MicroBenchmark"}
@@ -94,6 +95,9 @@ while [[ $# -gt 0 ]]; do
     elif [[ "$1" = "-noclean" ]]; then
         shift
         NOCLEAN_OPT="yes"
+    elif [[ "$1" = "-exportvars" ]]; then
+        shift
+        EXPORTVARS_OPT="yes"
     elif [[ "$1" = "-help" ]]; then
         echo "usage: ${SCRIPT_NAME} [-sweepfile file] program"
         echo "       -sweepfile file    : Use the specified sweep file for the program"
@@ -124,6 +128,11 @@ if [[ "${LOGDIR_OPT}" != "yes" ]]; then
     LOGDIR=`mktemp -d rundir.XXXXXX`
 else
     LOGDIR=${LOGDIR_ARG}
+fi
+
+# If we need to export what we ran, clear the variables
+if [[ "${EXPORTVARS_OPT}" = "yes" ]]; then
+    export EXPORTED_RUNNER_CFGARG="" EXPORTED_RUNNER_CFGHASH="" EXPORTED_RUNNER_DEF="" EXPORTED_RUNNER_CMD=""
 fi
 
 echo "Results will be located under ${LOGDIR}"
@@ -248,7 +257,7 @@ function toLower() {
 function generateCfgFile {
     # Read all CFGARG_ environment variables and transform
     # them into config generator's arguments
-    for cfgarg in `env | grep CFGARG_`; do
+    for cfgarg in `env | grep ^CFGARG_`; do
         #Extract argument name and value
         parsed=(${cfgarg//=/ })
         argNameU=${parsed[0]#CFGARG_}
@@ -425,6 +434,47 @@ function runTest() {
     fi
     cd -
     START_DATE=`date`
+    if [[ "${EXPORTVARS_OPT}" == "yes" ]]; then
+        # Here we are going to run a test so we output its configuration
+        # We pretend to generate a configuration file for only one core
+        # (to standardize it)
+        export OCR_NUM_NODES=1
+        export CFGARG_THREADS=1
+        export CFGARG_OUTPUT=`mktemp ${LOGDIR}/tempconfig.XXX`
+        generateCfgFile
+
+        # At this point, we can extract the CFGARG_ variables as well
+        # as hash the configuration file we just generated
+        local temp
+        temp=`env | grep ^CFGARG_ | grep -v ^CFGARG_OUTPUT | tr '\n' ' '`
+        if [[ -z ${EXPORTED_RUNNER_CFGARG} ]]; then
+            if [[ -z $temp ]]; then
+                temp='#'
+            fi
+            export EXPORTED_RUNNER_CFGARG="$temp"
+        else
+            export EXPORTED_RUNNER_CFGARG= "${EXPORTED_RUNNER_CFGARG}#$temp"
+        fi
+
+        temp=`sha1sum ${CFGARG_OUTPUT} | cut -f1 -d' '`
+        if [[ -z ${EXPORTED_RUNNER_CFGHASH} ]]; then
+            export EXPORTED_RUNNER_CFGHASH="$temp"
+        else
+            export EXPORTED_RUNNER_CFGHASH= "${EXPORTED_RUNNER_CFGHASH}#$temp"
+        fi
+        if [[ -z ${EXPORTED_RUNNER_DEF} ]]; then
+            export EXPORTED_RUNNER_DEF="#"
+        else
+            export EXPORTED_RUNNER_DEF= "${EXPORTED_RUNNER_CFGHASH}#"
+        fi
+        if [[ -z ${EXPORTED_RUNNER_CMD} ]]; then
+            export EXPORTED_RUNNER_CMD="#"
+        else
+            export EXPORTED_RUNNER_CMD= "${EXPORTED_RUNNER_CFGHASH}#"
+        fi
+        rm -rf ${CFGARG_OUTPUT}
+    fi
+
     while (( $i < ${nbRun} )); do
         scalingTest ${prog} "${defines}" | tee ${runlog}-$i
         let i=$i+1;
