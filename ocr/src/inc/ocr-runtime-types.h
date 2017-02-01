@@ -139,6 +139,7 @@ typedef struct _ocrObjectFcts_t {
     u8 (*processEvent)(struct _ocrObject_t* self, struct _pdEvent_t** event, u32 idx);
 } ocrObjectFcts_t;
 
+
 /**
  * @brief Base type for OCR Object factories.
  *
@@ -163,6 +164,47 @@ typedef struct _ocrObjectFactory_t {
     // The size of the metadata if it was to be serialized at the time of the call
     u8 (*mdSize)(ocrObject_t *dest, u64 mode, u64 * size);
 } ocrObjectFactory_t;
+
+
+/**
+ * @brief Base type for OCR Objects.
+ *
+ */
+typedef struct _ocrModule_t {
+    // Not sure what to put here for now
+} ocrMdule_t;
+
+/**
+ * @brief Functions common to all modules
+ */
+typedef struct _ocrModuleFcts_t {
+    /**
+     * @brief Implement all potentially asynchronous processing on
+     * modules
+     *
+     * With micro-tasks, user-defined processing functions are
+     * always in the form (module, in/out event, continuation index).
+     * This function is therefore defined for all modules when they may
+     * need to do something that is potentially blocking (for example, getting the
+     * value for a GUID may involve fetching the metadata).
+     *
+     * @param[in] self          Pointer to this module
+     * @param[in/out] event     Event to process (on input). On output, contains
+     *                          the "response" of this function. Both event and *event
+     *                          should be non-NULL.
+     * @param[in] idx           Position in the code to resume (for continuations). Set
+     *                          to 0 to start at the beginning of the function.
+     * @return 0 on success and an error code otherwise
+     *
+     * @note If prior to the call *event has value ptr, the event pointed to by ptr should
+     * not be considered valid anymore. If you need to keep both the event passed in and
+     * the event returned, make a copy of the event passed-in first. This is to keep
+     * in line with the fact that if this call was an individual action, the
+     * source event would be destroyed if another one was returned
+     */
+    u8 (*processEvent)(struct _ocrModule_t* self, struct _pdEvent_t** event, u32 idx);
+} ocrModuleFcts_t;
+
 
 // Metadata Management
 

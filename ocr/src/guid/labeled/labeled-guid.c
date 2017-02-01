@@ -196,6 +196,182 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
     return toReturn;
 }
 
+#ifdef ENABLE_MT_RUNTIME
+
+#define END_LABEL(label) label: __attribute__((unused));
+#define RETURN goto _END_FUNC
+
+
+u8 labeledGuidProcessEvent(ocrObject_t *self, pdEvent_t **event, u32 idx) {
+#define _END_FUNC labeldGuidProcessEventEnd
+    DPRINTF(DEBUG_LVL_INFO, "ENTER labeldGuidProcessEvent(self:%p, event**:%p [%p], idx:%"PRIu32")\n",
+        self, event, *event, idx);
+    u8 toReturn = 0;
+    ocrGuidProviderLabeled_t *derived = (ocrGuidProviderLabeled_t*)self;
+    ocrGuidProvider_t *base = (ocrGuidProvider_t*)self;
+
+    pdStrand_t *curStrand = NULL;
+    toReturn = pdResolveEvent(base->pd, (u64*)event, &curStrand, false);
+    if(toReturn != 0 && toReturn != OCR_ENOP) {
+        // The event is not ready and this function can only work on ready event
+        // We will re-add ourself as the first thing to call when the event is ready
+        ASSERT(curStrand);  // This should be resolved regardless.
+        ASSERT(idx == 0);   // If the event is not ready, this should be
+                            // an initial invocation. Other invocation only
+                            // happen when the event is ready
+        pdAction_t *executeMe = NULL; // TODO: get the continuation action
+        pdEnqueueActions(base->pd, curStrand, 1, &executeMe, false);
+        DPRINTF(DEBUG_LVL_VERB, "Event initially NOT ready -- queued on strand %p\n",
+            curStrand);
+        RETURN;
+    }
+    goto *(void*)(&&labeledGuidProcessEvent_0 + idx);
+
+    // Here the event is ready so we can start to process it
+    pdEvent_t *myEvt = *event;
+
+    ASSERT((myEvt->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
+    pdEventMsg_t *myMsgEvt = (pdEventMsg_t*)myEvt;
+    ocrPolicyMsg_t *myMsg = myMsgEvt->msg;
+
+    ASSERT(myMsg->type & PD_MSG_GUID_OP);
+
+/* First entry point */
+labeledGuidProcessEvent_0:
+
+#define PD_MSG myMsg
+    switch(myMsg->type & PD_MSG_TYPE_ONLY) {
+    case PD_MSG_GUID_CREATE: {
+#define PD_TYPE PD_MSG_GUID_CREATE
+        if(PD_MSG_FIELD_I(size) == 0) {
+            // Here we need to just create a GUID but not associate anything with it
+            DPRINTF(DEBUG_LVL_VERB, "Creating GUID only: kind: %"PRIu32"; targetLoc: 0x%"PRIx64"; properties: 0x%"PRIx32"\n",
+                (u32)PD_MSG_FIELD_I(kind), (u64)PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
+            toReturn = labeledGuidGetGuid(base,
+                &(PD_MSG_FIELD_IO(guid.guid)), PD_MSG_FIELD_IO(guid.metaDataPtr),
+                PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
+            DPRINTF(DEBUG_LVL_VERB, "DONE creating GUID -> %"PRIu32"; guid: "GUIDA"\n",
+                toReturn, PD_MSG_FIELD_IO(guid));
+        } else {
+            u32 properties = PD_MSG_FIELD_I(properties);
+            ocrFatGuid_t *fguid = &(PD_MSG_FIELD_IO(guid));
+            u64 size = PD_MSG_FIELD_I(size);
+            DPRINTF(DEBUG_LVL_VERB, "Creating and allocating GUID: kind: %"PRIu32"; targetLoc: 0x%"PRIx64"; "
+                "properties: 0x%"PRIx32"; size: %"PRIu64"\n", (u32)PD_MSG_FIELD_I(kind), (u64)PD_MSG_FIELD_I(targetLoc),
+                properties, size);
+            if(properties & GUID_PROP_IS_LABELED) {
+                // We need to use the GUID provided; make sure it is non null and reserved
+                ASSERT((!(ocrGuidIsNull(fguid->guid))) && (IS_RESERVED_GUID(fguid->guid)));
+
+                // We need to fix this: ie: return a code saying we can't do the reservation
+                // Ideally, we would either forward to the responsible party or return something
+                // so the PD knows what to do. This is going to take a lot more infrastructure
+                // change so we'll punt for now
+                // Related to BUG #535 and to BUG #536
+                ASSERT(extractLocIdFromGuid(fguid->guid) == locationToLocId(self->pd->myLocation));
+
+                // Other sanity check
+                ASSERT(getKindFromGuid(fguid->guid) == kind); // Kind properly encoded
+                // See BUG #928 on GUID issues
+#if GUID_BIT_COUNT == 64
+                ASSERT((RSHIFT(COUNTER, fguid->guid.guid)) < derived->guidReservedCounter); // Range actually reserved
+#elif GUID_BIT_COUNT == 128
+                ASSERT((RSHIFT(COUNTER, fguid->guid.lower)) < derived->guidReservedCounter); // Range actually reserved
+#endif
+            }
+
+            // Here we need to do a MEM_ALLOC
+            pdEventMsg_t *allocEvent;
+            pdStrand_t *allocStrand = NULL;
+            RESULT_ASSERT(pdCreateEvent(base->pd, (pdEvent_t**)(&allocEvent), PDEVT_TYPE_MSG, 0), ==, 0);
+            ocrPolicyMsg_t *allocMsg = &(allocEvent->msg);
+#define PD_MSG (allocMsg)
+#define PD_TYPE PD_MSG_MEM_ALLOC
+            allocMsg->type = PD_MSG_MEM_ALLOC | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+            PD_MSG_FIELD_I(size) = size;
+            PD_MSG_FIELD_I(properties) = 0;
+            PD_MSG_FIELD_I(type) = GUID_MEMTYPE;
+
+            RESULT_ASSERT(base->pd.fcts.processEvent(base->pd, &allocEvent, 0), ==, 0);
+
+            // Resolve the event and make sure it is ready
+            u8 allocStatus = pdResolveEvent(base->pd, (u64*)&allocEvent, &allocStrand, true);
+            if(allocStatus != 0 && allocStatus != OCR_ENOP) {
+                // Create a continuation here
+                // We mark our current event as non-ready and we will add an action to make us
+                // ready when the allocStrand finishes
+                /*
+                 * To create a continuation:
+                 *  - we create a merge event with both myEvt and allocEvent
+                 *
+                 * Another option is to create a merge event with both myEvt (ready) and the allocEvent
+                 * (not ready) and replace the current myEvt with this new event in the current strand.
+                 * Nothing else changes. This might actually be cleaner because delays the creation of
+                 * an additional event and the space for it till later. On the other hand, you now need
+                 * an extra event.
+                 *
+                 * I think I like this later solution better
+                 */
+                RESULT_ASSERT(pdMarkWaitEvent(base->pd, myEvt), ==, 0);
+
+            }
+labeldGuidProcessEvent_1:
+
+
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG myMsg
+#define PD_TYPE PD_MSG_GUID_CREATE
+        }
+        PD_MSG_FIELD_O(returnDetail) = toReturn;
+#undef PD_TYPE
+    }
+
+    case PD_MSG_GUID_INFO: {
+
+    }
+
+    case PD_MSG_GUID_METADATA_CLONE:
+
+    case PD_MSG_GUID_RESERVE: {
+#define PD_TYPE PD_MSG_GUID_RESERVE
+        // This is always local so we are pretty safe calling one of the "legacy" functions
+        DPRINTF(DEBUG_LVL_VERB, "Reserving GUIDs: numberGuids: %"PRIu64"; type: %"PRIu32"\n",
+            PD_MSG_FIELD_I(numberGuids), (u32)PD_MSG_FIELD_I(guidKind));
+        toReturn = localGuidReserve(base, &(PD_MSG_FIELD_O(startGuid)),
+            &(PD_MSG_FIELD_O(skipGuid)), PD_MSG_FIELD_I(numberGuids), PD_MSG_FIELD_I(guidKind));
+        DPRINTF(DEBUG_LVL_VERB, "DONE reserving GUIDs -> %"PRIu32"; startGuid: "GUIDA"; skipGuid: %"PRIu64"\n",
+            (u32)toReturn, GUIDF(PD_MSG_FIELD_O(startGuid)), PD_MSG_FIELD_O(skipGuid));
+        PD_MSG_FIELD_O(returnDetail) = toReturn;
+        break;
+#undef PD_TYPE
+    }
+
+    case PD_MSG_GUID_UNRESERVE: {
+        // This is always local so we are pretty safe calling one of the "legacy" functions
+#define PD_TYPE PD_MSG_GUID_UNRESERVE
+        // This is always local so we are pretty safe calling one of the "legacy" functions
+        DPRINTF(DEBUG_LVL_VERB, "Unreserving GUIDs: startGuid: "GUIDA"; skipGuid: %"PRIu64"; numberGuids: %"PRIu32"\n",
+            GUIDF(PD_MSG_FIELD_I(startGuid)), PD_MSG_FIELD_I(skipGuid), PD_MSG_FIELD_I(numberGuids));
+        toReturn = localGuidUnreserve((ocrGuidProvider_t*)derived, PD_MSG_FIELD_I(startGuid),
+            PD_MSG_FIELD_I(skipGuid), PD_MSG_FIELD_I(numberGuids));
+        DPRINTF(DEBUG_LVL_VERB, "DONE unreserving GUIDs -> %"PRIu32"\n", (u32)toReturn);
+        break;
+#undef PD_TYPE
+    }
+
+    case PD_MSG_GUID_DESTROY:
+    default:
+        ASSERT(0);
+    } /* End of switch statement on the type of message */
+END_LABEL(labeldGuidProcessEventEnd)
+    DPRINTF(DEBUG_LVL_INFO, "EXIT labeledGuidProcessEvent -> %"PRIu32"; event %p\n",
+        toReturn, *event);
+    return toReturn;
+}
+
+#endif /* ENABLE_MT_RUNTIME */
+
 u8 labeledGuidReserve(ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGuid,
                       u64 numberGuids, ocrGuidKind kind) {
     RSELF_TYPE* rself = (RSELF_TYPE*)self;
@@ -777,7 +953,9 @@ ocrGuidProviderFactory_t *newGuidProviderFactoryLabeled(ocrParamList_t *typeArg,
     base->providerFcts.reset = NULL;
     base->providerFcts.fixup = NULL;
 #endif
-
+#ifdef ENABLE_MT_RUNTIME
+    base->providerFcts.base.processEvent = FUNC_ADDR(u8 (*)(ocrObject_t*, pdEvent_t**, u32), labeledGuidProcessEvent);
+#endif
     return base;
 }
 

@@ -42,6 +42,8 @@
 
 #define CHECK_RESULT_T(expr, cleanup, newcode) CHECK_RESULT(!(expr), cleanup, newcode)
 
+#define RETURN goto _END_FUNC;
+
 #define END_LABEL(label) label: __attribute__((unused));
 
 
@@ -486,14 +488,17 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
         case PDEVT_TYPE_CONTROL:
             sizeToAllocate = sizeof(pdEvent_t);
             break;
-        case PDEVT_TYPE_LIST:
-            sizeToAllocate = sizeof(pdEventList_t);
-            break;
-        case PDEVT_TYPE_MERGE:
-            sizeToAllocate = sizeof(pdEventMerge_t);
+        case PDEVT_TYPE_COMMSTATUS:
+            sizeToAllocate = sizeof(pdEventCommStatus_t);
             break;
         case PDEVT_TYPE_MSG:
             sizeToAllocate = sizeof(pdEventMsg_t);
+            break;
+        case PDEVT_TYPE_MSGINLINE:
+            sizeToAllocate = sizeof(pdEventMsgInline_t);
+            break;
+        case PDEVT_TYPE_MERGE:
+            sizeToAllocate = sizeof(pdEventMerge_t);
             break;
         case PDEVT_TYPE_FCT:
             sizeToAllocate = sizeof(pdEventFct_t);
@@ -510,11 +515,17 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
     // Initialize base aspect
     (*event)->properties = type;
     (*event)->strand = NULL;
+    (*event)->refCount = 1;
 
     // TODO: Type specific initialization here
     switch (type) {
     case PDEVT_TYPE_CONTROL:
         break;
+    case PDEVT_TYPE_COMMSTATUS: {
+        pdEventCommStatus_t *t = (pdEventCommStatus_t*)(*event);
+        t->properties = 0;
+        break;
+    }
     case PDEVT_TYPE_MSG: {
         pdEventMsg_t *t = (pdEventMsg_t*)(*event);
         t->msg = NULL;
@@ -523,36 +534,28 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
         t->properties = 0;
         break;
     }
-    case PDEVT_TYPE_COMMSTATUS: {
-        pdEventCommStatus_t *t = (pdEventCommStatus_t*)(*event);
+    case PDEVT_TYPE_MSGINLINE: {
+        pdEventMsgInline_t *t = (pdEventMsgInline_t*)(*event);
+        getCurrentEnv(NULL, NULL, &(t->ctx), &(t->msg));
+        t->msg.bufferSize = sizeof(ocrPolicyMsg_t);
         t->properties = 0;
         break;
     }
-    case PDEVT_TYPE_LIST: {
-        pdEventList_t *t = (pdEventList_t*)(*event);
-        u32 i = 0;
-        for( ; i < PDEVT_LIST_SIZE; ++i) {
-            t->events[i] = NULL;
-        }
-        t->others = NULL;
-        break;
-    }
+
     case PDEVT_TYPE_MERGE: {
         pdEventMerge_t *t = (pdEventMerge_t*)(*event);
-        u32 i = 0;
-        t->count = t->countReady = 0;
-        for( ; i < PDEVT_MERGE_SIZE; ++i) {
-            t->events[i] = NULL;
-        }
-        t->others = NULL;
+        arrayDequeInit(&(t->events), PDEVT_MERGE_SIZE);
+        t->count = 1; // We start at 1 to prevent a race when adding. pdCloseMerge will increment countReady as needed
+        t->countReady = 0;
+        t->lock = INIT_LOCK;
         break;
     }
     case PDEVT_TYPE_FCT: {
         pdEventFct_t *t = (pdEventFct_t*)(*event);
         t->ctx = NULL;
-        t->args = NULL;
+        getCurrentEnv(NULL, NULL, &(t->ctx), NULL);
         t->continuation = NULL;
-        t->args = 0;
+        break;
     }
     default:
         break;
@@ -585,6 +588,26 @@ return toReturn;
 #undef _END_FUNC
 }
 
+u8 pdReferenceEvent(ocrPolicyDomain_t *pd, pdEvent_t *event) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdReferenceEvent(pd:%p, event*:%p)\n", pd, event);
+#define _END_FUNC referenceEventEnd
+    u8 toReturn = 0;
+
+    // If this fails, this means that the event is not a real one
+    CHECK_RESULT((u64)event & 0x7, , toReturn = OCR_EINVAL);
+
+    u32 oldVal __attribute__((unused)) = hal_xadd32(&(event->refCount), 1);
+
+    CHECK_RESULT(oldVal,
+        DPRINTF(DEBUG_LVL_WARN, "POSSIBLE RACE; event counter reached 0 before increment for %p\n", event),
+        );
+
+END_LABEL(referenceEventEnd)
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdReferenceEvent -> %"PRIu32"\n", toReturn);
+    return toReturn;
+#undef _END_FUNC
+}
+
 u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event) {
     DPRINTF(DEBUG_LVL_INFO, "ENTER pdDestroyEvent(pd:%p, event*:%p)\n", pd, event);
 #define _END_FUNC destroyEventEnd
@@ -595,6 +618,17 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event) {
         getCurrentEnv(&pd, NULL, NULL, NULL);
     }
 
+    // Make sure we have at least one reference
+    CHECK_RESULT(event->refCount, , toReturn = OCR_EINVAL);
+
+    u32 oldRefCount = hal_xadd32(&(event->refCount), (u32)-1);
+    if(oldRefCount != 1) {
+        DPRINTF(DEBUG_LVL_VERB, "Event %p has pre-decrement refCount of %"PRIu32" -- not destroying\n",
+            event, oldRefCount);
+        RETURN;
+    }
+    // Here the event is going to be destroyed
+    ASSERT(oldRefCount == 1 && event->refCount == 0);
     if(event->strand) {
         DPRINTF(DEBUG_LVL_VERB, "Strand associated with event is %p\n", event->strand);
         RESULT_ASSERT(_pdLockStrand(event->strand, BLOCK), ==, 0);
@@ -607,10 +641,46 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event) {
         }
         pdUnlockStrand(event->strand);
     }
+
+    // Do any regular free stuff
+    switch(event->properties & PDEVT_TYPE_MASK) {
+    case PDEVT_TYPE_CONTROL:
+        break;
+    case PDEVT_TYPE_COMMSTATUS:
+        break;
+    case PDEVT_TYPE_MSG:
+        break;
+    case PDEVT_TYPE_MSGINLINE:
+        break;
+    case PDEVT_TYPE_MERGE: {
+        // We basically have to "un-reference" each event that we contain
+        // so that they may be freed up as well.
+        pdEventMerge_t *t = (pdEventMerge_t*)event;
+        pdEvent_t *insideEvt = NULL;
+        while(t->count) {
+            RESULT_ASSERT(arrayDequePopFromHead(&(t->events), (void**)&insideEvt), ==, 0);
+            if(insideEvt && (((u64)insideEvt & 0x7) == 0)) {
+                // If the event exists and is a real event
+                RESULT_ASSERT(pdDestroyEvent(pd, insideEvt), ==, 0);
+            }
+            --t->count;
+        }
+        break;
+    }
+    case PDEVT_TYPE_FCT:
+        break;
+    default:
+        DPRINTF(DEBUG_LVL_WARN, "Unknown event type 0x%"PRIx32"\n", event->properties & PDEVT_TYPE_MASK);
+        ASSERT(0);
+    }
+
+    // Do any additional "deep-free" stuff
     if((event->properties & PDEVT_DESTROY_DEEP) != 0) {
         DPRINTF(DEBUG_LVL_VERB, "Deep free of event requested\n");
         switch(event->properties & PDEVT_TYPE_MASK) {
         case PDEVT_TYPE_CONTROL:
+            break;
+        case PDEVT_TYPE_COMMSTATUS:
             break;
         case PDEVT_TYPE_MSG:
         {
@@ -621,12 +691,15 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event) {
             }
             break;
         }
-        case PDEVT_TYPE_COMMSTATUS:
-            break;
-        case PDEVT_TYPE_LIST:
+        case PDEVT_TYPE_MSGINLINE:
             break;
         case PDEVT_TYPE_MERGE:
             break;
+        case PDEVT_TYPE_FCT:
+            break;
+        default:
+            DPRINTF(DEBUG_LVL_WARN, "Unknown event type 0x%"PRIx32"\n", event->properties & PDEVT_TYPE_MASK);
+            ASSERT(0);
         }
     }
 
@@ -686,6 +759,7 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, pdStrand_t **strand, u8 
                     DPRINTF(DEBUG_LVL_VERB, "Event 0x%"PRIx64" -> %p\n",
                         *evtValue, myStrand->curEvent);
                     *evtValue = (u64)(myStrand->curEvent);
+                    // The event is already referenced (because it is in the strand)
                     if(clearFwdHold) {
                         myStrand->properties &= ~PDST_RHOLD;
                     }
@@ -1087,37 +1161,188 @@ END_LABEL(markWaitEventEnd)
 #undef _END_FUNC
 }
 
+u8 pdAddEventToMerge(ocrPolicyDomain_t *pd, u64 *position, pdEventMerge_t *mergeEvent, pdEvent_t *event) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdAddEventToMerge(pd:%p, position*:%p, mergeEvent*:%p, event*:%p)\n",
+            pd, position, mergeEvent, event);
+#define _END_FUNC addEventToMerge
+
+    u8 toReturn = 0;
+    if(pd == NULL) {
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+    }
+
+    // Check if the event is real and ready
+    if(event && (((u64)event & 0x7) == 0)) {
+        if(event->properties & PDEVT_READY) {
+            // Grab a reference on it since we are adding it to here
+            CHECK_RESULT(pdReferenceEvent(pd, event), , toReturn = OCR_EINVAL);
+        } else {
+            // The event is not ready, we error out
+            DPRINTF(DEBUG_LVL_WARN, "Event passed in pdAddEventToMerge is not ready\n");
+            CHECK_RESULT(1, , toReturn = OCR_EINVAL);
+        }
+    } else {
+        if(event) {
+            DPRINTF(DEBUG_LVL_WARN, "Considering event as NULL in pdAddEventToMerge\n");
+            event = NULL;
+        }
+    }
+
+    // Now insert it in the queue of events and get the proper position for it
+    u32 returnedPosition = 0;
+    hal_lock(&(mergeEvent->lock));
+    arrayDequePushAtTail(&(mergeEvent->events), event);
+    returnedPosition = mergeEvent->count++ - 1; // -1 because the initial count is 1
+    ASSERT(returnedPosition + 1 == arrayDequeSize(&(mergeEvent->events)));
+    hal_unlock(&(mergeEvent->lock));
+
+    if(event) {
+        // If the event is initially ready, we will increment the ready count as well
+        u32 newCountReady = hal_xadd32(&(mergeEvent->countReady), 1);
+        if(newCountReady + 1 == mergeEvent->count) {
+            DPRINTF(DEBUG_LVL_VERB, "Last event satisfied (on addition) -- triggering merged event %p\n", mergeEvent);
+            RESULT_ASSERT(pdMarkReadyEvent(pd, (pdEvent_t*)mergeEvent), ==, 0);
+        }
+    }
+    if(position)
+        *position = returnedPosition;
+
+END_LABEL(addEventToMerge)
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdAddEventToMerge -> %"PRIu32" position: %"PRIu64"\n",
+            toReturn, position?*position:0);
+    return toReturn;
+#undef _END_FUNC
+}
+
+u8 pdCloseMerge(ocrPolicyDomain_t *pd, pdEventMerge_t *mergeEvent) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdCloseMerge(pd:%p, mergeEvent*:%p)\n",
+            pd, mergeEvent);
+#define _END_FUNC closeMerge
+
+    u8 toReturn = 0;
+
+    u32 newCountReady = hal_xadd32(&(mergeEvent->countReady), 1);
+    if(newCountReady + 1 == mergeEvent->count) {
+        DPRINTF(DEBUG_LVL_VERB, "Last event satisfied (on close) -- triggering merged event %p\n", mergeEvent);
+        RESULT_ASSERT(pdMarkReadyEvent(pd, (pdEvent_t*)mergeEvent), ==, 0);
+    }
+
+END_LABEL(closeMerge)
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdCloseMerge -> %"PRIu32"\n",
+            toReturn);
+    return toReturn;
+#undef _END_FUNC
+}
+
 /***************************************/
 /***** pdAction_t related functions ****/
 /***************************************/
+
+// TODO: I can encode difference between strand and current object instead of
+// address of current object so that it is easier for me to use the full 64 bits
+// and not be too constrained...
 
 /* Macros defining the special encoding of pdAction_t* */
 // TODO: PROCESS_MESSAGE and PROCESS_EVENT will be merged when
 // policy domains also become ocrObject_t (this will come
 // in a subsequent patch)
-#define PDACTION_ENC_PROCESS_MESSAGE  0b001
-#define PDACTION_ENC_PROCESS_EVENT    0b010
-#define PDACTION_ENC_MAKEREADYST      0b011
-#define PDACTION_ENC_EXTEND           0b111
+// Main type is on 3 bits
+#define PDACTION_ENC_SIZE              3
+#define PDACTION_ENC_PROCESS_MESSAGE   0b001
+// Revisit next two
+#define PDACTION_ENC_PROCESS_EVENT     0b010
+#define PDACTION_ENC_PROCESS_EVENT_MOD 0b011
+#define PDACTION_ENC_EXTEND            0b111
 
-#define PDACTION_ENCEXT_MAKEREADY     0x01
+// Extended "type" values are on 8 bits
+#define PDACTION_ENCEXT_SIZE                    8
+/**< Mark a strand ready (strand encoded using strand table and index) */
+#define PDACTION_ENCEXT_CTRL_BASE               0x001
+#define PDACTION_ENCEXT_CTRL_MARK_READY         0x001
+/**< Mark a strand ready (strand encoded as an offset) */
+#define PDACTION_ENCEXT_CTRL_MARK_READY_DIFF    0x011
+/**< Satisfy a merge event */
+#define PDACTION_ENCEXT_CTRL_SATISFY_MERGE      0x101
 
 // Convenience functions
-
 #define PDACTION_DECEXT_TYPE(_type, _value) do {    \
         u64 __v = (_value);                         \
-        _type = (__v >> 3) & 0xFFULL;               \
+        _type = (__v >> PDACTION_ENC_SIZE) & ((1ULL<<PDACTION_ENCEXT_SIZE) - 1);\
     } while(0);
 
-#define PDACTION_ENCEXT_2ARG(_arg1, _arg2, _type) ((_arg1)<<37 | (_arg2)<<11 | (_type) | PDACTION_ENC_EXTEND)
+#define PDACTION_1ARG_SIZE 53
+#define PDACTION_ENCEXT_1ARG(_arg1, _type) (((_arg1) << (PDACTION_ENC_SIZE + PDACTION_ENCEXT_SIZE)) | ((_type)<<PDACTION_ENC_SIZE) | PDACTION_ENC_EXTEND)
+
+#define PDACTION_2ARG_SIZE1 16
+#define PDACTION_2ARG_SIZE2 37
+#define PDACTION_ENCEXT_2ARG(_arg1, _arg2, _type) (((_arg1)<<(PDACTION_ENC_SIZE + PDACTION_ENCEXT_SIZE + PDACTION_2ARG_SIZE1)) | ((_arg2)<<(PDACTION_ENC_SIZE + PDACTION_ENCEXT_SIZE)) | ((_type)<<PDACTION_ENC_SIZE) | PDACTION_ENC_EXTEND)
+
+#define PDACTION_DECEXT_1ARG(_arg1, _type, _value) do {         \
+        u64 __v = (_value);                                     \
+        _type = (__v >> PDACTION_ENC_SIZE) & ((1ULL<<PDACTION_ENCEXT_SIZE) - 1); \
+        __v >>= PDACTION_ENC_SIZE + PDACTION_ENCEXT_SIZE;       \
+        _arg1 = __v & ((1ULL<<PDACTION_1ARG_SIZE) - 1);         \
+    } while(0);
 
 #define PDACTION_DECEXT_2ARG(_arg1, _arg2, _type, _value) do {  \
         u64 __v = (_value);                                     \
-        _type = (__v >> 3) & 0xFFULL;                           \
-        __v >>= 11;                                             \
-        _arg2 = __v & 0x3FFFFFFULL;                             \
-        _arg1 = (__v >> 26);                                    \
+        _type = (__v >> PDACTION_ENC_SIZE) & ((1ULL<<PDACTION_ENCEXT_SIZE) - 1); \
+        __v >>= PDACTION_ENC_SIZE + PDACTION_ENCEXT_SIZE;       \
+        _arg2 = __v & ((1ULL<<PDACTION_2ARG_SIZE1) - 1);        \
+        _arg1 = (__v >> PDACTION_2ARG_SIZE1);                   \
     } while(0);
+// Check bits
+
+/**
+ * @brief Encodes a differential object (to save on bits)
+ *
+ * The idea is that _curStrand and whatever object we want to
+ * point to more than likely live in a space that is smaller than 64 bits
+ * so we encode the difference to be able to encode more stuff
+ * within the 64 bits of an action
+ *
+ * @param[in] curStrand     Current strand (base to encode from)
+ * @param[in] otherObj      Object to encode
+ * @param[in] maxBits       Maximum number of bits that can be used
+ *
+ * @return A signed offset on maxBits bits
+ */
+inline static u64 PDACTION_GETDIFF(u64 curStrand, u64 otherObj, u32 maxBits) {
+    if(otherObj > curStrand) {
+        // Check that the value is actually OK
+        u64 diff = otherObj - curStrand;
+        ASSERT((diff>>(maxBits-1)) == 0);
+        return diff;
+    } else {
+        // We encode over 64-11=53 bits.
+        u64 diff = curStrand - otherObj;
+        // Check that the value actually fits
+        ASSERT((diff>>(maxBits-1)) == 0);
+        diff |= 1ULL<<(maxBits-1); // Make negative
+        return diff;
+    }
+}
+
+/**
+ * @brief Reverse of PDACTION_GETDIFF
+ *
+ * This decodes an offset and returns the 64 bit address
+ * that was encoded
+ *
+ * @param[in] curStrand Current strand (base to decode from)
+ * @param[in] encoded Value to decode
+ *
+ * @return 64 bit address of the object (cast as appropriate)
+ */
+inline static u64 PDACTION_FROMDIFF(u64 curStrand, u64 encoded, u32 maxBits) {
+    u64 diff = encoded & (((1ULL<<(maxBits-1))-1));
+    if(diff & (1ULL<<(maxBits-1))) {
+        // This was a negative offset so the returned value is SMALLER than curStrand
+        return curStrand - diff;
+    } else {
+        return curStrand + diff;
+    }
+}
 
 pdAction_t* pdGetProcessMessageAction(u32 workType) {
     DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetProcessMessageAction(%"PRIu32")\n", workType);
@@ -1127,29 +1352,64 @@ pdAction_t* pdGetProcessMessageAction(u32 workType) {
 }
 
 pdAction_t* pdGetProcessEventAction(ocrObject_t* object) {
-    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetProcessEventAction(%p)\n", object);
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetProcessEventAction(object: %p)\n", object);
     ASSERT(((u64)object & 0x7) == 0);
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetProcessEventAction -> action:0x%"PRIx64"\n", (u64)(((u64)object) | PDACTION_ENC_PROCESS_EVENT));
     return (pdAction_t*)(((u64)object) | PDACTION_ENC_PROCESS_EVENT);
 }
 
-pdAction_t* pdGetMarkReadyAction(pdEvent_t *event) {
+/*
+pdAction_t* pdGetModuleProcessEventAction(ocrModule_t* module) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetModuleProcessEventAction(module: %p)\n", module);
+    ASSERT(((u64)module & 0x7) == 0);
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetModuleProcessEventAction -> action:0x%"PRIx64"\n", (u64)(((u64)module) | PDACTION_ENC_PROCESS_EVENT_MOD));
+    return (pdAction_t*)(((u64)object) | PDACTION_ENC_PROCESS_EVENT_MOD);
+}
+*/
+pdAction_t* pdGetMarkReadyAction(pdStrand_t *curStrand, pdEvent_t *event) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetMarkReadyAction(curStrand*:%p, event*:%p)\n", curStrand, event);
 
-    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetMarkReadyAction(%p)\n", event);
+    // Some sanity checks. Any failure here means that the API is being misused
+    // These should probably be changed to returning NULL but I am pretty sure no one will
+    // check :)
+    ASSERT(curStrand);
+    ASSERT(event);
+
     u64 evtValue = (u64)event;
     u64 returnedAction = 0;
     u8 stTableIdx = EVT_DECODE_ST_TBL(evtValue);
     if(stTableIdx) {
         u64 stIdx = EVT_DECODE_ST_IDX(evtValue);
-        DPRINTF(DEBUG_LVL_VERB, "Event = (table %"PRIu32", idx: %"PRIu64")\n",
+        DPRINTF(DEBUG_LVL_VVERB, "Event = (table %"PRIu32", idx: %"PRIu64")\n",
                 stTableIdx, stIdx);
-        returnedAction = PDACTION_ENCEXT_2ARG(stIdx, stTableIdx, PDACTION_ENCEXT_MAKEREADY);
+        returnedAction = PDACTION_ENCEXT_2ARG(stIdx, stTableIdx, PDACTION_ENCEXT_CTRL_MARK_READY);
     } else {
         // We can get the strand directly so we just code that directly
+        // I don't think it makes sense to mark an event ready that is not in a strand
+        // so we assert for now
+        ASSERT(event->strand);
         ASSERT(((u64)(event->strand) & 0x7) == 0);
-        returnedAction = (u64)(event->strand) | PDACTION_ENC_MAKEREADYST;
+        DPRINTF(DEBUG_LVL_VVERB, "Direct marking of strand %p\n", event->strand);
+        returnedAction = PDACTION_ENCEXT_1ARG(PDACTION_GETDIFF((u64)curStrand, (u64)event->strand, PDACTION_1ARG_SIZE),
+            PDACTION_ENCEXT_CTRL_MARK_READY_DIFF);
     }
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetMarkReadyAction -> action:0x%"PRIx64"\n", returnedAction);
+    return (pdAction_t*)returnedAction;
+}
+
+pdAction_t* pdGetSatisfyMergeAction(pdStrand_t *curStrand, pdEventMerge_t *mergeEvent, u64 position) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetSatisfyMergeAction(curStrand*:%p, mergeEvent*:%p, position:%"PRIu64")\n",
+        curStrand, mergeEvent, position);
+
+    // Sanity checks again
+    ASSERT(curStrand);
+    ASSERT(mergeEvent);
+    ASSERT((position >> PDACTION_2ARG_SIZE1) == 0);
+
+    u64 returnedAction = PDACTION_ENCEXT_2ARG(PDACTION_GETDIFF((u64)curStrand, (u64)mergeEvent, PDACTION_2ARG_SIZE2),
+        position, PDACTION_ENCEXT_CTRL_SATISFY_MERGE);
+
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetSatisfyMergeAction -> action:0x%"PRIx64"\n", returnedAction);
     return (pdAction_t*)returnedAction;
 }
 
@@ -1546,6 +1806,9 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
     RESULT_ASSERT(_pdLockStrand(strand, 0), ==, 0);
 
     strand->curEvent = event;
+    if(event) {
+        RESULT_ASSERT(pdReferenceEvent(pd, event), ==, 0)
+    }
     strand->actions = NULL;
     strand->bufferedActions = NULL;
     strand->processingWorker = NULL;
@@ -2756,29 +3019,24 @@ static void _pdActionToNP(u8 *npIdx, pdAction_t* action) {
         npIdx[0] = (u8)(((u64)action >> 3)+1);
         for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
         return;
-    case PDACTION_ENC_PROCESS_EVENT:
+    case PDACTION_ENC_PROCESS_EVENT: case PDACTION_ENC_PROCESS_EVENT_MOD:
         /* PROCESS_EVENT -- always a computation thing */
         npIdx[0] = (u8)(NP_WORK + 1);
         for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
-        return;
-    case PDACTION_ENC_MAKEREADYST:
-        /* MAKEREADYST -- anyone can process */
-        for(i=0; i < NP_COUNT; ++i) npIdx[i] = i+1;
         return;
     case PDACTION_ENC_EXTEND: {
         /* Add extended values here */
         u8 type = 0;
         PDACTION_DECEXT_TYPE(type, (u64)action);
-        switch(type) {
-        case PDACTION_ENCEXT_MAKEREADY:
-            /* MAKEREADY for an event -- anyone can process */
-            for(i=0; i < NP_COUNT; ++i) npIdx[i] = i+1;
-            return;
-        default:
-            ASSERT(0);
+        if(type & PDACTION_ENCEXT_CTRL_BASE) {
+            // Anyone can process any of the control events
+            for(i=0; i<NP_COUNT; ++i)
+                npIdx[i] = i+1;
+        } else {
+            ASSERT(0); // Not handled yet
             for(i=0; i<NP_COUNT; ++i) npIdx[i] = 0;
-
         }
+        break;
     }
     default:
         DPRINTF(DEBUG_LVL_WARN, "Unknown action type in pdActionToNP: 0x%"PRIx64"\n",
@@ -2842,6 +3100,8 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
                     DPRINTF(DEBUG_LVL_INFO, "Event chnaged from NULL to %p\n", curEvent);
                     strand->curEvent = curEvent;
                 }
+                // We reference the new event as well
+                RESULT_ASSERT(pdReferenceEvent(pd, strand->curEvent), ==, 0);
             } else {
                 // Event did not change, nothing to do
             }
@@ -2885,44 +3145,122 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
                     DPRINTF(DEBUG_LVL_INFO, "Event chnaged from NULL to %p\n", curEvent);
                     strand->curEvent = curEvent;
                 }
+                // We reference the new event as well
+                RESULT_ASSERT(pdReferenceEvent(pd, strand->curEvent), ==, 0);
             } else {
                 // Event did not change, nothing to do
             }
             break;
         }
-        case PDACTION_ENC_MAKEREADYST:
+/*
+        case PDACTION_ENC_PROCESS_EVENT_MOD:
         {
-            pdStrand_t *strand = (pdStrand_t*)(actionPtr & ~0x7);
-            pdEvent_t *evt = strand->curEvent;
-            DPRINTF(DEBUG_LVL_VERB, "Action is make strand %p ready (evt %p)\n",
-                    strand, evt);
-            ASSERT(evt);
-            RESULT_ASSERT(pdMarkReadyEvent(pd, evt), ==, 0);
+            // Get the object we have to call processEvent on
+            ocrModule_t *module = (ocrModule_t*)((u64)actionPtr & ~0x7);
+            u8 (*callback)(ocrModule_t*, pdEvent_t**, u32) = pd->factories[object->fctId]->fcts.processEvent;
+            DPRINTF(DEBUG_LVL_VERB, "Action is a callback on object %p (%p)", object, callback);
+            pdEvent_t *curEvent = strand->curEvent;
+            toReturn = callback(object, &curEvent, 0);
+            CHECK_RESULT(toReturn,
+                {
+                    DPRINTF(DEBUG_LVL_WARN, "Callback to processEvent returned error code %"PRIu32"\n", toReturn);
+                },);
+            DPRINTF(DEBUG_LVL_VVERB, "Callback returned 0\n");
+            // Check what was returned and update strand->curEvent if needed
+            // TODO: For now, we don't allow an event from another strand to be
+            // returned. I have to think if we need to do this
+            if(((u64)curEvent) & 0x7) {
+                // This is a fake event, it better point to us
+                // We only check the index and not the table ID because I don't have it
+                // For now this is just for asserting so we ignore but if we need
+                // to take this feature further, we'll need to rethink this
+                ASSERT(EVT_DECODE_ST_IDX((u64)curEvent) == strand->index);
+                curEvent = strand->curEvent; // No change
+            }
+
+            if(strand->curEvent != curEvent) {
+                if(strand->curEvent) {
+                    DPRINTF(DEBUG_LVL_INFO, "Event changed from %p to %p -- freeing old event\n",
+                        strand->curEvent, curEvent);
+                    // Make sure we don't grab lock on this strand
+                    strand->curEvent->strand = NULL;
+                    RESULT_ASSERT(pdDestroyEvent(pd, strand->curEvent), ==, 0);
+                    strand->curEvent = curEvent;
+                } else {
+                    DPRINTF(DEBUG_LVL_INFO, "Event chnaged from NULL to %p\n", curEvent);
+                    strand->curEvent = curEvent;
+                }
+                // We reference the new event as well
+                RESULT_ASSERT(pdReferenceEvent(pd, strand->curEvent), ==, 0);
+            } else {
+                // Event did not change, nothing to do
+            }
             break;
         }
+*/
         case PDACTION_ENC_EXTEND:
         {
+            u32 subType = 0;
+            PDACTION_DECEXT_TYPE(subType, actionPtr);
             DPRINTF(DEBUG_LVL_VVERB, "Decoding extended action 0x%"PRIu32"\n",
-                    (u32)((actionPtr >> 3) & 0xFF));
-            switch((actionPtr >> 3) & 0xFF) {
-            case PDACTION_ENCEXT_MAKEREADY:
+                    subType);
+            switch(subType) {
+            case PDACTION_ENCEXT_CTRL_MARK_READY:
             {
                 // We need to find the strand and the event to make
                 // it ready
 
                 u32 stTableIdx;
                 u64 stIdx;
-                u32 type;
-                PDACTION_DECEXT_2ARG(stIdx, stTableIdx, type, actionPtr);
-                ASSERT(type == PDACTION_ENCEXT_MAKEREADY);
+                u32 tt __attribute__((unused)); // This is just a trash variable
+                PDACTION_DECEXT_2ARG(stIdx, stTableIdx, tt, actionPtr);
                 DPRINTF(DEBUG_LVL_VVERB, "Action is make event (table %"PRIu32", idx: %"PRIu64") ready\n",
                         stTableIdx, stIdx);
-                pdStrand_t *strand = NULL;
-                RESULT_ASSERT(pdGetStrandForIndex(pd, &strand, pd->strandTables[stTableIdx-1], stIdx), ==, 0);
-                DPRINTF(DEBUG_LVL_VVERB, "Found strand %p and event %p\n", strand, strand->curEvent);
-                ASSERT(strand && strand->curEvent);
-                RESULT_ASSERT(pdMarkReadyEvent(pd, strand->curEvent), ==, 0);
+                pdStrand_t *newStrand = NULL;
+                RESULT_ASSERT(pdGetStrandForIndex(pd, &newStrand, pd->strandTables[stTableIdx-1], stIdx), ==, 0);
+                DPRINTF(DEBUG_LVL_VVERB, "Found strand %p and event %p\n", newStrand, newStrand->curEvent);
+                ASSERT(newStrand && newStrand->curEvent);
+                RESULT_ASSERT(pdMarkReadyEvent(pd, newStrand->curEvent), ==, 0);
                 break;
+            }
+            case PDACTION_ENCEXT_CTRL_MARK_READY_DIFF: {
+                u64 encodedValue;
+                u64 tt __attribute__((unused)); // This is just a trash variable
+                PDACTION_DECEXT_1ARG(encodedValue, tt, actionPtr);
+                pdStrand_t *newStrand = (pdStrand_t*)(PDACTION_FROMDIFF((u64)strand, encodedValue, PDACTION_1ARG_SIZE));
+                DPRINTF(DEBUG_LVL_VVERB, "Decoded strand %p from offset 0x%"PRIx64" off current strand %p\n",
+                        newStrand, encodedValue, strand);
+                pdEvent_t *evt = newStrand->curEvent;
+                DPRINTF(DEBUG_LVL_VERB, "Action is make strand %p ready (evt %p)\n",
+                        newStrand, evt);
+                ASSERT(evt);
+                RESULT_ASSERT(pdMarkReadyEvent(pd, evt), ==, 0);
+                break;
+            }
+            case PDACTION_ENCEXT_CTRL_SATISFY_MERGE: {
+                // We need to satisfy a merge event and, if needed, mark it as ready
+                u64 encodedValue, position;
+                u64 tt __attribute__((unused)); // Trash variable
+                PDACTION_DECEXT_2ARG(encodedValue, position, tt, actionPtr);
+                pdEventMerge_t *newEvent = (pdEventMerge_t*)(PDACTION_FROMDIFF((u64)strand, encodedValue, PDACTION_2ARG_SIZE2));
+                DPRINTF(DEBUG_LVL_VVERB, "Decoded event %p from offset 0x%"PRIx64" off current strand %p and position %"PRIu64"\n",
+                    newEvent, encodedValue, strand, position);
+                DPRINTF(DEBUG_LVL_VERB, "Action is satisfy merge %p with %p at position %"PRIu64" (totalEvents: %"PRIu32"; satisfyCount: %"PRIu32")\n",
+                    newEvent, strand->curEvent, position, newEvent->count, newEvent->countReady);
+
+                // First set the new event
+                void** entryValue;
+                arrayDequeAtIndex(&(newEvent->events), position, &entryValue);
+                *entryValue = (void*)strand->curEvent;
+                RESULT_ASSERT(pdReferenceEvent(pd, strand->curEvent), ==, 0); // Increase ref count
+                ASSERT(newEvent->count > newEvent->countReady); // This should always be true
+                u32 newCountReady = hal_xadd32(&(newEvent->countReady), 1);
+                // Both count and countReady are monotonically increasing so this next check
+                // is safe and will only be true once (given the usage pattern we are making of it)
+                if(newCountReady + 1 == newEvent->count) {
+                    DPRINTF(DEBUG_LVL_VERB, "Last event is satisfied -- triggering merged event %p\n", newEvent);
+                    CHECK_RESULT(pdMarkReadyEvent(pd, (pdEvent_t*)newEvent), , toReturn = OCR_EINVAL);
+                }
             }
             default:
                 ASSERT(0);
@@ -3021,8 +3359,8 @@ static u8 _pdDoRequeue(ocrPolicyDomain_t *pd, pdStrand_t *strand) {
     // not added to the main actions list. This may cause issues but this
     // should be rare enough that for now we can ignore (fingers crossed)
     while(strand->bufferedActions != NULL) {
-        arrayDeque_t *bufferedActions = NULL;;
-        u8 bufferedClear = false;
+        arrayDeque_t *bufferedActions = NULL;
+        bool bufferedClear = false;
         // OK, there seems to be something for us to do
         DPRINTF(DEBUG_LVL_VERB, "Found buffered actions %p on unlock for strand %p -- adding to regular actions\n",
             strand->bufferedActions, strand);
@@ -3030,8 +3368,8 @@ static u8 _pdDoRequeue(ocrPolicyDomain_t *pd, pdStrand_t *strand) {
         hal_lock(&(strand->bufferedLock));
         // We are going to swap bufferedActions with NULL
         bufferedActions = strand->bufferedActions;
-        bufferedClear = strand->bufferedHoldClear;
         strand->bufferedActions = NULL;
+        bufferedClear = strand->bufferedHoldClear;
         strand->bufferedHoldClear = false;
         hal_unlock(&(strand->bufferedLock));
 
@@ -3045,17 +3383,15 @@ static u8 _pdDoRequeue(ocrPolicyDomain_t *pd, pdStrand_t *strand) {
         while(--count > 0) {
             // Only go to the penultimate one so we can set the proper clearFwdHold flag
             RESULT_ASSERT(arrayDequePopFromHead(bufferedActions, (void**)&actionPtr), ==, 0);
-            CHECK_RESULT(pdEnqueueActions(pd, strand, 1, &actionPtr, false), {
-                    arrayDequeDestruct(bufferedActions);
-                    pd->fcts.pdFree(pd, bufferedActions);
-                }, );
+            CHECK_RESULT(pdEnqueueActions(pd, strand, 1, &actionPtr, false),
+                arrayDequeDestruct(bufferedActions);
+                pd->fcts.pdFree(pd, bufferedActions), );
         }
         // Now do the last one
         RESULT_ASSERT(arrayDequePopFromHead(bufferedActions, (void**)&actionPtr), ==, 0);
-        CHECK_RESULT(pdEnqueueActions(pd, strand, 1, &actionPtr, bufferedClear), {
-                arrayDequeDestruct(bufferedActions);
-                pd->fcts.pdFree(pd, bufferedActions);
-            }, );
+        CHECK_RESULT(pdEnqueueActions(pd, strand, 1, &actionPtr, bufferedClear),
+            arrayDequeDestruct(bufferedActions);
+            pd->fcts.pdFree(pd, bufferedActions), );
 
         // Free buffferedActions
         arrayDequeDestruct(bufferedActions);

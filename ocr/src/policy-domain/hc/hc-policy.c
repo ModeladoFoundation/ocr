@@ -1580,6 +1580,7 @@ static u8 getDeferredGuid(ocrPolicyDomain_t * pd, ocrGuid_t * guid, ocrGuidKind 
 #undef PD_TYPE
 }
 
+
 // Returns true if the operation has been deferred. Otherwise the PD must process the message.
 static u8 hcPdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
     // ocrPolicyDomainHc_t * dself = (ocrPolicyDomainHc_t *) self;
@@ -3730,6 +3731,147 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     RETURN_PROFILE(returnCode);
 }
 
+#ifdef ENABLE_MT_RUNTIME
+u8 hcPdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
+
+    // Need MEM_ALLOC
+    // Need
+    // Extract a message type of event
+    ASSERT(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
+    pdEventMsg_t *evtMsg = (pdEventMsg_t*)*evt;
+
+    // Restore the execution environment/context if needed
+    if(evtMsg->ctx) {
+        DPRINTF(DEBUG_LVL_VERB, "Restoring execution context %p\n", evtMsg->ctx);
+        ocrWorker_t *curWorker = NULL;
+        getCurrentEnv(NULL, &worker, NULL, NULL);
+        worker->curTask = evtMsg->ctx;
+    }
+
+    ocrPolicyMsg_t *msg = evtMsg->msg;
+
+    DPRINTF(DEBUG_LVL_INFO, "Going to process message %p of type 0x%"PRIx32"\n", msg, msg->type);
+    // Step 1: determine destination of the call. The scenarios are as follows:
+    //  - evtMsg->msg->srcLocation is ourself:
+    //    - we are the originator of this message and will need to set evtMsg->msg->destLocation
+    //  - evtMsg->msg->srcLocation is someone else:
+    //    - this message was routed to us, we verify that we can indeed process it. If not
+    //      we need to return an error to the originator and/or forward it to someone else
+    if(msg->origSrcLocation == self->myLocation) {
+        DPRINTF(DEBUG_LVL_VVERB, "Message %p was locally created\n", msg);
+        // In single node case, we always process the message locally
+        msg->srcLocation = msg->destLocation = self->myLocation;
+    } else {
+        DPRINTF(DEBUG_LVL_VVERB, "Message %p originates from orig:0x"PRIx64" src:0x"PRIx64"\n",
+            (u64)(msg->origSrcLocation), (u64)(msg->srcLocation));
+        // Message came from somewhere else
+        // This is not possible in single node case
+        ASSERT(0);
+    }
+
+    // Step 2: do any non-deferable pre-processing:
+    //  - This is things that we have to do locally and immediately regardless of whatever happens.
+    //    In most situations, this is just creating the GUID for an object.
+    //  - Note that we assume that the basic sanity checks (for immediate errors) have already
+    //    been done before processEvent is called.
+    DPRINTF(DEBUG_LVL_VERB, "Doing any required immediate actions for message %p\n", msg);
+    pdStrand_t *immediateStrand = NULL;
+    switch(msg->type & PD_MSG_TYPE_ONLY) {
+        case PD_MSG_DB_CREATE: {
+
+        }
+        case PD_MSG_WORK_CREATE:
+
+        case PD_MSG_EDTTEMP_CREATE:
+
+        case PD_MSG_EVT_CREATE:
+
+        default:
+            DPRINTF(DEBUG_LVL_VERB, "No immediate actions required\n");
+    }
+
+    if(immediateStrand) {
+        DPRINTF(DEBUG_LVL_VERB, "Waiting on immediate actions strand %p\n", immediateStrand)
+        // We need to ensure that all actions in the strand are done
+        DPRINTF(DEBUG_LVL_WARN, "RT BLOCKING: Immediate actions for message %p of type 0x%"PRIx64" need processing\n",
+            msg, msg->type & PD_MSG_TYPE_ONLY);
+        RESULT_ASSERT(pdProcessEvent)
+    } else {
+        DPRINTF(DEBUG_LVL_VERB, "No outstanding immediate actions\n")
+    }
+
+    if(msg->destLocation == self->myLocation) {
+        DPRINTF)(DEBUG_LVL_INFO, "Message %p is going to be processed locally\n", msg);
+        // Step 3a: If the destination is local (either I set it to local or I agreed that whomever
+        // sent it was correct), process the message locally.
+        //  - Do any pre-processing if needed (informing scheduler, etc)
+        //  - Process the event locally; note that this does not mean that everything can be done locally.
+        //    More processEvent may be required which would cause the call to potentially "block"
+
+        hcSchedNotifyPreProcessMessage(self, msg);
+
+        // Object creation:
+        //   - Get a GUID (regardless )
+        switch(msg->type & PD_MSG_TYPE_ONLY) {
+            case PD_MSG_DB_CREATE:
+            case PD_MSG_DB_DESTROY:
+            case PD_MSG_DB_ACQUIRE:
+            case PD_MSG_DB_RELEASE:
+            case PD_MSG_DB_FREE:
+            case PD_MSG_MEM_ALLOC:
+            case PD_MSG_MEM_UNALLOC:
+            case PD_MSG_WORK_CREATE:
+            case PD_MSG_WORK_EXECUTE:
+            case PD_MSG_WORK_DESTROY:
+            case PD_MSG_EDTTEMP_CREATE:
+            case PD_MSG_EDTTEMP_DESTROY:
+            case PD_MSG_EVT_CREATE:
+            case PD_MSG_EVT_DESTROY:
+            case PD_MSG_EVT_GET:
+            case PD_MSG_GUID_CREATE:
+            case PD_MSG_GUID_INFO:
+            case PD_MSG_GUID_METADATA_CLONE:
+            case PD_MSG_GUID_RESERVE:
+            case PD_MSG_GUID_UNRESERVE:
+            case PD_MSG_GUID_DESTROY:
+            case PD_MSG_METADATA_COMM:
+            case PD_MSG_SCHED_GET_WORK:
+            case PD_MSG_SCHED_NOTIFY:
+            case PD_MSG_SCHED_TRANSACT:
+            case PD_MSG_SCHED_ANALYZE:
+            case PD_MSG_SCHED_UPDATE:
+            case PD_MSG_COMM_TAKE:
+            case PD_MSG_COMM_GIVE:
+            case PD_MSG_DEP_ADD:
+            case PD_MSG_DEP_REGSIGNALER:
+            case PD_MSG_DEP_REGWAITER:
+            case PD_MSG_DEP_SATISFY:
+            case PD_MSG_DEP_UNREGWAITER:
+            case PD_MSG_DEP_UNREGSIGNALER:
+            case PD_MSG_DEP_DYNADD:
+            case PD_MSG_DEP_DYNREMOVE:
+            case PD_MSG_SAL_PRINT:
+            case PD_MSG_SAL_READ:
+            case PD_MSG_SAL_WRITE:
+            case PD_MSG_SAL_TERMINATE:
+            case PD_MSG_MGT_REGISTER:
+            case PD_MSG_MGT_UNREGISTER:
+            case PD_MSG_MGT_MONITOR_PROGRESS:
+            case PD_MSG_MGT_RL_NOTIFY:
+            case PD_MSG_HINT_SET:
+            case PD_MSG_HINT_GET:
+            default:
+                ASSERT(0);
+        }
+    } else {
+        // Step 3b: If the destination is not local, send the message off to the destination
+        // policy domain. This will return a new (potentially) pdEvent_t on which future actions
+        // can be chained
+    }
+    // Step 4: Do any required post-processing
+
+}
+#else
 u8 hcPdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     // Simple version to test out micro tasks for now. This just executes a blocking
     // call to the regular process message and returns NULL
@@ -3752,7 +3894,7 @@ u8 hcPdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     *evt = NULL;
     return 0;
 }
-
+#endif
 
 
 u8 hcPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t *message,

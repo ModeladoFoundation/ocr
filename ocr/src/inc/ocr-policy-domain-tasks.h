@@ -37,6 +37,11 @@
 #define PDST_ACTION_COUNT 4 /**< Number of actions per arrayDeque chunk */
 #endif
 
+// Certain things need to be powers of 2 (for the arrayDeque basically)
+COMPILE_ASSERT((PDEVT_LIST_SIZE & 1) == 0);
+COMPILE_ASSERT((PDEVT_MERGE_SIZE & 1) == 0);
+COMPILE_ASSERT((PDST_ACTION_COUNT & 1) == 0);
+
 /* Optimization flags (these will go away once we figure out what to use */
 
 /* Define this if you want the insertions
@@ -96,7 +101,8 @@ struct _pdTask_t;
                                       * created as not ready */
 #define PDEVT_GC           0x20000   /**< Bit indicating that the event should be
                                       * garbage collected if it is the curEvent
-                                      * of a strand that is being destroyed */
+                                      * of a strand that is being destroyed (TODO: Do we still need
+                                      * this if we reference count the event) */
 #define PDEVT_DESTROY_DEEP 0x40000   /**< Bit indicating that a deep destruction
                                       * should occur when this event is destroyed.
                                       * This will, for example, attempt to free
@@ -125,6 +131,7 @@ struct _pdStrand_t;
 typedef struct _pdEvent_t {
     u32 properties;                 /**< Type and other properties for this event. This includes
                                      * if the event is "ready" or not. */
+    u32 refCount;                   /**< Reference counter for this event */
     struct _pdStrand_t *strand;     /**< Strand that contains us currently */
 } pdEvent_t;
 
@@ -141,7 +148,7 @@ typedef struct _pdEventCommStatus_t {
 /**< Basic event type that contains a policy message */
 #define PDEVT_TYPE_MSG (PDEVT_TYPE_BASE_MSG | (1<<4))
 
-/**< Basic event containing simply a policy message */
+/**< Basic event containing simply a policy message pointer */
 typedef struct _pdEventMsg_t {
     pdEvent_t base;
     ocrPolicyMsg_t *msg;    /**< Payload for the event. These are the
@@ -152,35 +159,29 @@ typedef struct _pdEventMsg_t {
     u32 properties;         /**< Additional properties field (COMM_) */
 } pdEventMsg_t;
 
-/**< Base type for lists of event */
-#define PDEVT_TYPE_BASE_LIST 0x0003
-
-/**< Basic event type for a list of events */
-#define PDEVT_TYPE_LIST (PDEVT_TYPE_BASE_LIST | (1<<4))
-/**< A collection of events. No statement is made on the readiness of this event
- * with regards to the readiness of its sub-events */
-typedef struct _pdEventList_t {
+#define PDEVT_TYPE_MSGINLINE (PDEVT_TYPE_BASE_MSG | (2<<4))
+/**< Basic event containing an inline policy message */
+typedef struct _pdEventMsgInline_t {
     pdEvent_t base;
-    u64 count;                          /**< Number of events in this list */
-    pdEvent_t *events[PDEVT_LIST_SIZE]; /**< Events in this list event */
-    pdEvent_t **others;                 /**< An array of additional events */
-} pdEventList_t;
+    ocrPolicyMsg_t msg;     /**< Payload; this is an inline message (no separate
+                                 allocation needed) */
+    ocrTask_t *ctx;         /**< Context for executing this message */
+    u32 properties;         /**< Additional properties */
+} pdEventMsgInline_t;
 
-
-/**< Base type for merges of events; a merge is different from
- * a list as it is only ready when all of its sub-events are ready whereas
- * a list is always ready */
-#define PDEVT_TYPE_BASE_MERGE 0x0004
+/**< Base type for merges of events; a merge contains several
+ * events and is only ready when all its sub-events are also ready.
+ */
+#define PDEVT_TYPE_BASE_MERGE 0x0003
 
 /**< Basic event type for a merge of events  */
 #define PDEVT_TYPE_MERGE (PDEVT_TYPE_BASE_MERGE | (1<<4))
-/**< An event that is only ready when all its sub events are */
 typedef struct _pdEventMerge_t {
     pdEvent_t base;
-    u64 count;                          /**< Number of events in this list */
-    u64 countReady;                     /**< Number that are ready */
-    pdEvent_t *events[PDEVT_MERGE_SIZE]; /**< Events in this list event */
-    pdEvent_t **others;                 /**< An array of additional events */
+    u32 count;                          /**< Number of events in this list */
+    u32 countReady;                     /**< Number that are ready */
+    arrayDeque_t events;                /**< Events that are merged */
+    lock_t lock;                        /**< The arrayDeque_t is not thread safe so this protects adding stuff */
 } pdEventMerge_t;
 
 /**< Base type indicating the event contains callback function to processEvent */
@@ -193,7 +194,6 @@ typedef struct _pdEventMerge_t {
 typedef struct _pdEventFct_t {
     pdEvent_t base;
     ocrTask_t *ctx;         /**< Context for executing this message */
-    void * args;            /**< Additional arguments to processEvents */
     struct _pdTask_t *continuation; /**< Current continuation to execute (cached
                                       *  version from the strands table) */
     u32 id;                 /**< Continuation id */
@@ -428,7 +428,32 @@ typedef struct _pdStrandTable_t {
 u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveInTable);
 
 /**
- * @brief Destroys and frees an event
+ * @brief Grabs a reference on an already existing event
+ *
+ * Events are reference counted and this increments the count by 1.
+ * The event passed in must be a real event (not a fake pointer-like event).
+ *
+ * To prevent any leaks, the following must hold:
+ * #referenceEvent + 1 = #destroyEvent
+ *
+ * The +1 is the creation call which increments the reference count by 1
+ *
+ * @param[in] pd    Pointer to this policy domain. Can be NULL but the call
+ *                  will resolve it with getCurrentEnv
+ * @param[in] event Event to reference (valid pointer)
+ *
+ * @return a status code:
+ *   - 0: indicates success
+ *   - OCR_EINVAL indicates that the event is invalid
+ */
+u8 pdReferenceEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
+
+/**
+ * @brief Destroys and frees an event if its reference count is 0
+ *
+ * Events are managed in a reference counted manner so the event
+ * will only be destroyed if its reference count reaches 0. In
+ * all other cases, this call decrements the reference count.
  *
  * This call will do a deep free if PDEVT_DESTROY_DEEP is set
  * on the event's property.
@@ -448,8 +473,9 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
  * @param[in] event     Event to destroy and free
  * @return a status code:
  *          - 0 if everything was successful
- *          - OCR_EINVAL if the event was ready but
- *                       had pending actions (likely race)
+ *          - OCR_EINVAL if the event is invalid either because:
+ *                       - it was ready but had pending actions (likely race)
+ *                       - it did not have a valid refCount
  */
 u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
 
@@ -577,6 +603,55 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
  */
 u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
 
+/**
+ * @brief Add an event to a merge event
+ *
+ * A merge event contains several events and will
+ * be marked as ready when all the events that it contains are
+ * also marked as ready.
+ *
+ * To add events to the merge event, use this function. Once
+ * all events have been added, you need to call pdCloseMerge().
+ * This is to prevent a race condition between the adding of
+ * events and the parallel satisfaction of other events that
+ * may have already been added.
+ *
+ * @note If the event to add is not ready, NULL can be passed in as the last
+ * parameter and the event will be properly set by the action of satisfying
+ * a merge event. If the event is passed in and is a real event, it should be
+ * ready. If it is not a real event, it will be considered the same as NULL.
+ *
+ * @param[in] pd          Policy domain to use. Can be NULL
+ * @param[out] position   Position this event was added in. This is
+ *                        needed to create the appropriate action to satisfy
+ *                        this event
+ * @param[in] mergeEvent  Merge event to modify
+ * @param[in] event       Event to add if already ready or NULL otherwise
+ * @return a status code indicating the status of the change:
+ *     - 0: everything went OK
+ *     - OCR_EINVAL: invalid mergeEvent or event
+ *     - OCR_ENOMEM: not enough memory to add the event
+ */
+u8 pdAddEventToMerge(ocrPolicyDomain_t *pd, u64 *position, pdEventMerge_t *mergeEvent, pdEvent_t *event);
+
+/**
+ * @brief Indicates that no more events will be added to a merge event
+ *
+ * When initially created, the merge event is prevented from being
+ * satisfied until pdCloseMerge is called. This prevents a race
+ * condition between the adding of events and the concurrent satisfaction
+ * of previously added events
+ * @details [long description]
+ *
+ * @param[in] pd          Policy domain to use. Can be NULL
+ * @param[in] mergeEvent  Merge event to close
+ *
+ * @return a status code indicating the status of the change:
+ *     - 0: everything went OK
+ *     - OCR_EINVAL: invalid mergeEvent
+ */
+u8 pdCloseMerge(ocrPolicyDomain_t *pd, pdEventMerge_t *mergeEvent);
+
 /***************************************/
 /***** pdAction_t related functions ****/
 /***************************************/
@@ -606,19 +681,47 @@ pdAction_t* pdGetProcessEventAction(ocrObject_t* object);
  *
  * This action will switch the event from not being ready
  * to being ready. If the event has actions waiting to
- * execute, those will be available to be processed
+ * execute, those will be available to be processed.
+ *
+ * @warning This should NOT be used on events that are
+ * being waited on as part of a pdEventMerge_t event
+ * and instead the pdGetSatisfyMergeAction() should be used
+ *
+ * @warning Events to satisfy MUST be part of a strand (this kind
+ * of subsumes the previous case but calling that one out
+ * explicitly)
  *
  * @note Making an event ready does not mean the event
  * will resolve because actions may still need to be
  * processed
  *
- * @param[in] event Pointer (either resolved or not) to
- *                  the event to make ready
+ * @param[in] curStrand Pointer to the current strand (the one on which this
+ *                      action is being enqueued)
+ * @param[in] event     Pointer (either resolved or not) to
+ *                      the event to make ready
  * @return A pdAction_t pointer encoding the action. This can be used in pdEnqueueAction()
  *         to add this action to a strand. Note that the "pointer" returned may not
  *         be a true pointer and should not be used directly
  */
-pdAction_t* pdGetMarkReadyAction(pdEvent_t *event);
+pdAction_t* pdGetMarkReadyAction(pdStrand_t *curStrand, pdEvent_t *event);
+
+/**
+ * @brief Creates an action that will mark as ready the event in
+ * position 'position' of the merge event
+ *
+ * This call is similar to pdGetMarkReadyAction() but for events
+ * that are within a merge event. It is assumed that the event at position
+ * in the merge event is the current strand's event. In other words, this will
+ * replace the event in the merged event with the one at this point in the strand.
+ *
+ * @param[in] curStrand   Pointer to the current strand (the one on which this
+ *                        action is enqueued)
+ * @param[in] mergeEvent  Merge event to satisfy. This event must be a resolved event
+ * @param[in] position    Position to satisfy (this is given by the pdAddEventToMerge() function)
+ * @return [description]
+ */
+pdAction_t* pdGetSatisfyMergeAction(pdStrand_t *curStrand, pdEventMerge_t *mergeEvent, u64 position);
+
 /***************************************/
 /***** pdStrand_t related functions ****/
 /***************************************/

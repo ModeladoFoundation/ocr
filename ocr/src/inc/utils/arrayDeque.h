@@ -35,6 +35,7 @@ typedef struct _arrayDequeChunk_t {
 
 typedef struct _arrayDeque_t {
     u32 chunkSize; /**< Size of each chunk. Should be a power of two */
+    u32 chunkSizeOffset; /**< Number of bits in chunk size - 1; for eg: 8 -> 3 */
     u32 chunkCount; /**< Number of chunks */
     arrayDequeChunk_t *head, *tail; /**< Head and tail of the array deque */
     u32 headIdx, tailIdx; /**< Head and tail index of the deque. Note that these point
@@ -168,6 +169,21 @@ u8 arrayDequePopFromHead(arrayDeque_t* deque, void** entry);
  *   - OCR_EAGAIN: No element to peek -- try later
  */
 u8 arrayDequePeekFromHead(arrayDeque_t* deque, void** entry);
+
+/**
+ * @brief Returns the element at index idx
+ *
+ * A valid 'entry' pointer to a pointer should be passed
+ * and upon exit, the element returned can be used to modify
+ * the element in the array
+ *
+ * @param[in] deque   Array deque to get an element from
+ * @param[in] idx     Index of the element to get (0 based)
+ * @param[out] entry  Element at idx (pointer to a void* pointer)
+ * @return 0 on success or an error code:
+ *     - OCR_EINVAL if index is invalid
+ */
+u8 arrayDequeAtIndex(arrayDeque_t* deque, u64 idx, void*** entry);
 
 /**
  * @brief Hook into the deque API

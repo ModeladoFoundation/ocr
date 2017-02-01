@@ -28,6 +28,7 @@ u8 arrayDequeInit(arrayDeque_t *deque, u32 chunkSize) {
         RETURN_PROFILE(OCR_EINVAL);
     }
     deque->chunkSize = chunkSize;
+    deque->chunkSizeOffset = fls32(chunkSize);
     deque->chunkCount = 0;
     deque->head = deque->tail = NULL;
     deque->headIdx = deque->tailIdx = 0;
@@ -365,6 +366,40 @@ u8 arrayDequePeekFromHead(arrayDeque_t* deque, void** entry) {
     RETURN_PROFILE(0);
 }
 
+u8 arrayDequeAtIndex(arrayDeque_t* deque, u64 idx, void*** entry) {
+    START_PROFILE(util_arrayDequeAtIndex);
+    ASSERT(deque);
+    ASSERT(entry);
+
+    DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: attempting to get entry at index %"PRIu64"\n", deque, idx);
+    if(arrayDequeSize(deque) <= idx) {
+        // Empty deque or index out of range
+        DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: queue is too small\n", deque);
+        *entry = NULL;
+        RETURN_PROFILE(OCR_EINVAL);
+    }
+
+    // We find the right chunk and then return that entry
+    // This is not ideal since we go over the linked list but
+    // they shouldn't be too large in practice. I'll print a warning
+    // just in case it is too large
+    // The +headIdx is because idx == 0 corresponds to headIdx
+    u64 chunkCount = (idx + deque->headIdx) >> (deque->chunkSizeOffset); // This effectively divides by chunkSize
+    if(chunkCount > 10) {
+        DPRINTF(DEBUG_LVL_WARN, "Going over %"PRIu64" chunks -- consider new implementation\n",
+            chunkCount);
+    }
+    arrayDequeChunk_t *curChunk = deque->head;
+    ASSERT(chunkCount < deque->chunkCount);
+    while(chunkCount--) {
+        curChunk = curChunk->next;
+    }
+    ASSERT(curChunk);
+    *entry = &(curChunk->data[(idx + deque->headIdx) & (deque->chunkSize - 1)]);
+    DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: element @ %p returned [%p]\n", deque, *entry, **entry);
+
+    RETURN_PROFILE(0);
+}
 
 /**
  * @brief Wrapper function for size

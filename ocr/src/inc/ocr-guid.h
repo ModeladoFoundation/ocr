@@ -84,6 +84,9 @@ typedef struct {
  * for the sharing of function pointers for GUID provider from the same factory
  */
 typedef struct _ocrGuidProviderFcts_t {
+#ifdef ENABLE_MT_RUNTIME
+    ocrModuleFcts_t base;
+#endif
     /**
      * @brief Destructor equivalent
      *
@@ -323,7 +326,9 @@ typedef struct _ocrGuidProviderFcts_t {
  * support different address spaces (in the future)
  */
 typedef struct _ocrGuidProvider_t {
-    ocrObject_t base;
+#ifdef ENABLE_MT_RUNTIME
+    ocrModule_t base;
+#endif
     struct _ocrPolicyDomain_t *pd;  /**< Policy domain of this GUID provider */
     u32 id;                         /**< Function IDs for this GUID provider */
     ocrGuidProviderFcts_t fcts;     /**< Functions for this instance */
