@@ -25,6 +25,9 @@ extern u32 salPause(bool isBlocking);
 extern ocrGuid_t salQuery(ocrQueryType_t query, ocrGuid_t guid, void **result, u32 *size, u8 flags);
 
 extern void salResume(u32 flag);
+
+extern void salInjectFault(void);
+
 #define sal_abort() hal_abort()
 
 #define sal_exit(x) hal_exit(x)

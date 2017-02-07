@@ -20,6 +20,7 @@ typedef enum {
 typedef enum {
     OCR_FAULT_NONE = 0,
     OCR_FAULT_DATABLOCK_CORRUPTION,
+    OCR_FAULT_DATABLOCK_CORRUPTION_XE,
 } ocrFaultKind;
 
 typedef union _ocrFaultData_t {

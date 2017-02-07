@@ -481,6 +481,10 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDom
  * Returns false when the end of depv is reached
  */
 static u8 iterateDbFrontier(ocrTask_t *self) {
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    if (self->flags & OCR_TASK_FLAG_DEFERRED)
+        return true;
+#endif
     ocrTaskHc_t * rself = ((ocrTaskHc_t *) self);
     regNode_t * depv = rself->signalers;
     u32 i = rself->frontierSlot;
@@ -843,9 +847,13 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     ocrFatGuid_t outputEvent = {.guid = NULL_GUID, .metaDataPtr = NULL};
     // Check if we need an output event created
 #ifdef ENABLE_OCR_API_DEFERRABLE
+#if defined (ENABLE_POLICY_DOMAIN_CE) || defined (ENABLE_POLICY_DOMAIN_XE) //Only TG
+    if (ocrGuidIsUninitialized(outputEventPtr->guid)) {
+#else
     if (!ocrGuidIsNull(outputEventPtr->guid)) {
         // In deferred the GUID is either null or valid but no instance attached to it
         ASSERT(!ocrGuidIsUninitialized(outputEventPtr->guid));
+#endif
 #else
     if (ocrGuidIsUninitialized(outputEventPtr->guid)) {
         // In non-deferred, an unitialized guid indicates the user requested a creation
@@ -958,11 +966,19 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     }
 #endif
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+#if defined (ENABLE_POLICY_DOMAIN_CE) || defined (ENABLE_POLICY_DOMAIN_XE) //Only TG
+    if (hasProperty(properties, EDT_PROP_RT_DEFERRED)) {
+        self->flags |= OCR_TASK_FLAG_DEFERRED;
+    }
+#endif
+#endif
+
     // Set up HC specific stuff
     RESULT_PROPAGATE2(initTaskHcInternal(dself, taskGuid, pd, curEdt, outputEvent, parentLatch, properties), 1);
 
     // If there's a local parent latch for this EDT, register to it
-    if (!(ocrGuidIsNull(parentLatch.guid)) && isLocalGuid(pd, parentLatch.guid)) {
+    if (!(ocrGuidIsNull(parentLatch.guid)) && isLocalGuid(pd, parentLatch.guid) && (!hasProperty(properties, EDT_PROP_RT_DEFERRED))) {
         DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on local parent finish latch "GUIDF"\n", GUIDA(taskGuid), GUIDA(parentLatch.guid));
         PD_MSG_STACK(msg);
         getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -1087,6 +1103,32 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
 #ifndef REG_ASYNC
 
 u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
+    ocrTaskHc_t * self = (ocrTaskHc_t *) base;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    if (slot == EDT_SLOT_DEFERRED) {
+        //This is called on a deferred EDT create after the parent EDT has completely executed
+        ASSERT(ocrGuidIsNull(data.guid) && data.metaDataPtr == NULL);
+        ASSERT(base->flags & OCR_TASK_FLAG_DEFERRED);
+        base->flags &= ~OCR_TASK_FLAG_DEFERRED;
+        if (!ocrGuidIsNull(base->parentLatch)) {
+            DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on local parent finish latch "GUIDF"\n", GUIDA(base->guid), GUIDA(base->parentLatch));
+            ocrPolicyDomain_t *pd = NULL;
+            PD_MSG_STACK(msg);
+            getCurrentEnv(&pd, NULL, NULL, &msg);
+            ocrFatGuid_t edtCheckin = {.guid = base->guid, .metaDataPtr = base};
+            ocrFatGuid_t parentLatchFGuid = {.guid = base->parentLatch, .metaDataPtr = NULL};
+            ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+            RESULT_PROPAGATE(doSatisfy(pd, &msg, edtCheckin, parentLatchFGuid, nullFGuid, OCR_EVENT_LATCH_INCR_SLOT));
+        }
+        if(self->slotSatisfiedCount >= base->depc) {
+            DPRINTF(DEBUG_LVL_VERB, "Scheduling task "GUIDF", satisfied dependences %"PRId32"/%"PRId32"\n",
+                GUIDA(self->base.guid), self->slotSatisfiedCount , base->depc);
+            // All dependences have been satisfied, schedule the edt
+            RESULT_PROPAGATE(taskAllDepvSatisfied(base));
+        }
+        return 0;
+    }
+#endif
     // An EDT has a list of signalers, but only registers
     // incrementally as signals arrive AND on non-persistent
     // events (latch or ONCE)
@@ -1096,7 +1138,10 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     //  - it can be a ONCE event
     //  - it can be a data-block being added (causing an immediate satisfy)
 
-    ocrTaskHc_t * self = (ocrTaskHc_t *) base;
+    // Check slot is in bounds
+    ASSERT_BLOCK_BEGIN((slot >= 0) && (slot < base->depc))
+    DPRINTF(DEBUG_LVL_WARN, "error: EDT "GUIDF" is satisfied on slot=%"PRIu32" but depc is %"PRIu32"\n", GUIDA(base->guid), slot, base->depc);
+    ASSERT_BLOCK_END
 
     // Replace the signaler's guid by the data guid, this is to avoid
     // further references to the event's guid, which is good in general
@@ -1438,11 +1483,11 @@ u8 notifyDbReleaseTaskHc(ocrTask_t *base, ocrFatGuid_t db) {
     return OCR_ENOENT;
 }
 
-#ifdef ENABLE_RESILIENCY
+#if defined (ENABLE_RESILIENCY) || defined (ENABLE_RESILIENCY_TG)
 // Reset the EDT to the state before it started executing
 // Bug #995 : TODO: MEMORY LEAK! Deallocations ignored for now.
 static void taskReset(ocrTask_t* base) {
-    DPRINTF(DEBUG_LVL_INFO, "Repeat_Execution "GUIDF"\n", GUIDA(base->guid));
+    DPRINTF(DEBUG_LVL_WARN, "Repeat_Execution "GUIDF"\n", GUIDA(base->guid));
     u32 i;
     ocrPolicyDomain_t *pd = NULL;
     ocrWorker_t *curWorker = NULL;
@@ -1523,6 +1568,8 @@ static u8 checkForFaults(ocrTask_t *base, bool postCheck) {
                 }
             }
             break;
+        case OCR_FAULT_DATABLOCK_CORRUPTION_XE:
+            return OCR_EAGAIN;
         default:
             //Not handled
             ASSERT(0);
@@ -1534,6 +1581,24 @@ static u8 checkForFaults(ocrTask_t *base, bool postCheck) {
 #endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
+#if defined (ENABLE_POLICY_DOMAIN_CE) || defined (ENABLE_POLICY_DOMAIN_XE) //Only TG
+static void deferredExecute(ocrTask_t *self) {
+    ocrTaskHc_t* dself = (ocrTaskHc_t*)self;
+    u32 i = 0;
+    if (dself->evts) {
+        ocrPolicyDomain_t * pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        u32 ub = queueGetSize(dself->evts);
+        while (i < ub) {
+            ocrPolicyMsg_t *msg = queueGet(dself->evts, i);
+            DPRINTF(DEBUG_LVL_VERB, "[DFRD] Executing msg type=0x%"PRIx32"\n", msg->type);
+            pd->fcts.processMessage(pd, msg, true);
+            i++;
+        }
+        queueDestroy(dself->evts);
+    }
+}
+#else
 static void deferredExecute(ocrTask_t* self) {
     ocrTaskHc_t* dself = (ocrTaskHc_t*)self;
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
@@ -1561,6 +1626,7 @@ static void deferredExecute(ocrTask_t* self) {
     }
 #endif
 }
+#endif
 #endif
 
 //TODO-DEFERRED: These operations depend on the state of the EDT after the user code has
@@ -1934,10 +2000,12 @@ u8 taskExecute(ocrTask_t* base) {
         u64 endTime = salGetTime();
         DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" FctName: %s Start: %"PRIu64" End: %"PRIu64"\n", GUIDA(base->guid), base->name, startTime, endTime);
 #endif
+#if defined (ENABLE_RESILIENCY) || defined (ENABLE_RESILIENCY_TG)
 #ifdef ENABLE_RESILIENCY
         hal_lock(&curWorker->notifyLock);
         curWorker->activeDepv = NULL;
         hal_unlock(&curWorker->notifyLock);
+#endif
         // Check for faults after EDT execution
         // If required, re-execute EDT
         err = checkForFaults(base, true);

@@ -99,6 +99,7 @@ typedef enum {
     OCR_SCHED_NOTIFY_DB_RELEASE,                    /* BUG #920 Cleanup - Notify scheduler that a DB is released by an EDT */
     OCR_SCHED_NOTIFY_DB_DESTROY,                    /* BUG #920 Cleanup - Notify scheduler that a DB is destroyed */
     OCR_SCHED_NOTIFY_EDT_CREATE,                    /* BUG #920 Cleanup - Notify scheduler that an EDT is created */
+    OCR_SCHED_NOTIFY_EDT_ENABLED,                   /* Notify scheduler that an EDT is enabled after being created in deferred model */
     OCR_SCHED_NOTIFY_EDT_SATISFIED,                 /* Notify scheduler that an EDT is fully satisfied */
     OCR_SCHED_NOTIFY_EDT_READY,                     /* Notify scheduler that an EDT is ready to execute */
     OCR_SCHED_NOTIFY_EDT_DONE,                      /* BUG #920 Cleanup - Notify scheduler that an EDT is done executing */
@@ -130,6 +131,9 @@ typedef union _ocrSchedNotifyData_t {
     struct {
         ocrFatGuid_t guid;                          /* Scheduler is notified about this edt guid */
     } OCR_SCHED_ARG_NAME(OCR_SCHED_NOTIFY_EDT_CREATE);
+    struct {
+        ocrFatGuid_t guid;                          /* Scheduler is notified this edt is enabled after created in deferred model */
+    } OCR_SCHED_ARG_NAME(OCR_SCHED_NOTIFY_EDT_ENABLED);
     struct {
         ocrFatGuid_t guid;                          /* Scheduler is notified about this edt guid */
     } OCR_SCHED_ARG_NAME(OCR_SCHED_NOTIFY_EDT_SATISFIED);

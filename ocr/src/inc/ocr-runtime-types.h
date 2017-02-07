@@ -358,7 +358,8 @@ typedef enum {
 /**
  * @brief Identifier to represent 'none' of an EDT slots.
  */
-#define EDT_SLOT_NONE ((u32)-1)
+#define EDT_SLOT_NONE       ((u32)-1)
+#define EDT_SLOT_DEFERRED   ((u32)-99)
 
 /**
  * @brief Type of pop from workpiles.

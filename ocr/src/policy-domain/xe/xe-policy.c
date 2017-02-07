@@ -23,6 +23,7 @@
 #include "experimental/ocr-platform-model.h"
 #include "extensions/ocr-hints.h"
 #include "policy-domain/xe/xe-policy.h"
+#include "task/hc/hc-task.h"
 
 #include "tg-bin-files.h"
 
@@ -806,10 +807,123 @@ static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
     return returnCode;
 }
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+
+#define DEFERRED_MSG_QUEUE_SIZE_DEFAULT 4
+
+static ocrPolicyMsg_t * xePdDeferredMarshall(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
+    u64 baseSize = 0, marshalledSize = 0;
+    ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, 0);
+    // For now, it must fit in a single message
+    u64 fullMsgSize = baseSize + marshalledSize;
+    DPRINTF(DEBUG_LVL_VVERB, "Marshall size for deferred msg type 0x%lx: %lu [%lu + %lu]\n", (msg->type & PD_MSG_TYPE_ONLY), fullMsgSize, baseSize, marshalledSize);
+    ASSERT(baseSize + marshalledSize <= sizeof(ocrPolicyMsg_t));
+    ocrPolicyMsg_t * msgCopy = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, fullMsgSize);
+    ocrPolicyMsgMarshallMsg(msg, baseSize, (u8*)msgCopy, MARSHALL_DUPLICATE);
+    return msgCopy;
+}
+
+static void xePdDeferredRecord(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
+    ocrTask_t *curTask = NULL;
+    getCurrentEnv(NULL, NULL, &curTask, NULL);
+    ASSERT(curTask != NULL);
+    ocrTaskHc_t * hcTask = (ocrTaskHc_t *) curTask;
+    if (hcTask->evts == NULL) {
+        hcTask->evts = newBoundedQueue(pd, DEFERRED_MSG_QUEUE_SIZE_DEFAULT);
+    }
+    if (queueIsFull(hcTask->evts)) {
+        hcTask->evts = queueDoubleResize(hcTask->evts, /*freeOld=*/true);
+    }
+    queueAddLast(hcTask->evts, (void *) msg);
+}
+
+static void xePdDeferCall(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
+    ocrPolicyMsg_t * msgCopy = xePdDeferredMarshall(pd, msg);
+    xePdDeferredRecord(pd, msgCopy);
+    setReturnDetail(msg, 0);
+    return;
+}
+
+static void xePdDeferWorkEnable(ocrPolicyDomain_t *pd, ocrFatGuid_t edtGuid) {
+    PD_MSG_STACK(msg);
+    getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_NOTIFY
+    msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
+    PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_ENABLED;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_ENABLED).guid = edtGuid;
+    PD_MSG_FIELD_I(properties) = EDT_PROP_RT_DEFERRED_EDT_FINAL;
+    xePdDeferCall(pd, &msg);
+#undef PD_MSG
+#undef PD_TYPE
+}
+
+static u8 xePdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
+    ASSERT(msg->type & PD_MSG_DEFERRABLE);
+    msg->type &= (~PD_MSG_DEFERRABLE);
+
+    ocrTask_t *curTask = NULL;
+    getCurrentEnv(NULL, NULL, &curTask, NULL);
+    if (curTask == NULL) {
+        return OCR_EPERM;
+    }
+
+    switch(msg->type & PD_MSG_TYPE_ONLY) {
+        case PD_MSG_DB_CREATE:
+        case PD_MSG_EVT_CREATE:
+        case PD_MSG_EDTTEMP_CREATE:
+        { //Non-deferrable guid creation
+            return OCR_EPERM;
+        }
+        case PD_MSG_WORK_CREATE:
+        { //Non-deferrable guid creation; also record for deferred visibility
+#define PD_TYPE PD_MSG_WORK_CREATE
+#define PD_MSG msg
+            PD_MSG_FIELD_I(properties) |= EDT_PROP_RT_DEFERRED;
+#undef PD_MSG
+#undef PD_TYPE
+            return OCR_EPERM;
+        }
+        case PD_MSG_MGT_RL_NOTIFY:
+        case PD_MSG_DEP_DYNREMOVE:
+        case PD_MSG_DEP_DYNADD:
+        case PD_MSG_DB_FREE:
+        case PD_MSG_DB_RELEASE:
+        case PD_MSG_EVT_DESTROY:
+        case PD_MSG_EDTTEMP_DESTROY:
+        case PD_MSG_WORK_DESTROY:
+        case PD_MSG_DEP_SATISFY:
+        case PD_MSG_DEP_ADD:
+        { //Deferrable msgs
+            break;
+        }
+        default:
+        {
+            ASSERT(0); //Unsupported msg
+            return OCR_EPERM;
+        }
+    }
+    xePdDeferCall(self, msg);
+    return 0;
+}
+
+#endif
+
 u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
 
     u8 returnCode = 0;
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    if(msg->type & PD_MSG_DEFERRABLE) {
+        returnCode = xePdDeferredProcessMessage(self, msg, isBlocking);
+        // OCR_EPERM means drop-through and continue processing (can't defer)
+        // 0 means call was deferred
+        // Other error codes should be returned as usual
+        if(returnCode != OCR_EPERM)
+            return returnCode;
+        returnCode = 0;
+    }
+#endif
 
     DPRINTF(DEBUG_LVL_VVERB, "Going to process message of type 0x%"PRIx64"\n",
             (msg->type & PD_MSG_TYPE_ONLY));
@@ -954,11 +1068,33 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 localDeguidify(self, fguid);
                 DPRINTF(DEBUG_LVL_VVERB, "Received EDT ("GUIDF"; %p)\n",
                         GUIDA(fguid->guid), fguid->metaDataPtr);
+#ifdef ENABLE_RESILIENCY_TG
+                ocrTask_t * task = (ocrTask_t *) fguid->metaDataPtr;
+                if (task->depc > 0) {
+                    ocrPolicyDomainXe_t *rself = (ocrPolicyDomainXe_t*)self;
+                    ocrTaskHc_t * hcTask = (ocrTaskHc_t *) task;
+                    rself->mainDb = hcTask->resolvedDeps[0].guid;
+                }
+#endif
                 PD_MSG_FIELD_O(factoryId) = 0;
             }
 #undef PD_MSG
 #undef PD_TYPE
         }
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        else if((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_WORK_CREATE) {
+#define PD_TYPE PD_MSG_WORK_CREATE
+#define PD_MSG msg
+            ASSERT(!ocrGuidIsNull(PD_MSG_FIELD_IO(guid).guid));
+            ASSERT(PD_MSG_FIELD_IO(guid).metaDataPtr != NULL);
+            ocrTask_t *newTask = (ocrTask_t*)PD_MSG_FIELD_IO(guid).metaDataPtr;
+            if (newTask->flags & OCR_TASK_FLAG_DEFERRED) {
+                xePdDeferWorkEnable(self, PD_MSG_FIELD_IO(guid));
+            }
+#undef PD_MSG
+#undef PD_TYPE
+        }
+#endif
         EXIT_PROFILE;
         break;
     }
@@ -970,7 +1106,6 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     case PD_MSG_MGT_REGISTER: case PD_MSG_MGT_UNREGISTER:
     case PD_MSG_SAL_TERMINATE:
     case PD_MSG_GUID_METADATA_CLONE: case PD_MSG_MGT_MONITOR_PROGRESS: case PD_MSG_METADATA_COMM:
-    case PD_MSG_RESILIENCY_NOTIFY:   case PD_MSG_RESILIENCY_MONITOR:
     {
         DPRINTF(DEBUG_LVL_WARN, "XE PD does not handle call of type 0x%"PRIx32"\n",
                 (u32)(msg->type & PD_MSG_TYPE_ONLY));
@@ -1077,6 +1212,32 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_MSG
 #undef PD_TYPE
     }
+#ifdef ENABLE_RESILIENCY_TG
+    case PD_MSG_RESILIENCY_NOTIFY: {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_RESILIENCY_NOTIFY
+        ocrPolicyDomainXe_t *rself = (ocrPolicyDomainXe_t*)self;
+        rself->faultArgs = PD_MSG_FIELD_I(faultArgs);
+        break;
+#undef PD_MSG
+#undef PD_TYPE
+    }
+    case PD_MSG_RESILIENCY_MONITOR: {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+        ocrPolicyDomainXe_t *rself = (ocrPolicyDomainXe_t*)self;
+        if (rself->faultArgs.kind != OCR_FAULT_NONE) {
+            PD_MSG_FIELD_O(faultArgs) = rself->faultArgs;
+            rself->faultArgs.kind = OCR_FAULT_NONE;
+            PD_MSG_FIELD_O(returnDetail) = OCR_EFAULT;
+        } else {
+            PD_MSG_FIELD_O(returnDetail) = 0;
+        }
+        break;
+#undef PD_MSG
+#undef PD_TYPE
+    }
+#endif
     default: {
         DPRINTF(DEBUG_LVL_WARN, "Unknown message type 0x%"PRIx32"\n", (u32)(msg->type & PD_MSG_TYPE_ONLY));
         ASSERT(0);
@@ -1216,6 +1377,10 @@ void initializePolicyDomainXe(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
     derived->rlSwitch.barrierRL = RL_GUID_OK;
     derived->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
     derived->rlSwitch.pdStatus = 0;
+#ifdef ENABLE_RESILIENCY_TG
+    derived->mainDb = NULL_GUID;
+    derived->faultArgs.kind = OCR_FAULT_NONE;
+#endif
     self->neighborCount = ((paramListPolicyDomainXeInst_t*)perInstance)->neighborCount;
 }
 

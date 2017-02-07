@@ -29,7 +29,8 @@
 #endif
 
 //Runtime defined properties for EDT create (upper 16 bits)
-#define EDT_PROP_RT_HINT_ALLOC  0x10000 //Hint variable is runtime allocated
+#define EDT_PROP_RT_HINT_ALLOC          0x10000 //Hint variable is runtime allocated
+#define EDT_PROP_RT_DEFERRED_EDT_FINAL  0x40000 //Runtime property to post-process deferred EDT
 
 struct _ocrTask_t;
 struct _ocrTaskTemplate_t;
@@ -454,6 +455,7 @@ typedef struct _ocrTask_t {
 #ifdef ENABLE_EXTENSION_PERF
 #define OCR_TASK_FLAG_PERFMON_ME            0x20 /* Identifies if perfmon needs to be carried out for this task */
 #endif
+#define OCR_TASK_FLAG_DEFERRED              0x40 /* Identifies task as deferred */
 
 /****************************************************/
 /* OCR TASK FACTORY                                 */

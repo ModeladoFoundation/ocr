@@ -117,4 +117,7 @@
 // Affinity (no-op for now)
 #define ENABLE_EXTENSION_AFFINITY
 
+//Resiliency
+#define ENABLE_RESILIENCY_TG
+
 #endif /* __OCR_CONFIG_H__ */

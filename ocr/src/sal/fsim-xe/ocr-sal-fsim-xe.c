@@ -3,6 +3,7 @@
 
 #include "debug.h"
 #include "ocr-types.h"
+#include "policy-domain/xe/xe-policy.h"
 
 #include "xstg-arch.h"
 #include "mmio-table.h"
@@ -63,6 +64,30 @@ ocrGuid_t salQuery(ocrQueryType_t query, ocrGuid_t guid, void **result, u32 *siz
 void salResume(u32 flag){
      return;
 
+}
+
+void salInjectFault(void) {
+#ifdef ENABLE_RESILIENCY_TG
+    ocrPolicyDomain_t *pd;
+    PD_MSG_STACK(msg)
+    getCurrentEnv(&pd, NULL, NULL, &msg);
+    ocrPolicyDomainXe_t *xePolicy = (ocrPolicyDomainXe_t*)pd;
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_NOTIFY
+    msg.type = PD_MSG_RESILIENCY_NOTIFY | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(properties) = 0;
+    PD_MSG_FIELD_I(faultArgs).kind = OCR_FAULT_DATABLOCK_CORRUPTION_XE;
+    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db.guid = xePolicy->mainDb;
+    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db.metaDataPtr = NULL;
+    pd->fcts.processMessage(pd, &msg, true);
+    if (PD_MSG_FIELD_O(returnDetail) == 0) {
+        DPRINTF(DEBUG_LVL_WARN, "Injecting fault - corrupting data-block "GUIDF" by changing a value to 0xff...f\n", GUIDA(xePolicy->mainDb));
+    } else {
+        DPRINTF(DEBUG_LVL_INFO, "Unable to inject fault - resiliency manager notify failed\n");
+    }
+#undef PD_MSG
+#undef PD_TYPE
+#endif
 }
 
 u64 salGetTime(void){

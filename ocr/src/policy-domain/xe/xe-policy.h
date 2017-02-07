@@ -37,6 +37,10 @@ typedef struct {
     void *packedArgsLocation;  // Keep this here.  If moved around, might make mismatch in
                                // .../tg/tgkrnl/inc/tg-bin-file.h, "magic" number XE_PDARGS_OFFSET.
     pdXeResumeSwitchRL_t rlSwitch; // Structure to keep track of runlevel switches
+#ifdef ENABLE_RESILIENCY_TG
+    ocrGuid_t mainDb;
+    ocrFaultArgs_t faultArgs;
+#endif
 } ocrPolicyDomainXe_t;
 
 typedef struct {
