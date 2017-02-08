@@ -119,5 +119,10 @@
 
 //Resiliency
 #define ENABLE_RESILIENCY_TG
+#ifdef ENABLE_RESILIENCY_TG
+#ifndef ENABLE_OCR_API_DEFERRABLE
+#define ENABLE_OCR_API_DEFERRABLE
+#endif
+#endif
 
 #endif /* __OCR_CONFIG_H__ */

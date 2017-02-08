@@ -1686,6 +1686,29 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         break;
     }
 
+    case PD_MSG_WORK_ENABLE: {
+        START_PROFILE(pd_hc_WorkEnable);
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_WORK_ENABLE
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        localDeguidify(self, &(PD_MSG_FIELD_I(guid)), NULL);
+        ocrTask_t *task = (ocrTask_t*)PD_MSG_FIELD_I(guid.metaDataPtr);
+        ASSERT(task && ocrGuidIsEq(task->guid, PD_MSG_FIELD_I(guid.guid)));
+        DPRINTF(DEBUG_LVL_VERB, "WORK_ENABLE req/resp for GUID "GUIDF"\n",
+                GUIDA(PD_MSG_FIELD_I(guid.guid)));
+        ASSERT(task->fctId == ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->factoryId);
+        ocrFatGuid_t nullPayload = {.guid = NULL_GUID, .metaDataPtr = NULL};
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->fcts.satisfy(task, nullPayload, EDT_SLOT_DEFERRED);
+#else
+        PD_MSG_FIELD_O(returnDetail) = 0;
+#endif
+        returnCode = ceProcessResponse(self, msg, 0);
+#undef PD_MSG
+#undef PD_TYPE
+        EXIT_PROFILE;
+        break;
+    }
+
     case PD_MSG_EDTTEMP_CREATE: {
         START_PROFILE(pd_ce_EdtTempCreate);
 #define PD_MSG msg
@@ -2413,21 +2436,9 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_SCHED_NOTIFY
         ocrSchedulerOpNotifyArgs_t *notifyArgs = &PD_MSG_FIELD_IO(schedArgs);
         notifyArgs->base.location = msg->srcLocation;
-#ifdef ENABLE_OCR_API_DEFERRABLE
-        if (PD_MSG_FIELD_I(properties) & EDT_PROP_RT_DEFERRED_EDT_FINAL) {
-            ocrFatGuid_t edtGuid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_ENABLED).guid;
-            localDeguidify(self, &edtGuid, NULL);
-            ocrTask_t *task = (ocrTask_t*)edtGuid.metaDataPtr;
-            ASSERT(ocrGuidIsEq(task->guid, edtGuid.guid));
-            ocrFatGuid_t satData = {.guid = NULL_GUID, .metaDataPtr = NULL};
-            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->fcts.satisfy(task, satData, EDT_SLOT_DEFERRED);
-        } else
-#endif
-        {
-            PD_MSG_FIELD_O(returnDetail) =
-                self->schedulers[0]->fcts.op[OCR_SCHEDULER_OP_NOTIFY].invoke(
-                    self->schedulers[0], (ocrSchedulerOpArgs_t*)notifyArgs, NULL);
-        }
+        PD_MSG_FIELD_O(returnDetail) =
+            self->schedulers[0]->fcts.op[OCR_SCHEDULER_OP_NOTIFY].invoke(
+                self->schedulers[0], (ocrSchedulerOpArgs_t*)notifyArgs, NULL);
         returnCode = ceProcessResponse(self, msg, 0);
 #undef PD_MSG
 #undef PD_TYPE

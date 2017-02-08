@@ -599,6 +599,15 @@ static void setReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
 #undef PD_TYPE
     break;
     }
+    case PD_MSG_WORK_ENABLE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_WORK_ENABLE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
     case PD_MSG_DEP_ADD:
     {
 #define PD_MSG (msg)
@@ -844,18 +853,25 @@ static void xePdDeferCall(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
     return;
 }
 
-static void xePdDeferWorkEnable(ocrPolicyDomain_t *pd, ocrFatGuid_t edtGuid) {
+static void xePdWorkEnable(ocrPolicyDomain_t *pd, ocrFatGuid_t edtGuid) {
     PD_MSG_STACK(msg);
-    getCurrentEnv(NULL, NULL, NULL, &msg);
+    ocrTask_t * curEdt = NULL;
+    getCurrentEnv(NULL, NULL, &curEdt, &msg);
+    ASSERT(curEdt);
 #define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_SCHED_NOTIFY
-    msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
-    PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_ENABLED;
-    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_ENABLED).guid = edtGuid;
-    PD_MSG_FIELD_I(properties) = EDT_PROP_RT_DEFERRED_EDT_FINAL;
-    xePdDeferCall(pd, &msg);
+#define PD_TYPE PD_MSG_WORK_ENABLE
+    msg.type = PD_MSG_WORK_ENABLE | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(guid) = edtGuid;
+    PD_MSG_FIELD_I(currentEdt.guid) = curEdt->guid;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
 #undef PD_MSG
 #undef PD_TYPE
+    return;
 }
 
 static u8 xePdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
@@ -879,7 +895,7 @@ static u8 xePdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *ms
         { //Non-deferrable guid creation; also record for deferred visibility
 #define PD_TYPE PD_MSG_WORK_CREATE
 #define PD_MSG msg
-            PD_MSG_FIELD_I(properties) |= EDT_PROP_RT_DEFERRED;
+            PD_MSG_FIELD_I(properties) |= EDT_PROP_DEFERRED;
 #undef PD_MSG
 #undef PD_TYPE
             return OCR_EPERM;
@@ -891,6 +907,7 @@ static u8 xePdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *ms
         case PD_MSG_DB_RELEASE:
         case PD_MSG_EVT_DESTROY:
         case PD_MSG_EDTTEMP_DESTROY:
+        case PD_MSG_WORK_ENABLE:
         case PD_MSG_WORK_DESTROY:
         case PD_MSG_DEP_SATISFY:
         case PD_MSG_DEP_ADD:
@@ -995,7 +1012,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     case PD_MSG_DB_DESTROY:
     case PD_MSG_DB_ACQUIRE: case PD_MSG_DB_RELEASE: case PD_MSG_DB_FREE:
     case PD_MSG_MEM_ALLOC: case PD_MSG_MEM_UNALLOC:
-    case PD_MSG_WORK_CREATE: case PD_MSG_WORK_DESTROY:
+    case PD_MSG_WORK_CREATE: case PD_MSG_WORK_DESTROY: case PD_MSG_WORK_ENABLE:
     case PD_MSG_EDTTEMP_CREATE: case PD_MSG_EDTTEMP_DESTROY:
     case PD_MSG_EVT_CREATE: case PD_MSG_EVT_DESTROY: case PD_MSG_EVT_GET:
     case PD_MSG_GUID_CREATE: case PD_MSG_GUID_INFO: case PD_MSG_GUID_DESTROY:
@@ -1082,14 +1099,16 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_TYPE
         }
 #ifdef ENABLE_OCR_API_DEFERRABLE
-        else if((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_WORK_CREATE) {
+        else if(((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_WORK_CREATE) && (returnCode == 0)) {
 #define PD_TYPE PD_MSG_WORK_CREATE
 #define PD_MSG msg
             ASSERT(!ocrGuidIsNull(PD_MSG_FIELD_IO(guid).guid));
             ASSERT(PD_MSG_FIELD_IO(guid).metaDataPtr != NULL);
-            ocrTask_t *newTask = (ocrTask_t*)PD_MSG_FIELD_IO(guid).metaDataPtr;
-            if (newTask->flags & OCR_TASK_FLAG_DEFERRED) {
-                xePdDeferWorkEnable(self, PD_MSG_FIELD_IO(guid));
+            localDeguidify(self, &PD_MSG_FIELD_IO(guid));
+            ocrTask_t *task = (ocrTask_t*)PD_MSG_FIELD_IO(guid).metaDataPtr;
+            ASSERT(ocrGuidIsEq(task->guid, PD_MSG_FIELD_IO(guid.guid)));
+            if (task->flags & OCR_TASK_FLAG_DEFERRED) {
+                xePdWorkEnable(self, PD_MSG_FIELD_IO(guid));
             }
 #undef PD_MSG
 #undef PD_TYPE

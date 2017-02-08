@@ -200,12 +200,12 @@ typedef struct {
 } ocrEdtDep_t;
 
 
-#define EDT_PROP_NONE    ((u16) 0x0) /**< Property bits indicating a regular EDT */
-#define EDT_PROP_FINISH  ((u16) 0x1) /**< Property bits indicating a FINISH EDT */
-#define EDT_PROP_NO_HINT ((u16) 0x2) /**< Property bits indicating the EDT does not take hints */
-#define EDT_PROP_LONG    ((u16) 0x4) /**< Property bits indicating a long running EDT */
-#define EDT_PROP_OEVT_VALID     ((u16) 0x8) /** Property bits indicating an already initialized output event */
-#define EDT_PROP_RT_DEFERRED    ((u16)0x10) //Runtime property to defer EDT
+#define EDT_PROP_NONE       ((u16) 0x0) /**< Property bits indicating a regular EDT */
+#define EDT_PROP_FINISH     ((u16) 0x1) /**< Property bits indicating a FINISH EDT */
+#define EDT_PROP_NO_HINT    ((u16) 0x2) /**< Property bits indicating the EDT does not take hints */
+#define EDT_PROP_LONG       ((u16) 0x4) /**< Property bits indicating a long running EDT */
+#define EDT_PROP_OEVT_VALID ((u16) 0x8) /**< Property bits indicating an already initialized output event */
+#define EDT_PROP_DEFERRED   ((u16)0x10) /**< Property bits indicating that the newly created EDT can only be ready for execution after the end of current EDT */
 
 /**
  * @brief Constant indicating that the number of parameters or dependences

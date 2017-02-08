@@ -45,7 +45,7 @@ CFLAGS += -DCACHE_LINE_SZB=64
 
 # **** Deferred Execution Model ****
 
- CFLAGS += -DENABLE_OCR_API_DEFERRABLE
+# CFLAGS += -DENABLE_OCR_API_DEFERRABLE
 
 # **** Workpiles Parameters ****
 

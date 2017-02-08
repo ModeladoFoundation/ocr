@@ -968,7 +968,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #if defined (ENABLE_POLICY_DOMAIN_CE) || defined (ENABLE_POLICY_DOMAIN_XE) //Only TG
-    if (hasProperty(properties, EDT_PROP_RT_DEFERRED)) {
+    if (hasProperty(properties, EDT_PROP_DEFERRED)) {
         self->flags |= OCR_TASK_FLAG_DEFERRED;
     }
 #endif
@@ -978,7 +978,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     RESULT_PROPAGATE2(initTaskHcInternal(dself, taskGuid, pd, curEdt, outputEvent, parentLatch, properties), 1);
 
     // If there's a local parent latch for this EDT, register to it
-    if (!(ocrGuidIsNull(parentLatch.guid)) && isLocalGuid(pd, parentLatch.guid) && (!hasProperty(properties, EDT_PROP_RT_DEFERRED))) {
+    if (!(ocrGuidIsNull(parentLatch.guid)) && isLocalGuid(pd, parentLatch.guid) && (!(self->flags & OCR_TASK_FLAG_DEFERRED))) {
         DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on local parent finish latch "GUIDF"\n", GUIDA(taskGuid), GUIDA(parentLatch.guid));
         PD_MSG_STACK(msg);
         getCurrentEnv(NULL, NULL, NULL, &msg);

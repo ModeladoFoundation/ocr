@@ -137,6 +137,8 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_WORK_EXECUTE     0x00042004
 /**< Destroy an EDT (originates from PD<->PD) */
 #define PD_MSG_WORK_DESTROY     0x00083004
+/**< Enable an EDT */
+#define PD_MSG_WORK_ENABLE      0x00084004
 
 /**< AND with this and if result non-null, EDT-template related operation */
 #define PD_MSG_EDTTEMP_OP       0x008
@@ -616,6 +618,19 @@ typedef struct _ocrPolicyMsg_t {
                 } out;
             } inOrOut __attribute__ (( aligned(8) ));
         } PD_MSG_STRUCT_NAME(PD_MSG_WORK_DESTROY);
+
+        struct {
+            union {
+                struct {
+                    ocrFatGuid_t guid; /**< In: GUID of the EDT to enable */
+                    ocrFatGuid_t currentEdt;   /**< In: EDT that is enabling work */
+                    u32 properties;    /**< In: properties for the enable */
+                } in;
+                struct {
+                    u32 returnDetail;  /**< Out: Success or error code */
+                } out;
+            } inOrOut __attribute__ (( aligned(8) ));
+        } PD_MSG_STRUCT_NAME(PD_MSG_WORK_ENABLE);
 
         struct {
             ocrFatGuid_t guid;     /**< In/Out: GUID of the EDT template */
