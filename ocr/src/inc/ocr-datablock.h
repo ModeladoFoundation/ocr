@@ -251,7 +251,7 @@ typedef struct _ocrDataBlock_t {
     u32 flags;              /**< flags for the data-block, lower 16 bits are info
                                  from user, upper 16 bits is for internal bookeeping */
     u32 fctId;              /**< ID determining which functions to use */
-#ifdef ENABLE_RESILIENCY
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
     void* bkPtr;
     ocrGuid_t singleAssigner;
 #endif
@@ -269,6 +269,8 @@ typedef struct _ocrDataBlock_t {
 
 #define DB_FLAG_RT_FETCH            0x1000000
 #define DB_FLAG_RT_WRITE_BACK       0x2000000
+
+#define IS_WRITABLE_MODE(m) (m == DB_MODE_RW || m == DB_MODE_EW)
 
 /****************************************************/
 /* OCR DATABLOCK FACTORY                            */

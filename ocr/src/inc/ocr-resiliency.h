@@ -27,6 +27,9 @@ typedef union _ocrFaultData_t {
     struct {
         ocrFatGuid_t db;
     } OCR_FAULT_ARG_NAME(OCR_FAULT_DATABLOCK_CORRUPTION);
+    struct {
+        ocrFatGuid_t db;
+    } OCR_FAULT_ARG_NAME(OCR_FAULT_DATABLOCK_CORRUPTION_XE);
 } ocrFaultData_t;
 
 typedef struct _ocrResiliencyFaultArgs {

@@ -72,9 +72,6 @@
 // Policy domain
 #define ENABLE_POLICY_DOMAIN_HC
 
-// Resiliency
-//#define ENABLE_RESILIENCY
-
 // Scheduler
 #define ENABLE_SCHEDULER_COMMON
 #define ENABLE_SCHEDULER_HC
@@ -141,16 +138,21 @@
 // Performance monitoring
 //#define ENABLE_EXTENSION_PERF
 
-#ifdef ENABLE_RESILIENCY
+// Resiliency
+//#define ENABLE_RESILIENCY
 
+// FLags enabled for resiliency on x86
+#ifdef ENABLE_RESILIENCY
+#ifndef ENABLE_RESILIENCY_DATA_BACKUP
+#define ENABLE_RESILIENCY_DATA_BACKUP
+#endif
 #ifndef ENABLE_OCR_API_DEFERRABLE
 #define ENABLE_OCR_API_DEFERRABLE
 #endif
-
 #ifndef ENABLE_EXTENSION_PAUSE
 #define ENABLE_EXTENSION_PAUSE
 #endif
+#endif /* Resiliency flags */
 
-#endif
 #endif /* __OCR_CONFIG_H__ */
 

@@ -77,8 +77,8 @@ void salInjectFault(void) {
     msg.type = PD_MSG_RESILIENCY_NOTIFY | PD_MSG_REQUEST;
     PD_MSG_FIELD_I(properties) = 0;
     PD_MSG_FIELD_I(faultArgs).kind = OCR_FAULT_DATABLOCK_CORRUPTION_XE;
-    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db.guid = xePolicy->mainDb;
-    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db.metaDataPtr = NULL;
+    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db.guid = xePolicy->mainDb;
+    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db.metaDataPtr = NULL;
     pd->fcts.processMessage(pd, &msg, true);
     if (PD_MSG_FIELD_O(returnDetail) == 0) {
         DPRINTF(DEBUG_LVL_WARN, "Injecting fault - corrupting data-block "GUIDF" by changing a value to 0xff...f\n", GUIDA(xePolicy->mainDb));

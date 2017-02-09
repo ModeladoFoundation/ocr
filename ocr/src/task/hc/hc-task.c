@@ -1569,7 +1569,47 @@ static u8 checkForFaults(ocrTask_t *base, bool postCheck) {
             }
             break;
         case OCR_FAULT_DATABLOCK_CORRUPTION_XE:
-            return OCR_EAGAIN;
+            {
+                ocrFatGuid_t dbFatGuid = faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db;
+                ocrGuid_t dbGuid = dbFatGuid.guid;
+                if (!(ocrGuidIsNull(dbGuid))) {
+                    //Assert current EDT is impacted
+                    bool dataFault = false;
+                    void *dataPtr = NULL;
+                    u32 depc = base->depc;
+                    ocrEdtDep_t * depv = derived->resolvedDeps;
+                    for(i=0; i < depc; ++i) {
+                        if (ocrGuidIsEq(dbGuid, depv[i].guid)) {
+                            dataPtr = depv[i].ptr;
+                            dataFault = true;
+                            break;
+                        }
+                    }
+                    if(dataFault == false && derived->unkDbs != NULL) {
+                        ocrGuid_t *unkDbs = derived->unkDbs;
+                        u64 count = derived->countUnkDbs;
+                        for(i=0; i < count; ++i) {
+                            if (ocrGuidIsEq(dbGuid, unkDbs[i])) {
+                                dataFault = true;
+                                break;
+                            }
+                        }
+                    }
+                    ASSERT(dataFault);
+                    if (dataPtr != NULL) {
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+                        DPRINTF(DEBUG_LVL_WARN, "Fault recovery - restoring corrupt data-block "GUIDF" from backup\n", GUIDA(dbGuid));
+                        ocrDataBlock_t *db = (ocrDataBlock_t*)(dbFatGuid.metaDataPtr);
+                        ASSERT(db != NULL);
+                        if (db->bkPtr != NULL) {
+                            hal_memCopy(dataPtr, db->bkPtr, db->size, false);
+                        }
+#endif
+                    }
+                    return OCR_EAGAIN;
+                }
+            }
+            break;
         default:
             //Not handled
             ASSERT(0);

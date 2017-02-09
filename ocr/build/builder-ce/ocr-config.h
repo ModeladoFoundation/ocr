@@ -118,12 +118,17 @@
 // Affinity (no-op for now)
 #define ENABLE_EXTENSION_AFFINITY
 
-//Resiliency
+// Resiliency
 #define ENABLE_RESILIENCY_TG
+
+// FLags enabled for resiliency on TG
 #ifdef ENABLE_RESILIENCY_TG
+#ifndef ENABLE_RESILIENCY_DATA_BACKUP
+#define ENABLE_RESILIENCY_DATA_BACKUP
+#endif
 #ifndef ENABLE_OCR_API_DEFERRABLE
 #define ENABLE_OCR_API_DEFERRABLE
 #endif
-#endif
+#endif /* Resiliency flags */
 
 #endif /* __OCR_CONFIG_H__ */

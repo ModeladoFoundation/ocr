@@ -1246,6 +1246,34 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_RESILIENCY_MONITOR
         ocrPolicyDomainXe_t *rself = (ocrPolicyDomainXe_t*)self;
         if (rself->faultArgs.kind != OCR_FAULT_NONE) {
+            switch (rself->faultArgs.kind) {
+            case OCR_FAULT_DATABLOCK_CORRUPTION_XE:
+            {
+                // We need to resolve the DB with a GUID_INFO call to the CE
+                PD_MSG_STACK(tMsg);
+                getCurrentEnv(NULL, NULL, NULL, &tMsg);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&tMsg)
+#define PD_TYPE PD_MSG_GUID_INFO
+                tMsg.type = PD_MSG_GUID_INFO | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                tMsg.destLocation = self->parentLocation;
+                PD_MSG_FIELD_IO(guid) = rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db;
+                PD_MSG_FIELD_I(properties) = 0;
+                RESULT_ASSERT(self->fcts.processMessage(self, &tMsg, true), ==, 0);
+                ASSERT(ocrGuidIsEq(rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db.guid, PD_MSG_FIELD_IO(guid.guid)));
+                localDeguidify(self, &PD_MSG_FIELD_IO(guid));
+                rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db = PD_MSG_FIELD_IO(guid);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+                break;
+            }
+            default:
+                DPRINTF(DEBUG_LVL_WARN, "Unknown fault type 0x%"PRIx32"\n", (u32)(rself->faultArgs.kind));
+                ASSERT(0);
+            }
             PD_MSG_FIELD_O(faultArgs) = rself->faultArgs;
             rself->faultArgs.kind = OCR_FAULT_NONE;
             PD_MSG_FIELD_O(returnDetail) = OCR_EFAULT;

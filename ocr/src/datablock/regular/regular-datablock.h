@@ -36,7 +36,8 @@ typedef union {
         volatile u64 numUsers : 15;
         volatile u64 internalUsers : 15;
         volatile u64 freeRequested: 1;
-        volatile u64 _padding : 1;
+        volatile u64 singleAssign : 1;
+        u64 _padding : 16;
     };
     u64 data;
 } ocrDataBlockRegularAttr_t;

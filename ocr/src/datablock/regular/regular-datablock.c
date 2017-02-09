@@ -67,6 +67,17 @@ u8 regularAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSlo
         hal_unlock(&(rself->lock));
         return OCR_EACCES;
     }
+
+    // Registers first intent to acquire a SA block in writable mode
+    if (IS_WRITABLE_MODE(mode) && ((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && (rself->attributes.singleAssign == 0)) {
+        rself->attributes.singleAssign = 1;
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+        ASSERT(self->bkPtr == NULL);
+        self->singleAssigner = edt.guid;
+        DPRINTF(DEBUG_LVL_VERB, "DB (GUID "GUIDF") single assign from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
+#endif
+    }
+
     rself->attributes.numUsers += 1;
     if(isInternal)
         rself->attributes.internalUsers += 1;
@@ -99,6 +110,19 @@ u8 regularRelease(ocrDataBlock_t *self, ocrFatGuid_t edt,
     rself->attributes.numUsers -= 1;
     if(isInternal)
         rself->attributes.internalUsers -= 1;
+
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    // Take backup for resiliency. Handle only single assignment DBs for now.
+    if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && ocrGuidIsEq(self->singleAssigner, edt.guid)) {
+        ASSERT(rself->attributes.singleAssign == 1 && self->bkPtr == NULL);
+        ocrPolicyDomain_t * pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        self->bkPtr = pd->fcts.pdMalloc(pd, self->size);
+        hal_memCopy(self->bkPtr, self->ptr, self->size, 0);
+        self->singleAssigner = NULL_GUID;
+        DPRINTF(DEBUG_LVL_INFO, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
+    }
+#endif
 
     DPRINTF(DEBUG_LVL_VVERB, "DB (GUID: "GUIDF") attributes: numUsers %"PRId32" (including %"PRId32" runtime users); freeRequested %"PRId32"\n",
             GUIDA(self->guid), rself->attributes.numUsers, rself->attributes.internalUsers, rself->attributes.freeRequested);
@@ -138,6 +162,13 @@ u8 regularDestruct(ocrDataBlock_t *self) {
     ocrTask_t *task = NULL;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, &task, &msg);
+
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    if(self->bkPtr) {
+        pd->fcts.pdFree(pd, self->bkPtr);
+        self->bkPtr = NULL;
+    }
+#endif
 
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_MEM_UNALLOC
@@ -279,6 +310,10 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
     result->base.allocatingPD = allocPD.guid;
     result->base.size = size;
     result->base.ptr = ptr;
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    result->base.bkPtr = NULL;
+    result->base.singleAssigner = NULL_GUID;
+#endif
     // Only keep flags that represent the nature of
     // the DB as opposed to one-time usage creation flags
     result->base.flags = (flags & DB_PROP_SINGLE_ASSIGNMENT);
@@ -288,6 +323,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
     result->attributes.numUsers = 0;
     result->attributes.internalUsers = 0;
     result->attributes.freeRequested = 0;
+    result->attributes.singleAssign = 0;
 
     if (hintc == 0) {
         result->hint.hintMask = 0;

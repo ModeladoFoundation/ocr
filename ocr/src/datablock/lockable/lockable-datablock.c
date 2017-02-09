@@ -36,7 +36,6 @@
 #define DB_LOCKED_NONE 0
 #define DB_LOCKED_EW 1
 #define DB_LOCKED_ITW 2
-#define IS_WRITABLE_MODE(m) (m == DB_MODE_RW || m == DB_MODE_EW)
 
 /***********************************************************/
 /* OCR-Lockable Datablock Hint Properties                  */
@@ -152,7 +151,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
     // Registers first intent to acquire a SA block in writable mode
     if (IS_WRITABLE_MODE(mode) && ((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && (rself->attributes.singleAssign == 0)) {
         rself->attributes.singleAssign = 1;
-#ifdef ENABLE_RESILIENCY
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
         ASSERT(self->bkPtr == NULL);
         self->singleAssigner = edt.guid;
         DPRINTF(DEBUG_LVL_VERB, "DB (GUID "GUIDF") single assign from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
@@ -344,7 +343,7 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
     // catch errors when release is called one too many time
     ASSERT(rself->attributes.numUsers != (u32)-1);
 
-#ifdef ENABLE_RESILIENCY
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
     // Take backup for resiliency. Handle only single assignment DBs for now.
     if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && ocrGuidIsEq(self->singleAssigner, edt.guid)) {
         ASSERT(rself->attributes.singleAssign == 1 && self->bkPtr == NULL);
@@ -520,7 +519,7 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
     ASSERT(rself->itwWaiterList == NULL);
 #endif
 
-#ifdef ENABLE_RESILIENCY
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
     if(self->bkPtr) {
         pd->fcts.pdFree(pd, self->bkPtr);
         self->bkPtr = NULL;
@@ -689,7 +688,7 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     result->itwWaiterList = NULL;
     result->itwLocation = INVALID_LOCATION;
     result->worker = NULL;
-#ifdef ENABLE_RESILIENCY
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
     result->base.bkPtr = NULL;
     result->base.singleAssigner = NULL_GUID;
 #endif
@@ -862,10 +861,12 @@ u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
         len = db->size;
         db->ptr = pd->fcts.pdMalloc(pd, len);
         hal_memCopy(db->ptr, buffer, len, false);
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
         if (db->bkPtr != NULL) {
             db->bkPtr = pd->fcts.pdMalloc(pd, len);
             hal_memCopy(db->bkPtr, buffer, len, false);
         }
+#endif
         buffer += len;
     }
 
@@ -922,10 +923,12 @@ u8 resetDataBlockLockable(ocrDataBlock_t *self) {
         pd->fcts.pdFree(pd, self->ptr);
         self->ptr = NULL;
     }
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
     if(self->bkPtr) {
         pd->fcts.pdFree(pd, self->bkPtr);
         self->bkPtr = NULL;
     }
+#endif
     pd->fcts.pdFree(pd, self);
     return 0;
 }

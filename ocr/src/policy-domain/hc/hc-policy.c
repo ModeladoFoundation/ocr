@@ -3494,11 +3494,13 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     switch(rself->faultArgs.kind) {
                     case OCR_FAULT_DATABLOCK_CORRUPTION:
                         {
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
                             ocrFatGuid_t dbGuid = rself->faultArgs.OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION).db;
                             ASSERT(!ocrGuidIsNull(dbGuid.guid) && dbGuid.metaDataPtr != NULL);
                             DPRINTF(DEBUG_LVL_WARN, "Fault kind: OCR_FAULT_DATABLOCK_CORRUPTION (db="GUIDF")\n", GUIDA(dbGuid.guid));
                             ocrDataBlock_t *db = (ocrDataBlock_t*)(dbGuid.metaDataPtr);
                             hal_memCopy(db->ptr, db->bkPtr, db->size, 0);
+#endif
                         }
                         break;
                     default:

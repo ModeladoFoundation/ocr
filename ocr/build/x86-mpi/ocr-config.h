@@ -152,15 +152,17 @@
 // Performance monitoring
 //#define ENABLE_EXTENSION_PERF
 
-//#define ENABLE_RESILIENCY
+// Resiliency
+#define ENABLE_RESILIENCY
 
+// FLags enabled for resiliency on x86-mpi
 #ifdef ENABLE_RESILIENCY
 #define ENABLE_RESILIENCY_CHECKPOINT_RESTART
 #define ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
 //#define ENABLE_CHECKPOINT_VERIFICATION
 //#define OCR_CHECKPOINT_INTERVAL   1000000000UL /* 1 second */
 //#define OCR_CHECKPOINT_INTERVAL     10000000UL /* 10 miliseconds */
-#endif
+#endif /* Resiliency flags */
 
 #endif /* __OCR_CONFIG_H__ */
 
