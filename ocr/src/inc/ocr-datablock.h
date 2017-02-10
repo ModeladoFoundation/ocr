@@ -58,6 +58,9 @@ typedef struct _ocrDataBlockFcts_t {
      * @return 0 on success and an error code on failure
      */
     u8 (*destruct)(struct _ocrDataBlock_t *self);
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    u8 (*backup)(struct _ocrDataBlock_t *self);
+#endif
 
     /**
      * @brief Acquires the data-block for an EDT

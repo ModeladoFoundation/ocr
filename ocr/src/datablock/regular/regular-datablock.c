@@ -68,6 +68,17 @@ u8 regularAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSlo
         return OCR_EACCES;
     }
 
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    // Take backup for resiliency. Handle only single assignment DBs for now.
+    if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && (rself->attributes.singleAssign == 1) && (self->bkPtr == NULL)) {
+        ocrPolicyDomain_t * pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        self->bkPtr = pd->fcts.pdMalloc(pd, self->size);
+        hal_memCopy(self->bkPtr, self->ptr, self->size, 0);
+        DPRINTF(DEBUG_LVL_INFO, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
+    }
+#endif
+
     // Registers first intent to acquire a SA block in writable mode
     if (IS_WRITABLE_MODE(mode) && ((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && (rself->attributes.singleAssign == 0)) {
         rself->attributes.singleAssign = 1;
@@ -114,13 +125,15 @@ u8 regularRelease(ocrDataBlock_t *self, ocrFatGuid_t edt,
 #ifdef ENABLE_RESILIENCY_DATA_BACKUP
     // Take backup for resiliency. Handle only single assignment DBs for now.
     if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && ocrGuidIsEq(self->singleAssigner, edt.guid)) {
-        ASSERT(rself->attributes.singleAssign == 1 && self->bkPtr == NULL);
-        ocrPolicyDomain_t * pd = NULL;
-        getCurrentEnv(&pd, NULL, NULL, NULL);
-        self->bkPtr = pd->fcts.pdMalloc(pd, self->size);
-        hal_memCopy(self->bkPtr, self->ptr, self->size, 0);
+        ASSERT(rself->attributes.singleAssign == 1);
         self->singleAssigner = NULL_GUID;
-        DPRINTF(DEBUG_LVL_INFO, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
+        if (self->bkPtr == NULL) {
+            ocrPolicyDomain_t * pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            self->bkPtr = pd->fcts.pdMalloc(pd, self->size);
+            hal_memCopy(self->bkPtr, self->ptr, self->size, 0);
+            DPRINTF(DEBUG_LVL_INFO, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
+        }
     }
 #endif
 
@@ -146,6 +159,24 @@ u8 regularRelease(ocrDataBlock_t *self, ocrFatGuid_t edt,
 
     return 0;
 }
+
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+u8 regularBackup(ocrDataBlock_t *self) {
+    if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && (self->bkPtr == NULL)) {
+        ocrDataBlockRegular_t *rself = (ocrDataBlockRegular_t*)self;
+        hal_lock(&(rself->lock));
+        if (self->bkPtr == NULL) {
+            ocrPolicyDomain_t * pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            self->bkPtr = pd->fcts.pdMalloc(pd, self->size);
+            hal_memCopy(self->bkPtr, self->ptr, self->size, 0);
+            DPRINTF(DEBUG_LVL_INFO, "DB (GUID "GUIDF") backed up\n", GUIDA(self->guid));
+        }
+        hal_unlock(&(rself->lock));
+    }
+    return 0;
+}
+#endif
 
 u8 regularDestruct(ocrDataBlock_t *self) {
     // We don't use a lock here. Maybe we should
@@ -396,6 +427,9 @@ ocrDataBlockFactory_t *newDataBlockFactoryRegular(ocrParamList_t *perType, u32 f
 
     // Functions for the instance
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), regularDestruct);
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    base->fcts.backup = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), regularBackup);
+#endif
     base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, ocrLocation_t, u32, ocrDbAccessMode_t, bool, u32), regularAcquire);
     base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, bool), regularRelease);
     base->fcts.free = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, u32), regularFree);

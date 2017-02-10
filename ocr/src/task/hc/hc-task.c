@@ -555,6 +555,21 @@ static u8 scheduleTask(ocrTask_t *self) {
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_SCHEDULER, OCR_ACTION_SCHED_MSG_SEND, self->guid);
 #endif
 
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    if (self->depc > 0) {
+        u32 i;
+        ocrTaskHc_t * rself = (ocrTaskHc_t *) self;
+        for ( i = 0; i < self->depc; i++ ) {
+            ocrFatGuid_t fguidDb = {.guid = rself->resolvedDeps[i].guid, .metaDataPtr = NULL};;
+            if (!ocrGuidIsNull(fguidDb.guid)) {
+                pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguidDb.guid, (u64*)(&(fguidDb.metaDataPtr)), NULL, MD_LOCAL, NULL);
+                ocrDataBlock_t *db = (ocrDataBlock_t*)(fguidDb.metaDataPtr);
+                ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.backup(db);
+            }
+        }
+    }
+#endif
+
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_NOTIFY
     msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
@@ -1598,10 +1613,11 @@ static u8 checkForFaults(ocrTask_t *base, bool postCheck) {
                     ASSERT(dataFault);
                     if (dataPtr != NULL) {
 #ifdef ENABLE_RESILIENCY_DATA_BACKUP
-                        DPRINTF(DEBUG_LVL_WARN, "Fault recovery - restoring corrupt data-block "GUIDF" from backup\n", GUIDA(dbGuid));
                         ocrDataBlock_t *db = (ocrDataBlock_t*)(dbFatGuid.metaDataPtr);
-                        ASSERT(db != NULL);
-                        if (db->bkPtr != NULL) {
+                        ASSERT((db != NULL) && ocrGuidIsEq(db->guid, dbGuid) && (db->ptr == dataPtr));
+                        if ((db->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) {
+                            ASSERT(db->bkPtr != NULL);
+                            DPRINTF(DEBUG_LVL_WARN, "Fault recovery - restoring corrupt data-block "GUIDF" from backup %p\n", GUIDA(dbGuid), db->bkPtr);
                             hal_memCopy(dataPtr, db->bkPtr, db->size, false);
                         }
 #endif

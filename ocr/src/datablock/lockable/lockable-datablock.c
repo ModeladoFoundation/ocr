@@ -497,6 +497,24 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
     return 0;
 }
 
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+u8 lockableBackup(ocrDataBlock_t *self) {
+    if (((self->flags & DB_PROP_SINGLE_ASSIGNMENT) != 0) && (self->bkPtr == NULL)) {
+        ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
+        hal_lock(&(rself->lock));
+        if (self->bkPtr == NULL) {
+            ocrPolicyDomain_t * pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            self->bkPtr = pd->fcts.pdMalloc(pd, self->size);
+            hal_memCopy(self->bkPtr, self->ptr, self->size, 0);
+            DPRINTF(DEBUG_LVL_INFO, "DB (GUID "GUIDF") backed up\n", GUIDA(self->guid));
+        }
+        hal_unlock(&(rself->lock));
+    }
+    return 0;
+}
+#endif
+
 u8 lockableDestruct(ocrDataBlock_t *self) {
     DPRINTF(DEBUG_LVL_VERB, "Freeing DB (GUID: "GUIDF")\n", GUIDA(self->guid));
     ocrPolicyDomain_t *pd = NULL;
@@ -961,6 +979,9 @@ ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 
 
     // Instance functions
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), lockableDestruct);
+#ifdef ENABLE_RESILIENCY_DATA_BACKUP
+    base->fcts.backup = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), lockableBackup);
+#endif
     base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, ocrLocation_t, u32, ocrDbAccessMode_t, bool, u32), lockableAcquire);
     base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, bool), lockableRelease);
     base->fcts.free = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, u32), lockableFree);

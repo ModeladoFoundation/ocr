@@ -69,24 +69,45 @@ void salResume(u32 flag){
 void salInjectFault(void) {
 #ifdef ENABLE_RESILIENCY_TG
     ocrPolicyDomain_t *pd;
-    PD_MSG_STACK(msg)
-    getCurrentEnv(&pd, NULL, NULL, &msg);
+    getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrPolicyDomainXe_t *xePolicy = (ocrPolicyDomainXe_t*)pd;
+    void *corruptDbPtr = NULL;
+    if (!ocrGuidIsNull(xePolicy->mainDb)) {
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_RESILIENCY_NOTIFY
-    msg.type = PD_MSG_RESILIENCY_NOTIFY | PD_MSG_REQUEST;
-    PD_MSG_FIELD_I(properties) = 0;
-    PD_MSG_FIELD_I(faultArgs).kind = OCR_FAULT_DATABLOCK_CORRUPTION_XE;
-    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db.guid = xePolicy->mainDb;
-    PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db.metaDataPtr = NULL;
-    pd->fcts.processMessage(pd, &msg, true);
-    if (PD_MSG_FIELD_O(returnDetail) == 0) {
-        DPRINTF(DEBUG_LVL_WARN, "Injecting fault - corrupting data-block "GUIDF" by changing a value to 0xff...f\n", GUIDA(xePolicy->mainDb));
-    } else {
-        DPRINTF(DEBUG_LVL_INFO, "Unable to inject fault - resiliency manager notify failed\n");
-    }
+#define PD_TYPE PD_MSG_GUID_INFO
+        msg.type = PD_MSG_GUID_INFO | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        msg.destLocation = pd->parentLocation;
+        PD_MSG_FIELD_IO(guid.guid) = xePolicy->mainDb;
+        PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+        corruptDbPtr = PD_MSG_FIELD_IO(guid).metaDataPtr;
+        ASSERT(corruptDbPtr != NULL);
 #undef PD_MSG
 #undef PD_TYPE
+    } else {
+        DPRINTF(DEBUG_LVL_WARN, "Unable to inject fault - no datablock available to corrupt\n");
+    }
+
+    if (corruptDbPtr != NULL) {
+        PD_MSG_STACK(msg)
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_NOTIFY
+        msg.type = PD_MSG_RESILIENCY_NOTIFY | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(properties) = 0;
+        PD_MSG_FIELD_I(faultArgs).kind = OCR_FAULT_DATABLOCK_CORRUPTION_XE;
+        PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db.guid = xePolicy->mainDb;
+        PD_MSG_FIELD_I(faultArgs).OCR_FAULT_ARG_FIELD(OCR_FAULT_DATABLOCK_CORRUPTION_XE).db.metaDataPtr = corruptDbPtr;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+        if (PD_MSG_FIELD_O(returnDetail) != 0) {
+            DPRINTF(DEBUG_LVL_WARN, "Unable to inject fault - resiliency manager notify failed\n");
+        }
+#undef PD_MSG
+#undef PD_TYPE
+    }
 #endif
 }
 
