@@ -1036,7 +1036,8 @@ static void quickInit(poolHdr_t *pool, u64 size)
 
         doBmapOp(pool, &bmap_op);
 #endif
-        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %"PRId64"\n", pool, size, sizeof(poolHdr_t));
+        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %"PRIu64"\n",
+                pool, size, (u64)sizeof(poolHdr_t));
         pool->init_count++;
 #ifdef ENABLE_VALGRIND
         VALGRIND_CREATE_MEMPOOL(p, 0, 1);  // BUG #600: Mempool needs to be destroyed

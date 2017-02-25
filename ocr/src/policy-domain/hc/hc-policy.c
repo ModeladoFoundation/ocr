@@ -3843,7 +3843,8 @@ u8 hcPdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
         worker->curTask = evtMsg->ctx;
     }
     ocrPolicyMsg_t * msg = evtMsg->msg;
-    DPRINTF(DEBUG_LVL_VERB, "hcPdProcessEvent executing msg of type 0x%"PRIx64"\n", msg->type & PD_MSG_TYPE_ONLY);
+    DPRINTF(DEBUG_LVL_VERB, "hcPdProcessEvent executing msg of type 0x%"PRIx64"\n",
+            (u64)(msg->type & PD_MSG_TYPE_ONLY));
     hcPolicyDomainProcessMessage(self, msg, true);
     worker->curTask = curTask;
     *evt = NULL;
