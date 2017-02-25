@@ -266,6 +266,40 @@ u8 ocrDbRelease(ocrGuid_t db) {
     RETURN_PROFILE(returnCode);
 }
 
+// XXX - These implementation details might need to be moved elsewhere?
+// Code based on functions in  from ocr-legacy.c and hc-policy.c
+u8 ocrDbGetSize(ocrGuid_t db, u64 *size) {
+
+    u8 returnCode;
+
+    if(ocrGuidIsNull(db)) return 0;
+
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbGetSize(guid="GUIDF", size=%p)\n", GUIDA(db), size);
+
+    ASSERT(!(ocrGuidIsError(db)));
+    ASSERT(!(ocrGuidIsUninitialized(db)));
+    ASSERT(size);
+
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    ocrFatGuid_t fguid;
+    fguid.guid = db;
+
+    ASSERT(pd->guidProviderCount == 1);
+
+    returnCode = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguid.guid,
+            (u64*)(&(fguid.metaDataPtr)), NULL, MD_LOCAL, NULL);
+
+    *size = ((ocrDataBlock_t*)(fguid.metaDataPtr))->size;
+
+    DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
+                     "EXIT ocrDbGetSize(guid="GUIDF", size=%p[%" PRIu64 "]) -> %"PRIu32"\n",
+                     GUIDA(db), size, *size, returnCode);
+
+    RETURN_PROFILE(returnCode);
+}
+
 u8 ocrDbMalloc(ocrGuid_t guid, u64 size, void** addr) {
     return OCR_EINVAL; /* not yet implemented */
 }

@@ -128,6 +128,22 @@ u8 ocrDbDestroy(ocrGuid_t db);
 u8 ocrDbRelease(ocrGuid_t db);
 
 /**
+ * @brief Get size of an acquired DB
+ *
+ * @note ocrDbGetSize should only be called on a currently-acquired data block
+ *
+ * @param[in] db Data block to query
+ *
+ * @param[out] size of the data block (in bytes)
+ *
+ * @return a status code:
+ *      - 0: successful
+ *      - EINVAL: db does not refer to a valid data block
+ *      - EACCES: current EDT has not acquired the data block
+ */
+u8 ocrDbGetSize(ocrGuid_t db, u64 *size);
+
+/**
  * @brief Allocates memory *inside* a data block in a way similar to malloc
  *
  * This will allocate a chunk of size 'size' and return its address
