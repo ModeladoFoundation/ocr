@@ -53,6 +53,9 @@ while [[ $# -gt 0 ]]; do
         TEST_EXT_PARAMS_EVT=yes
         TEST_EXT_COUNTED_EVT=yes
         TEST_EXT_CHANNEL_EVT=yes
+    elif [[ "$1" = "-ext_db_info" ]]; then
+        shift
+        TEST_EXT_DB_INFO=yes
     elif [[ "$1" = "-co" ]]; then
         shift
         STEP_COMPILE_ONLY="yes"
@@ -132,6 +135,10 @@ fi
 
 if [ -n "${TEST_EXT_CHANNEL_EVT}" ]; then
     CFLAGS="$CFLAGS -DENABLE_EXTENSION_CHANNEL_EVT"
+fi
+
+if [ -n "${TEST_EXT_DB_INFO}" ]; then
+    CFLAGS="$CFLAGS -DENABLE_EXTENSION_DB_INFO"
 fi
 
 CFLAGS="$CFLAGS -DOCR_TYPE_H=${OCR_TYPE}.h"
