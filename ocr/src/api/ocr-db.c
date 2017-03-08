@@ -266,9 +266,9 @@ u8 ocrDbRelease(ocrGuid_t db) {
     RETURN_PROFILE(returnCode);
 }
 
-// XXX - These implementation details might need to be moved elsewhere?
-// Code based on functions in  from ocr-legacy.c and hc-policy.c
+#ifdef ENABLE_EXTENSION_DB_INFO
 u8 ocrDbGetSize(ocrGuid_t db, u64 *size) {
+    // Based on functions from ocr-legacy.c and hc-policy.c
 
     u8 returnCode;
 
@@ -299,6 +299,7 @@ u8 ocrDbGetSize(ocrGuid_t db, u64 *size) {
 
     RETURN_PROFILE(returnCode);
 }
+#endif /* ENABLE_EXTENSION_DB_INFO */
 
 u8 ocrDbMalloc(ocrGuid_t guid, u64 size, void** addr) {
     return OCR_EINVAL; /* not yet implemented */
