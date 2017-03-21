@@ -30,6 +30,7 @@ default:
 	@echo "   all          -- Optimized build (alias for static)"
 	@echo "   static       -- Optimized static build (produces a .a)"
 	@echo "   shared       -- Optimized shared build (produces a .so)"
+	@echo "   debug        -- Unoptimized build"
 	@echo "   debug-static -- Unoptimized static build"
 	@echo "   debug-shared -- Unoptimized shared build"
 	@echo "   install      -- Install built distribution"
@@ -48,6 +49,10 @@ static:
 
 .PHONY: shared
 shared:
+	@$(MAKE) -C $(OCR_TYPE) $@
+
+.PHONY: debug
+debug:
 	@$(MAKE) -C $(OCR_TYPE) $@
 
 .PHONY: debug-static

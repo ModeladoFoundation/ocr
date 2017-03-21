@@ -23,6 +23,10 @@ static:
 shared:
 	@$(MAKE) -C build $@
 
+.PHONY: debug
+debug:
+	@$(MAKE) -C build $@
+
 .PHONY: debug-static
 debug-static:
 	@$(MAKE) -C build $@
