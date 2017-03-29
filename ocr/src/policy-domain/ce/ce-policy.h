@@ -49,6 +49,11 @@ typedef struct {
 typedef struct {
     ocrPolicyDomain_t base;
     u8 xeCount;                     // Number of XE's serviced by this CE
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+    u8 masterXe;                    // The XE in charge of the Policy Domain. This should always
+                                    // be XE 0 in the block durring the start up. Any XE may do the
+                                    // teardown
+#endif
     bool *ceCommTakeActive;         // Flag to coordinate the search for work
     pdCeResumeSwitchRL_t rlSwitch;  // Structure used to coordinate
     u32 nextVictimNeighbor;         // Which CE to steal from next (idx in neighbors)

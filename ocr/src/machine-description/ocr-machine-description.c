@@ -968,6 +968,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                     workertype += 1;  // because workertype is 1-indexed, not 0-indexed
                     if (workertype == MAX_WORKERTYPE) workertype = SLAVE_WORKERTYPE; // reasonable default
                     ALLOC_PARAM_LIST(inst_param[j], paramListWorkerXeInst_t);
+                    ((paramListWorkerInst_t *)inst_param[j])->workerId = j; // j will correspond to the XE number within the block
                 }
                 break;
 #endif

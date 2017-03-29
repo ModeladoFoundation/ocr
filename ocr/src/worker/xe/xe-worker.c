@@ -17,6 +17,7 @@
 #include "ocr-db.h"
 #include "worker/xe/xe-worker.h"
 
+#include "mmio-table.h"
 #include "xstg-arch.h"
 #include "xstg-map.h"
 
@@ -42,6 +43,16 @@ static inline u64 getWorkerId(ocrWorker_t * worker) {
     return xeWorker->id;
 }
 
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+/**
+ * The start point for all XEs except XE0
+ */
+static void workerMain(ocrWorker_t * self) {
+    self->fcts.run(self);
+    hal_exit(0);
+}
+#endif
+
 /**
  * The computation worker routine that asks work to the scheduler
  */
@@ -57,7 +68,7 @@ static void workerLoop(ocrWorker_t * worker) {
 
     bool requestIsAffinitized = true;
     while(worker->fcts.isRunning(worker)) {
-        DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" REQUESTING WORK\n", pd->myLocation);
+        DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" REQUESTING WORK\n", worker->location);
 #if 1 //This is disabled until we move TAKE heuristic in CE policy domain to inside scheduler
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
@@ -72,7 +83,7 @@ static void workerLoop(ocrWorker_t * worker) {
             ocrFatGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
             if(!(ocrGuidIsNull(taskGuid.guid))) {
                 requestIsAffinitized = true; // We will make the next request in an affinitized manner
-                DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" EXECUTING TASK "GUIDF"\n", pd->myLocation, GUIDA(taskGuid.guid));
+                DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" EXECUTING TASK "GUIDF"\n", worker->location, GUIDA(taskGuid.guid));
                 // Task sanity checks
                 ASSERT(taskGuid.metaDataPtr != NULL);
                 worker->curTask = (ocrTask_t*)taskGuid.metaDataPtr;
@@ -149,7 +160,7 @@ static void workerLoop(ocrWorker_t * worker) {
                 requestIsAffinitized = false; // Next time around, we should try in a general manner.
                 // Note that we only get here if the request was affinitized (and there is no affinitized work)
                 // OR if a shutdown occured.
-                DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" NULL RESPONSE from CE\n", pd->myLocation);
+                DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" NULL RESPONSE from CE\n", worker->location);
             }
         }
 #undef PD_MSG
@@ -219,6 +230,8 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 
     u8 toReturn = 0;
 
+    __attribute__((unused)) ocrWorkerXe_t* rself = (ocrWorkerXe_t*) self;
+
     // Verify properties
     ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
@@ -236,7 +249,17 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             ASSERT(self->computeCount == 1);
             self->computes[0]->worker = self;
             self->pd = PD;
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            ocrLocation_t xe_loc = (ocrLocation_t)(*(u64*)(AR_MSR_BASE + CORE_LOCATION_NUM * sizeof(u64)));
+            // We must be the 0th XE in the block to be setting things up
+            ASSERT( AGENT_FROM_ID(xe_loc) == ID_AGENT_XE0 );
+            self->location = xe_loc;
+            if (rself->id > 0) {
+                self->location += ID_AGENT_XE(rself->id - 1) << ID_AGENT_SHIFT;
+            }
+#else
             self->location = PD->myLocation;
+#endif
         }
         break;
     case RL_MEMORY_OK:
@@ -281,9 +304,23 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
         if((properties & RL_BRING_UP) && RL_IS_LAST_PHASE_UP(PD, RL_USER_OK, phase)) {
             self->curState = GET_STATE(RL_USER_OK, 0); // We don't use the phase here
             DPRINTF(DEBUG_LVL_INFO, "XE %"PRIx64" Started\n", self->location);
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            if(properties & RL_PD_MASTER) {
+                ASSERT(rself->id == 0); // We must be the 0th XE to be the PD MASTER
+                self->fcts.run(self);
+            }
+            else {
+                // This woker is not the MASTER XE, so it needs to be cold started.
+                ASSERT(rself->id != 0); // Don't clobber our own pc!
+                *(volatile u64 *)(BR_MSR_BASE(ID_AGENT_XE(rself->id)) + CURRENT_PC * sizeof(u64)) = (u64)workerMain;
+                *(volatile u64 *)(BR_PRF_BASE(ID_AGENT_XE(rself->id)) + 0 * sizeof(u64)) = (u64)self;
+                *(volatile u8 *)(BR_XE_CONTROL(rself->id)) = 0x00;
+            }
+#else
             if(properties & RL_PD_MASTER) {
                 self->fcts.run(self);
             }
+#endif
         } else if((properties & RL_TEAR_DOWN) && RL_IS_FIRST_PHASE_DOWN(PD, RL_USER_OK, phase)) {
             self->curState = GET_STATE(RL_COMPUTE_OK, 0); // We don't use the phase here
             DPRINTF(DEBUG_LVL_INFO, "XE %"PRIx64" Stopped\n", self->location);
@@ -327,7 +364,7 @@ void* xeRunWorker(ocrWorker_t * worker) {
 
     // TODO: For x86 workers there's some notification/synchronization with the PD
     // to callback from RL_COMPUTE_OK, busy-wait, then get transition to RL_USER_OK
-    if (pd->myLocation == MAKE_CORE_ID(0, 0, 0, 0, 0, ID_AGENT_XE0)) { //Blessed worker
+    if (worker->location == MAKE_CORE_ID(0, 0, 0, 0, 0, ID_AGENT_XE0)) { //Blessed worker
 
         // This is all part of the mainEdt setup
         // and should be executed by the "blessed" worker.

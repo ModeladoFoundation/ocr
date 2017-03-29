@@ -318,6 +318,9 @@ endif
 # Flag to test 128-bit guids.
 # CFLAGS += -DOCR_ENABLE_128_BIT_GUID
 
+# Flag to set to use shared 8 XE Policy Domain
+# CFLAGS += -DOCR_SHARED_XE_POLICY_DOMAIN
+
 ####################################################
 # Debug flags
 ####################################################
@@ -926,6 +929,12 @@ endif
 ifeq (x86-phi,$(findstring $(OCR_TYPE),x86-phi))
   SCRIPT_FILES      += Configs/combine-configs.py
   DEFAULT_CONFIG    := knl_mcdram.cfg
+endif
+
+ifneq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN,$(CFLAGS)))
+  ifeq (tg-xe,$(findstring $(OCR_TYPE),tg-xe))
+    DEFAULT_CONFIG    := xe-8-default.cfg
+  endif
 endif
 
 INSTALLED_LIBS    := $(addprefix $(OCR_INSTALL)/lib/, $(notdir $(INSTALL_LIBS)))

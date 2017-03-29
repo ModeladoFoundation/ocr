@@ -39,6 +39,14 @@
 #define RL_BARRIER_STATE_PARENT_RESPONSE  0x8  // Parent has responded thereby releasing us
                                                // and children
 
+// Determine which XE in the PD we are
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+#define MY_XE_LOCATION ((*(u64*)(AR_MSR_BASE + CORE_LOCATION_NUM * sizeof(u64))))
+#define XE_PD_INDEX() (AGENT_FROM_ID(MY_XE_LOCATION) - ID_AGENT_XE0)
+#else
+#define XE_PD_INDEX() (0)
+#endif
+
 // Barrier helper function (for RL switches)
 // Wait for children to check in and inform parent
 // Blocks until parent response
@@ -69,7 +77,7 @@ static void doRLBarrier(ocrPolicyDomain_t *policy) {
     DPRINTF(DEBUG_LVL_VERB, "Location 0x%"PRIx64": waiting for parent release\n", policy->myLocation);
     // Now we wait for our parent to notify us
     while(rself->rlSwitch.barrierState != RL_BARRIER_STATE_PARENT_RESPONSE) {
-        policy->commApis[0]->fcts.initHandle(policy->commApis[0], pHandle);
+        policy->commApis[XE_PD_INDEX()]->fcts.initHandle(policy->commApis[XE_PD_INDEX()], pHandle);
         RESULT_ASSERT(policy->fcts.waitMessage(policy, &pHandle), ==, 0);
         ASSERT(pHandle && pHandle == &handle);
         ocrPolicyMsg_t *msg = pHandle->response;
@@ -82,6 +90,8 @@ static void doRLBarrier(ocrPolicyDomain_t *policy) {
 static void performNeighborDiscovery(ocrPolicyDomain_t *policy) {
     // Fill-in location tuples: ours and our parent's (the CE in FSIM)
 #ifdef HAL_FSIM_XE
+    // This is going to be sorta wrong in the case of OCR_SHARED_XE_POLICY_DOMAIN. In that case the
+    // location of the PD is always going to be the 0th XE.
     policy->myLocation = (ocrLocation_t)(*(u64*)(AR_MSR_BASE + CORE_LOCATION_NUM * sizeof(u64)));
 #endif // For TG-x86, set in the driver code
     policy->parentLocation = MAKE_CORE_ID(RACK_FROM_ID(policy->myLocation), CUBE_FROM_ID(policy->myLocation),
@@ -124,11 +134,13 @@ static u8 helperSwitchInert(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, p
             policy->guidProviders[i], policy, runlevel, phase, properties, NULL, 0);
     }
 
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN // For now we are disabling the allocator with shared PD's
     maxCount = policy->allocatorCount;
     for(i = 0; i < maxCount; ++i) {
         toReturn |= policy->allocators[i]->fcts.switchRunlevel(
             policy->allocators[i], policy, runlevel, phase, properties, NULL, 0);
     }
+#endif
 
     maxCount = policy->schedulerCount;
     for(i = 0; i < maxCount; ++i) {
@@ -185,7 +197,10 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             phaseCount = 2;
             // For RL_CONFIG_PARSE, we set it to 2 on bring up
             policy->phasesPerRunlevel[RL_CONFIG_PARSE][0] = (1<<4) + 2;
+
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN
             ASSERT(policy->workerCount == 1); // We only handle one worker per PD
+#endif
 
             // See comment in ce-policy.c for why this is here
             performNeighborDiscovery(policy);
@@ -255,6 +270,13 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
     }
     case RL_PD_OK:
     {
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+        // Make sure we have a BR PD in L2
+        ASSERT((u64)policy > BR_L2_BASE && !((u64)policy > AR_L1_BASE && (u64)policy < AR_L1_BASE + MAX_AGENT_L1));
+#else
+        // Make sure we have an AR PD in L1
+        ASSERT((u64)policy > AR_L1_BASE && (u64)policy < AR_L1_BASE + MAX_AGENT_L1);
+#endif
         // Just pass it down. We don't do much in the XEs
         phaseCount = ((policy->phasesPerRunlevel[RL_PD_OK][0]) >> ((properties&RL_TEAR_DOWN)?4:0)) & 0xF;
 
@@ -493,8 +515,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                     toReturn |= policy->workers[j]->fcts.switchRunlevel(
                         policy->workers[j], policy, runlevel, i, properties, NULL, 0);
                 }
-                // We always start the capable worker last (ya ya, there is only one right now but
-                // leaving the logic
+                // We always start the capable worker last
                 if(toReturn) break;
                 toReturn |= policy->workers[0]->fcts.switchRunlevel(
                     policy->workers[0], policy, runlevel, i, masterWorkerProperties, NULL, 0);
@@ -507,10 +528,23 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             // When I get here, it means that I dropped out of the RL_USER_OK level
             DPRINTF(DEBUG_LVL_INFO, "PD_MASTER worker dropped out\n");
 
-            // First wait on the barrier at the end of RL_USER_OK
-            if(toReturn == 0) {
-                doRLBarrier(policy);
-                // Setup the next one, in this case, the second teardown barrier
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            // We must wait here to make sure that the RL barier gets set up properly
+            hal_lock(&rself->user_ok_teardown_lock);
+            hal_unlock(&rself->user_ok_teardown_lock); // We were just using this lock as a point to wait at
+#else
+            // Make sure no XE has done the RL_USER_OK teardown
+            ASSERT(rself->rlSwitch.barrierRL == RL_USER_OK);
+#endif
+            if (rself->rlSwitch.barrierRL == RL_USER_OK) {
+                // No other XE has yet done the RL_USER_OK barrier, so do it now.
+                // (Only relevant when using OCR_SHARED_XE_POLICY_DOMAIN)
+
+                // Wait on the barrier at the end of RL_USER_OK
+                if(toReturn == 0) {
+                    doRLBarrier(policy);
+                }
+                // Setup the next barrier, in this case, the second teardown barrier
                 rself->rlSwitch.barrierRL = RL_COMPUTE_OK;
                 rself->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
             }
@@ -518,9 +552,24 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             // Continue our bring-down (we need to get to get down past COMPUTE_OK)
             policy->fcts.switchRunlevel(policy, RL_COMPUTE_OK, RL_REQUEST | RL_TEAR_DOWN | RL_BARRIER |
                                         ((amPDMaster)?RL_PD_MASTER:0) | ((amNodeMaster)?RL_NODE_MASTER:0));
+
             // At this point, we can drop out and the driver code will take over taking us down the
             // other runlevels.
+
         } else {
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            // We need to make sure that XE0 doesn't try to change runlevels while
+            // this XE (which invoked ocrShutdown) starts to bring us down.
+            hal_lock(&rself->user_ok_teardown_lock);
+
+            if (rself->rlSwitch.barrierRL != RL_USER_OK || // Someone has already called ocrShutdown.
+                (!amPDMaster && XE_PD_INDEX() != 0)        // XE0 should handle this (not us)
+                ) {
+                // No futher action is needed.
+                hal_unlock(&rself->user_ok_teardown_lock); // Make sure XE0 can get this lock.
+                return 0;
+            }
+#endif
             ASSERT(rself->rlSwitch.barrierRL == RL_USER_OK);
             ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
             ASSERT(rself->rlSwitch.properties & RL_TEAR_DOWN);
@@ -540,10 +589,27 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 }
                 if(toReturn) break;
                 // Worker 0 is considered the capable one by convention
+                // It is the one which is going to finish bringing down the PD.
                 toReturn |= policy->workers[0]->fcts.switchRunlevel(
                     policy->workers[0], policy, runlevel, i, masterWorkerProperties,
                     NULL, 0);
+
             }
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            if (amPDMaster) {
+                // If we are in here, then this was from a local message from ocrShutdown.
+
+                // We need to wait on the barrier at the end of RL_USER_OK so that XE0
+                // will be free to finish the shutdown for us.
+                if(toReturn == 0) {
+                    doRLBarrier(policy);
+                }
+                // Setup the next barrier, in this case, the second teardown barrier
+                rself->rlSwitch.barrierRL = RL_COMPUTE_OK;
+                rself->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
+            } // else: XE0 will handle this when it exists its worker loop.
+            hal_unlock(&rself->user_ok_teardown_lock); // Make sure XE0 can get this lock.
+#endif
         }
         if(toReturn) {
             DPRINTF(DEBUG_LVL_WARN, "RL_USER_OK(%"PRId32") phase %"PRId32" failed: %"PRId32"\n", properties, i-1, toReturn);
@@ -706,6 +772,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
                        u32 properties, u64 engineIndex,
                        ocrHint_t *hint, ocrInDbAllocator_t allocator,
                        u64 prescription) {
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN // For now we are disabling the allocator with shared PD's
     // This function allocates a data block for the requestor, who is either this computing agent or a
     // different one that sent us a message.  After getting that data block, it "guidifies" the results
     // which, by the way, ultimately causes xeMemAlloc (just below) to run.
@@ -749,6 +816,9 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     } else {
         return OCR_ENOMEM;
     }
+#else
+        return OCR_ENOSYS;
+#endif
 }
 
 static u8 xeProcessResponse(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u32 properties) {
@@ -781,7 +851,13 @@ static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
                     pHandle->response, pHandle->response->type);
             // Check if the message was a proper response and came from the right place
             ASSERT(pHandle->response->srcLocation == self->parentLocation);
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            if (pHandle->response->destLocation != MY_XE_LOCATION)
+                DPRINTF(DEBUG_LVL_WARN, "XE 0x%lx got response for 0x%lx \n", MY_XE_LOCATION, pHandle->response->destLocation);
+            ASSERT(pHandle->response->destLocation == MY_XE_LOCATION);
+#else
             ASSERT(pHandle->response->destLocation == self->myLocation);
+#endif
 
             // Check for shutdown message
             if(type != (pHandle->response->type & PD_MSG_TYPE_ONLY)) {
@@ -1117,9 +1193,9 @@ u8 xePdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t
     // Update the message fields
     message->destLocation = target;
     message->srcLocation = self->myLocation;
-    while(self->commApis[0]->fcts.sendMessage(self->commApis[0], target, message,
+    while(self->commApis[XE_PD_INDEX()]->fcts.sendMessage(self->commApis[XE_PD_INDEX()], target, message,
                                               handle, properties) != 0) {
-        self->commApis[0]->fcts.initHandle(self->commApis[0], pthandle);
+        self->commApis[XE_PD_INDEX()]->fcts.initHandle(self->commApis[XE_PD_INDEX()], pthandle);
         u8 status = self->fcts.pollMessage(self, &pthandle);
         if(status == 0 || status == POLL_MORE_MESSAGE) {
             RESULT_ASSERT(self->fcts.processMessage(self, pthandle->response, true), ==, 0);
@@ -1130,22 +1206,24 @@ u8 xePdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t
 }
 
 u8 xePdPollMessage(ocrPolicyDomain_t *self, ocrMsgHandle_t **handle) {
-    return self->commApis[0]->fcts.pollMessage(self->commApis[0], handle);
+    return self->commApis[XE_PD_INDEX()]->fcts.pollMessage(self->commApis[XE_PD_INDEX()], handle);
 }
 
 u8 xePdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
-    return self->commApis[0]->fcts.waitMessage(self->commApis[0], handle);
+    return self->commApis[XE_PD_INDEX()]->fcts.waitMessage(self->commApis[XE_PD_INDEX()], handle);
 }
 
 void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
     START_PROFILE(pd_xe_pdMalloc);
 
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN // For now we are disabling the allocator with shared PD's
     void* result;
     s8 allocatorIndex = 0;
     result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, OCR_ALLOC_HINT_PDMALLOC);
     if (result) {
         RETURN_PROFILE(result);
     }
+#endif
     DPRINTF(DEBUG_LVL_INFO, "xePdMalloc falls back to MSG_MEM_ALLOC for size %"PRId64"\n", (u64) size);
     // fallback to messaging
 
@@ -1159,7 +1237,9 @@ void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
     msg.type = PD_MSG_MEM_ALLOC  | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_I(type) = DB_MEMTYPE;
     PD_MSG_FIELD_I(size) = size;
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN
     ASSERT(self->workerCount == 1);              // Assert this XE has exactly one worker.
+#endif
     u8 msgResult = xeProcessCeRequest(self, &pmsg);
     if(msgResult == 0) {
         ptr = PD_MSG_FIELD_O(ptr);
@@ -1227,6 +1307,9 @@ void initializePolicyDomainXe(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
     derived->rlSwitch.barrierRL = RL_GUID_OK;
     derived->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
     derived->rlSwitch.pdStatus = 0;
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+    derived->user_ok_teardown_lock = INIT_LOCK;
+#endif
     self->neighborCount = ((paramListPolicyDomainXeInst_t*)perInstance)->neighborCount;
 }
 

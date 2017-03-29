@@ -7,11 +7,12 @@ else
 
 LEAF_CE_STRUCT=5120
 XE_STRUCT=4096
+SHARED_XE_STRUCT=16384
 ARGS_STRUCT=4096
 
 # This file aggregates multiple binary files resulting in the following layout:
 # 1. CE Struct binary padded to 4K
-# 2. XE Struct binary padded to 4K
+# 2. XE Struct binary padded to 4K (or 16K for L2 shared binary)
 # 3. Args padded to 4K
 # 4. Input file(s)
 
@@ -30,9 +31,14 @@ dd if=/dev/zero ibs=1 count=$size status=none >> tmpfile
 # Do the same with XE struct file
 cat $2 >> tmpfile
 size=`stat -c%s $2`
-let size=${XE_STRUCT}-$size
+if test $size -gt ${XE_STRUCT}; then
+  let xe_struct_size=${SHARED_XE_STRUCT}
+else
+  let xe_struct_size=${XE_STRUCT}
+fi
+let size=${xe_struct_size}-$size
 if test $size -lt 0 ; then
-    echo "XE size is greater than ${XE_STRUCT} (overflow: ${size}) -- aborting"
+    echo "XE size is greater than ${xe_struct_size} (overflow: ${size}) -- aborting"
     exit 1
 fi
 dd if=/dev/zero ibs=1 count=$size status=none >> tmpfile

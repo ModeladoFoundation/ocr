@@ -37,6 +37,10 @@ typedef struct {
     void *packedArgsLocation;  // Keep this here.  If moved around, might make mismatch in
                                // .../tg/tgkrnl/inc/tg-bin-file.h, "magic" number XE_PDARGS_OFFSET.
     pdXeResumeSwitchRL_t rlSwitch; // Structure to keep track of runlevel switches
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+    lock_t user_ok_teardown_lock; // This lock makes sure that XE0 waits until the RL_USER_OK
+                                  // tear-down has completed before starting the RL_COMPUTE_OK tear-down
+#endif
 } ocrPolicyDomainXe_t;
 
 typedef struct {

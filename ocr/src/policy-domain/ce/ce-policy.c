@@ -252,8 +252,13 @@ static void doRLRelease(ocrPolicyDomain_t *policy) {
             }
         }
     }
-    // Finally, release the XEs
-    for(i=0; i < rself->xeCount; ++i) {
+    // Finally, release the XE(s)
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+    i = rself->masterXe; // We will only signal the XE in charge of the PD
+#else
+    for(i=0; i < rself->xeCount; ++i)
+#endif
+    {
         getCurrentEnv(NULL, NULL, NULL, &msg);
         msg.destLocation = MAKE_CORE_ID(0, 0, 0, myCluster, myBlock, (ID_AGENT_XE0 + i));
         DPRINTF(DEBUG_LVL_VVERB, "Location 0x%"PRIx64": Releasing XE 0x%"PRIx64"\n",
@@ -588,8 +593,13 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             // At bring up, for the first phase, we count the number of shutdowns
             // we need to keep track of
             if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(policy, RL_PD_OK, curPhase)) {
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN
                 // The XEs are our children (always)
                 rself->rlSwitch.checkedInCount = rself->xeCount;
+#else
+                // We have only one PD for all rself->xeCount XEs
+                rself->rlSwitch.checkedInCount = 1;
+#endif
                 // Block 0 also collects other blocks in its cluster
                 if(BLOCK_FROM_ID(policy->myLocation) == 0) {
                     // Neighbors include all blocks in my cluster and if I am
@@ -2866,6 +2876,18 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 //   - the barrier has not yet been reached (ie: the CE has never been informed of the switch in RL
                 //   - it's the RL_USER_OK runlevel and teardown (these two conditions check that this is the
                 //     initial shutdown message
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+                // This XE just sent us a runlevel message so it must be the (new) master XE of the PD
+                u64 agent = AGENT_FROM_ID(msg->srcLocation);
+                if (agent > 0) {
+                    cePolicy->masterXe = agent - ID_AGENT_XE0;
+                    // XE0 must send us all RL messages. The only exception is RL_USER_OK tear-down
+                    // This is so that another XE may call ocrShutdown and be able to do the first
+                    // tear-down, thus unblocking XE0 to do the rest.
+                    ASSERT((PD_MSG_FIELD_I(runlevel) == RL_USER_OK && PD_MSG_FIELD_I(properties) & RL_TEAR_DOWN) ||
+                           agent == ID_AGENT_XE0);
+                }
+#endif
                 if(cePolicy->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT &&
                    (PD_MSG_FIELD_I(runlevel) == RL_USER_OK) && (PD_MSG_FIELD_I(properties) & RL_TEAR_DOWN)) {
                     DPRINTF(DEBUG_LVL_VERB, "RL_NOTIFY: initial shutdown notification with code %"PRIu32"\n",

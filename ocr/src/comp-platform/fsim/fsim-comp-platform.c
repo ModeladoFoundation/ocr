@@ -42,7 +42,13 @@ int memcpy(void * dst, void * src, u64 len) {
 
 // Ugly globals, but similar globals exist in pthread as well
 ocrPolicyDomain_t *myPD = NULL;
+#if defined(SAL_FSIM_XE) && defined(OCR_SHARED_XE_POLICY_DOMAIN)
+// This must be local because it should point (BR) to a different worker for each XE.
+#include <xstgintrin.h>
+ocrWorker_t *myWorker xstglocal = NULL;
+#else
 ocrWorker_t *myWorker = NULL;
+#endif
 
 static void * fsimRoutineExecute(ocrWorker_t * worker) {
     // This is actually started directly in the worker on fsim

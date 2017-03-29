@@ -109,7 +109,12 @@ u8 xeCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
             DPRINTF(DEBUG_LVL_VVERB, "Zeroed out local addresses for incoming buffer @ 0x%"PRIx64" for size %"PRIu32"\n", AR_L1_BASE + MSG_QUEUE_OFFT, MSG_QUEUE_SIZE);
 
             // Remember which XE number we are
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            for (i=0; PD->commApis[i]->commPlatform != self; i++); //TODO paranoia? Check bounds?
+            cp->N = i;
+#else
             cp->N = AGENT_FROM_ID(PD->myLocation) - ID_AGENT_XE0;
+#endif
 
             // Pre-compute pointer to our stage at the CE
             cp->rq = (fsimCommSlot_t *)(BR_L1_BASE(ID_AGENT_CE) + MSG_QUEUE_OFFT + cp->N * MSG_QUEUE_SIZE);
@@ -170,6 +175,13 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
         message, baseSize, marshalledSize);
     cp->rq->size = baseSize + marshalledSize;
 
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+    // If multiple XE's are sharing the same PD, then we need to update the srcLocation
+    // to be the location of this XE (not pd->myLocation as this will always be the first
+    // CE in the PD)
+    message->srcLocation = *(u64*)(AR_MSR_BASE + CORE_LOCATION_NUM * sizeof(u64));
+#endif
+
     // We are also going to marshall things locally so that the CE only
     // needs to copy things over once
     ocrPolicyMsg_t *tmsg = NULL;
@@ -198,10 +210,13 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
             DPRINTF(DEBUG_LVL_VVERB, "Message %p is too small -- using outbuffer\n", message);
             tmsg = &(cp->outBuffer[0]);
             tmsg->bufferSize = XE_HACK_BUFFER_SIZE;
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN
+            // Our PD is AR in XE L1 so we need to convert tmsg to BR
             u64 taddr = (u64)tmsg;
             ASSERT(taddr & _AR_LEAD_ONE);
             taddr = BR_L1_BASE(cp->N + ID_AGENT_XE0) + taddr - AR_L1_BASE;
             tmsg = (ocrPolicyMsg_t*)taddr;
+#endif
         } else {
             DPRINTF(DEBUG_LVL_WARN, "POSSIBLE DEADLOCK: Message @ %p is too small -- creating additional buffer of size 0x%"PRIu64"\n",
                 message, baseSize + marshalledSize);
