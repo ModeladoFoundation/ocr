@@ -225,8 +225,8 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
         }
     }
     ASSERT(usedRmBox);
-    DPRINTF(DEBUG_LVL_VERB, "Sent CE->CE message %p ID 0x%"PRIx64" (type 0x%"PRIx32") from 0x%"PRIx64" to 0x%"PRIx64" slot %"PRIu32" using buffer %p at %p\n",
-            message, message->msgId, message->type, self->location, target, i, sendBuf, usedRmBox);
+    DPRINTF(DEBUG_MSK_MSGTRACE, "Sent CE->CE message: %p ID: 0x%"PRIx64" from: 0x%"PRIx64" to: 0x%"PRIx64" slot: %"PRIu32" buffer: %p at %p type: %s\n",
+            message, message->msgId, self->location, target, i, sendBuf, usedRmBox, pd_type_to_str(message->type & 0xffffff));
     return 0;
 }
 
@@ -417,8 +417,8 @@ u8 ceCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
         // Inform the XE of where the message is
         rq->size = baseSize + marshalledSize;
         rq->addr = tmsg;
-        DPRINTF(DEBUG_LVL_VVERB, "Sending message to XE %"PRIu64": addr: %p, size: %"PRIu64"\n",
-            AGENT_FROM_ID((u64)target) - ID_AGENT_XE0, rq->addr, rq->size);
+        DPRINTF(DEBUG_MSK_MSGTRACE, "Sending message to XE %"PRIu64": addr: %p, size: %"PRIu64" type: %s\n",
+            AGENT_FROM_ID((u64)target) - ID_AGENT_XE0, rq->addr, rq->size, pd_type_to_str(message->type & 0xffffff));
         // - Atomically test & set remote stage to Full. Error if already non-Empty.
         {
             RESULT_ASSERT(hal_swap64(&(rq->status), FSIM_COMM_FULL_BUFFER), ==, FSIM_COMM_FREE_BUFFER);
@@ -458,8 +458,9 @@ static u8 extractXEMessage(ocrCommPlatformCe_t *cp, ocrPolicyMsg_t **msg, u32 qu
         (*msg)->usefulSize, (*msg)->bufferSize);
     // At this point, we fix-up all the pointers.
     ocrPolicyMsgUnMarshallMsg((u8*)*msg, NULL, *msg, MARSHALL_APPEND);
-    DPRINTF(DEBUG_LVL_VERB, "Found full message from XE 0x%"PRIx32" @ %p of type 0x%"PRIx32"\n",
-        queueIdx, *msg, (*msg)->type);
+
+    DPRINTF(DEBUG_MSK_MSGTRACE, "Received message from XE %"PRIx32": addr: %p size: %"PRIu64" type: %s\n",
+        queueIdx, *msg, cp->lq[queueIdx]->size, pd_type_to_str((*msg)->type & 0xffffff));
 
     cp->lq[queueIdx]->status = FSIM_COMM_READING_BUFFER; // Signify we are reading it so we don't read it twice if we
                              // go back in to poll before we destroyed this message (if, for

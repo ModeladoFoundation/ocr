@@ -19,6 +19,8 @@
 #include "ocr-sal.h"
 #endif
 
+u64 Debug_Mask = DEBUG_MSK_MSGTRACE;
+
 #define DEBUG_TYPE POLICY
 
 // Everything in the marshalling code will be

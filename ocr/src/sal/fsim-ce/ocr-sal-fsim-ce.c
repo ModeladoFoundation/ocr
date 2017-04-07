@@ -10,6 +10,14 @@
 #define DEBUG_TYPE SAL
 
 void salPdDriver(void* pdVoid) {
+    // this is a kuldgy way to set the global variable Debug_Mask.
+    // you can't set globals in CE due to some issue so this
+    // method will allow you to break on salPdDriver and then set the
+    // local stack variable debug_mask which then sets the global.
+    volatile u64 debug_mask;
+    debug_mask = DEBUG_MSK_MSGTRACE;
+    Debug_Mask = debug_mask;
+
     ocrPolicyDomain_t *pd = (ocrPolicyDomain_t*)pdVoid;
     DPRINTF(DEBUG_LVL_INFO, "CE PD Driver for pd @ %p\n", pd);
 

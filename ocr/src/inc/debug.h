@@ -71,6 +71,17 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #define OCR_DEBUG_LVL DEBUG_LVL_INFO
 #endif /* OCR_DEBUG_LVL */
 
+/**
+ * @brief Debug mask
+ *
+ * The debug levels above only use 3 bits of a
+ * larger mask.  Mask values start at 0x00000008.
+ */
+extern u64 Debug_Mask;
+extern char * pd_type_to_str(int type);
+#define DEBUG_MSK_MSGTRACE 8
+#define OCR_DEBUG_8_STR "MSG"
+
 #ifdef OCR_DEBUG_ALLOCATOR
 #define OCR_DEBUG_ALLOCATOR 1
 #else
@@ -433,7 +444,7 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #else
 
 #define DPRINTF_TYPE(type, level, format, ...)   do {                   \
-    if(OCR_DEBUG_##type && level <= DEBUG_LVL_##type) {                 \
+    if(OCR_DEBUG_##type && (level <= DEBUG_LVL_##type || level & Debug_Mask)) {                 \
         ocrTask_t *__task = NULL; ocrWorker_t *__worker = NULL;         \
         struct _ocrPolicyDomain_t *__pd = NULL;                         \
         getCurrentEnv(&__pd, &__worker, &__task, NULL);                 \
