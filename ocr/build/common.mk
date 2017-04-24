@@ -298,6 +298,7 @@ endif
 # Enable trace events for monitoring scheduling overhead activity
 # Requires OCR_TRACE_BINARY
 # CFLAGS += -DOCR_MONITOR_SCHEDULER -DOCR_TRACE_BINARY
+# CFLAGS += -DOCR_MONITOR_ALLOCATOR -DOCR_TRACE_BINARY
 
 # Enable custom tracing for collecting trace data for OCR simulator
 # Requires OCR_TRACE_BINARY

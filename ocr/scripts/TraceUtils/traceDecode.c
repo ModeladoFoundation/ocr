@@ -377,6 +377,38 @@ void translateObject(ocrTraceObj_t *trace){
         }
         break;
 
+    case OCR_TRACE_TYPE_ALLOCATOR:
+
+        switch(trace->actionSwitch){
+
+            case OCR_ACTION_ALLOCATE:
+            {
+                u64 startTime = TRACE_FIELD(ALLOCATOR, memAlloc, trace, startTime);
+                u64 callFunc = TRACE_FIELD(ALLOCATOR, memAlloc, trace, callFunc);
+                u64 memSize = TRACE_FIELD(ALLOCATOR, memAlloc, trace, memSize);
+                u64 memHint = TRACE_FIELD(ALLOCATOR, memAlloc, trace, memHint);
+                void *memPtr = TRACE_FIELD(ALLOCATOR, memAlloc, trace, memPtr);
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | TASK: "GUIDF" | TIMESTAMP: %"PRIu64" | STARTTIME: %"PRIu64" | TYPE: ALLOCATOR | ACTION: ALLOCTATE | FUNC:  %"PRIu64" | MEMSIZE: %"PRIu64" | MEMHINT: %"PRIx64" | MEMPTR: %p\n",
+                        evt_type[evtType], location, workerId, NULL_GUID, timestamp, startTime, callFunc, memSize, memHint, memPtr);
+                break;
+            }
+
+            case OCR_ACTION_DEALLOCATE:
+            {
+                u64 startTime = TRACE_FIELD(ALLOCATOR, memDealloc, trace, startTime);
+                u64 callFunc = TRACE_FIELD(ALLOCATOR, memAlloc, trace, callFunc);
+                void *memPtr = TRACE_FIELD(ALLOCATOR, memDealloc, trace, memPtr);
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | TASK: "GUIDF" | TIMESTAMP: %"PRIu64" | STARTTIME: %"PRIu64" | TYPE: ALLOCATOR | ACTION: DEALLOCATE | FUNC:  %"PRIu64" | MEMPTR: %p\n",
+                        evt_type[evtType], location, workerId, NULL_GUID, timestamp, startTime, callFunc, memPtr);
+                break;
+            }
+
+            default:
+                break;
+
+        }
+        break;
+
 #ifdef OCR_ENABLE_SIMULATOR
     case OCR_TRACE_TYPE_API_EDT:
 

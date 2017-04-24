@@ -31,6 +31,7 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                                 u64 workerId, u64 timestamp, ocrGuid_t parent, va_list ap);
 
 
+extern __thread bool inside_trace;
 
 /* Macros to condense and simplify the packing of trace objects */
 #define INIT_TRACE_OBJECT()                                                 \
@@ -38,7 +39,9 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
     ocrPolicyDomain_t *pd = NULL;                                           \
     ocrWorker_t *worker = NULL;                                             \
     getCurrentEnv(&pd, &worker, NULL, NULL);                                \
+    inside_trace = true;                                                    \
     ocrTraceObj_t *tr = pd->fcts.pdMalloc(pd, sizeof(ocrTraceObj_t));       \
+    inside_trace = false;                                                   \
                                                                             \
     tr->typeSwitch = objType;                                               \
     tr->actionSwitch = actionType;                                          \
@@ -184,6 +187,26 @@ typedef struct {
             }action;
 
         } TRACE_TYPE_NAME(DATA);
+
+        struct{ /* Allocator */
+            union{
+                struct{
+                    u64 startTime;                  /* Time when allocation started */
+                    u64 callFunc;                   /* Identifier of function calling allocate */
+                    u64 memSize;                    /* Size of memory in bytes */
+                    u64 memHint;                    /* Hint for allocator */
+                    void *memPtr;                   /* Pointer to memory allocated */
+                }memAlloc;
+
+                struct{
+                    u64 startTime;                  /* Time when deallocation started */
+                    u64 callFunc;                   /* Identifier of function calling allocate */
+                    void *memPtr;                   /* Pointer to memory allocated */
+                }memDealloc;
+
+            }action;
+
+        } TRACE_TYPE_NAME(ALLOCATOR);
 
         struct{ /* Event (OCR module) */
             union{

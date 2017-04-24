@@ -323,5 +323,49 @@ void traceDataDestroy(u64 location, bool evtType, ocrTraceType_t objType,
                       ocrTraceAction_t actionType, u64 workerId,
                       u64 timestamp, ocrGuid_t parent, ocrGuid_t dbGuid);
 
+/**
+ * @brief Callback function for tracing beginning of allocator request
+ *
+ *
+ * @param location      Id of policy domain where trace occured
+ * @param evtType       Type of trace (true for USER false for RUNTIME)
+ * @param objType       Type of ocr object being traced
+ * @param actionType    Type of action being traced
+ * @param workerId      Id of OCR worker where trace occured
+ * @param timestamp     Timestamp when trace occured (ns)
+ * @param parent        Parent task executing when trace occured
+ * @param startTime     Time when allocation started
+ * @param callFunc      Identifier of function that called allocate
+ * @param memSize       Size of memory request
+ * @param memHint       Hint for memory request
+ * @param memPtr        Pointer to memory allocated
+ */
+
+void traceAlloc(u64 location, bool evtType, ocrTraceType_t objType,
+                      ocrTraceAction_t actionType, u64 workerId,
+                      u64 timestamp, ocrGuid_t parent,
+                      u64 startTime, u64 callFunc, u64 memSize, u64 memHint, void *memPtr);
+
+/**
+ * @brief Callback function for tracing alloc end and dealloc begin
+ *
+ *
+ * @param location      Id of policy domain where trace occured
+ * @param evtType       Type of trace (true for USER false for RUNTIME)
+ * @param objType       Type of ocr object being traced
+ * @param actionType    Type of action being traced
+ * @param workerId      Id of OCR worker where trace occured
+ * @param timestamp     Timestamp when trace occured (ns)
+ * @param parent        Parent task executing when trace occured
+ * @param startTime     Time when allocation started
+ * @param callFunc      Identifier of function that called allocate
+ * @param memPtr        Pointer to memory allocated
+ */
+
+void traceDealloc(u64 location, bool evtType, ocrTraceType_t objType,
+                      ocrTraceAction_t actionType, u64 workerId,
+                      u64 timestamp, ocrGuid_t parent,
+                      u64 startTime, u64 callFunc, void *memPtr);
+
 #endif /* ENABLE_WORKER_SYSTEM */
 #endif //__TRACE_CALLBACKS_H__

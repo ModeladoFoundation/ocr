@@ -842,7 +842,14 @@ static u8 hcMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
     void* result;
     u64 idx = 0;
     ASSERT (memType == GUID_MEMTYPE || memType == DB_MEMTYPE);
+#ifdef OCR_MONITOR_ALLOCATOR
+    u64 starttime = 0;
+    OCR_TOOL_TRACE_GETTIME(starttime);
+#endif
     result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, 0);
+#ifdef OCR_MONITOR_ALLOCATOR
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_ALLOCATOR, OCR_ACTION_ALLOCATE, traceAlloc, starttime, (u64)OCR_ALLOC_MEMALLOC, size, (u64)0, result);
+#endif
     if (result) {
         *ptr = result;
         *allocator = self->allocators[idx]->fguid;
@@ -855,7 +862,18 @@ static u8 hcMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
 
 static u8 hcMemUnAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator,
                        void* ptr, ocrMemType_t memType) {
+#ifdef OCR_MONITOR_ALLOCATOR
+    u64 starttime = 0;
+    OCR_TOOL_TRACE_GETTIME(starttime);
+#endif
     allocatorFreeFunction(ptr);
+#ifdef OCR_MONITOR_ALLOCATOR
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    if (worker && worker->curTask == ptr)
+        worker->curTask = NULL;
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_ALLOCATOR, OCR_ACTION_DEALLOCATE, traceDealloc, starttime, (u64)OCR_ALLOC_MEMUNALLOC, ptr);
+#endif
     return 0;
 }
 
@@ -3878,7 +3896,14 @@ void* hcPdMalloc(ocrPolicyDomain_t *self, u64 size) {
 #else
     // Just try in the first allocator
     void* toReturn = NULL;
+#ifdef OCR_MONITOR_ALLOCATOR
+    u64 starttime = 0;
+    OCR_TOOL_TRACE_GETTIME(starttime);
+#endif
     toReturn = self->allocators[0]->fcts.allocate(self->allocators[0], size, OCR_ALLOC_HINT_PDMALLOC);
+#ifdef OCR_MONITOR_ALLOCATOR
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_ALLOCATOR, OCR_ACTION_ALLOCATE, traceAlloc, starttime, (u64)OCR_ALLOC_PDMALLOC, size, (u64)OCR_ALLOC_HINT_PDMALLOC, toReturn);
+#endif
     if(toReturn == NULL)
         DPRINTF(DEBUG_LVL_WARN, "Failed PDMalloc for size %"PRIx64"\n", size);
     ASSERT(toReturn != NULL);
@@ -3892,8 +3917,15 @@ void hcPdFree(ocrPolicyDomain_t *self, void* addr) {
     // Just try in the first allocator
     free(addr);
 #else
+#ifdef OCR_MONITOR_ALLOCATOR
+    u64 starttime = 0;
+    OCR_TOOL_TRACE_GETTIME(starttime);
+#endif
     // May result in leaks but better than the alternative...
     allocatorFreeFunction(addr);
+#ifdef OCR_MONITOR_ALLOCATOR
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_ALLOCATOR, OCR_ACTION_DEALLOCATE, traceDealloc, starttime, (u64)OCR_ALLOC_PDFREE, addr);
+#endif
 #endif
     RETURN_PROFILE();
 }

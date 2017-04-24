@@ -25,6 +25,13 @@
 #define OCR_ALLOC_HINT_USER                   0x40000000  // for user DBs
 #define OCR_ALLOC_HINT_REDUCE_CONTENTION      0x1         // used by tlsf
 
+typedef enum {
+    OCR_ALLOC_PDMALLOC,
+    OCR_ALLOC_PDFREE,
+    OCR_ALLOC_MEMALLOC,
+    OCR_ALLOC_MEMUNALLOC,
+} ocrAllocatorCallLocation;
+
 struct _ocrPolicyDomain_t;
 
 /****************************************************/

@@ -178,6 +178,7 @@ void workerLoopSystem(ocrWorker_t *worker){
 
 }
 
+extern __thread bool inside_trace;
 
 u8 systemWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                             phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t *, u64), u64 val)
@@ -223,6 +224,9 @@ u8 systemWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunle
 }
 
 void* systemRunWorker(ocrWorker_t * worker){
+
+    inside_trace = true; // The system worker should never output any traces
+
     ASSERT(worker->callback != NULL);
     worker->callback(worker->pd, worker->callbackArg);
 

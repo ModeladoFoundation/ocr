@@ -193,4 +193,32 @@ void __attribute__ ((weak)) traceDataDestroy(u64 location, bool evtType, ocrTrac
     return;
 }
 
+void __attribute__ ((weak)) traceAlloc(u64 location, bool evtType, ocrTraceType_t objType,
+                                             ocrTraceAction_t actionType, u64 workerId,
+                                             u64 timestamp, ocrGuid_t parent,
+                                             u64 startTime, u64 callFunc, u64 memSize, u64 memHint, void *memPtr){
+    //TRACING CALLBACKS - Allocate
+    INIT_TRACE_OBJECT();
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, startTime) = startTime;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, callFunc) = callFunc;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, memSize) = memSize;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, memHint) = memHint;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, memPtr) = memPtr;
+    PUSH_TO_TRACE_DEQUE();
+    return;
+}
+
+void __attribute__ ((weak)) traceDealloc(u64 location, bool evtType, ocrTraceType_t objType,
+                                             ocrTraceAction_t actionType, u64 workerId,
+                                             u64 timestamp, ocrGuid_t parent,
+                                             u64 startTime, u64 callFunc, void *memPtr){
+    //TRACING CALLBACKS - Allocate End and Deallocate Begin
+    INIT_TRACE_OBJECT();
+    TRACE_FIELD(ALLOCATOR, memDealloc, tr, startTime) = startTime;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, callFunc) = callFunc;
+    TRACE_FIELD(ALLOCATOR, memDealloc, tr, memPtr) = memPtr;
+    PUSH_TO_TRACE_DEQUE();
+    return;
+}
+
 #endif /* ENABLE_WORKER_SYSTEM */
