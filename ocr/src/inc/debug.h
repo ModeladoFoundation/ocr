@@ -81,6 +81,8 @@ extern u64 Debug_Mask;
 extern char * pd_type_to_str(int type);
 #define DEBUG_MSK_MSGTRACE 8
 #define OCR_DEBUG_8_STR "MSG"
+#define DEBUG_MSK_EDTSTATS 16
+#define OCR_DEBUG_16_STR "EDTSTAT"
 
 #ifdef OCR_DEBUG_ALLOCATOR
 #define OCR_DEBUG_ALLOCATOR 1

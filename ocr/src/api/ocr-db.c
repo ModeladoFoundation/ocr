@@ -119,7 +119,7 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
                     GUIDA(*db));
         }
     }
-    DPRINTF_COND_LVL(((returnCode != 0) && (returnCode != OCR_EGUIDEXISTS)), DEBUG_LVL_WARN, DEBUG_LVL_INFO,
+    DPRINTF_COND_LVL(((returnCode != 0) && (returnCode != OCR_EGUIDEXISTS)), DEBUG_MSK_EDTSTATS, DEBUG_MSK_EDTSTATS,
                      "EXIT ocrDbCreate -> %"PRIu32"; GUID: "GUIDF"; ADDR: %p size: %"PRIu64"\n",
                      returnCode, GUIDA(*db), *addr, len);
     RETURN_PROFILE(returnCode);

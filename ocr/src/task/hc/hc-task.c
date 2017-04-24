@@ -1943,7 +1943,7 @@ u8 taskExecute(ocrTask_t* base) {
 
 #ifdef OCR_ENABLE_VISUALIZER
         u64 endTime = salGetTime();
-        DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" FctName: %s Start: %"PRIu64" End: %"PRIu64"\n", GUIDA(base->guid), base->name, startTime, endTime);
+        DPRINTF(DEBUG_MSK_EDTSTATS, "Execute "GUIDF" FctName: %s Start: %"PRIu64" End: %"PRIu64"\n", GUIDA(base->guid), base->name, startTime, endTime);
 #endif
 #ifdef ENABLE_RESILIENCY
         hal_lock(&curWorker->notifyLock);

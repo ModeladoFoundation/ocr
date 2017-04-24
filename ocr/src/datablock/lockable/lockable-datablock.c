@@ -228,8 +228,8 @@ static void lowLevelAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, 
                   u8 dbMode, bool isInternal, u32 properties) {
     ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*) self;
     rself->attributes.numUsers += 1;
-    DPRINTF(DEBUG_LVL_VERB, "Acquiring DB @ 0x%"PRIx64" (GUID: "GUIDF") from EDT (GUID: "GUIDF") (runtime acquire: %"PRId32") (mode: %"PRId32") (numUsers: %"PRId32") (dbMode: %"PRId32")\n",
-            (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal, (int) dbMode,
+    DPRINTF(DEBUG_MSK_EDTSTATS, "Acquiring DB @ 0x%"PRIx64" (GUID: "GUIDF") size %"PRId64" from EDT (GUID: "GUIDF") (runtime acquire: %"PRId32") (mode: %"PRId32") (numUsers: %"PRId32") (dbMode: %"PRId32")\n",
+            (u64)self->ptr, GUIDA(rself->base.guid), rself->base.size, GUIDA(edt.guid), (u32)isInternal, (int) dbMode,
             rself->attributes.numUsers, rself->attributes.dbMode);
 #ifdef OCR_ENABLE_STATISTICS
     {

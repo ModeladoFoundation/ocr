@@ -36,10 +36,19 @@ Script Instructions:
   Makefile, you must issue these compiler flags explicitely and use the config-generator
   script to create a config file using guid type COUNTED_MAP.
 
--Application logging output must be redirected to
- to the /ocr/scripts/EdtStats directory
-    The command would look like: make -f Makefile.x86 run > ~/xstack/ocr/scripts/EdtStats/<log_ouput_file_name>
+-You can also put ENABLE_VISUALIZER=yes on the make command line.
 
--Navigate to ~/xstack/ocr/scripts/EdtStats, and run: python edtStats.py <log_ouput_file_name>
+-Application logging output can be redirected to the /ocr/scripts/EdtStats directory.
+The command would look like:
+        ENABLE_VISUALIZER=yes make -f Makefile.x86 run > ~/xstack/ocr/scripts/EdtStats/<log_ouput_file_name>
+
+-To configure and build for x86-phi and more cpus, you would do the following:
+        ENABLE_VISUALIZER=yes make -f Makefile.x86-phi install   // first build the app
+        $OCR_ROOT/install/share/ocr/scripts/Configs/config-generator.py --remove-destination --threads <64|128|256> --output install/x86-phi/generated.cfg --target x86 --guid COUNTED_MAP --binding seq
+        ENABLE_VISUALIZER=yes RUN_MODE=runApp OCR_TYPE=x86-phi WORKLOAD_INSTALL_ROOT=./install OCR_CONFIG=generated.cfg OCR_NUM_NODES=1 CONFIG_NUM_THREADS=<64|128|256> make run > <log_ouput_file_name>
+
+-NOTE: You will need to set OCR_ROOT as appropriate.
+
+-Navigate to ~/xstack/ocr/scripts/EdtStats (move log file as required), and run: python edtStats.py <log_ouput_file_name>
 
 -Output will be a .csv file which can be opened in a spreadsheet program.

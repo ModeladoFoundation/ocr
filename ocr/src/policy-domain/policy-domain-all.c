@@ -19,7 +19,7 @@
 #include "ocr-sal.h"
 #endif
 
-u64 Debug_Mask = DEBUG_MSK_MSGTRACE;
+u64 Debug_Mask = DEBUG_MSK_EDTSTATS;
 
 #define DEBUG_TYPE POLICY
 

@@ -52,14 +52,14 @@ ocrStaticAssert(OCR_HINT_COUNT_DB_REGULAR < OCR_RUNTIME_HINT_PROP_BITS);
 // Forward declaraction
 u8 regularDestruct(ocrDataBlock_t *self);
 
-u8 regularAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSlot,
+u8 regularAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocation_t dstLoc, u32 edtSlot,
                   ocrDbAccessMode_t mode, bool isInternal, u32 properties) {
 
     ocrDataBlockRegular_t *rself = (ocrDataBlockRegular_t*)self;
     *ptr = NULL;
 
-    DPRINTF(DEBUG_LVL_VERB, "Acquiring DB @ 0x%"PRIx64" (GUID: "GUIDF") from EDT (GUID: "GUIDF") (runtime acquire: %"PRId32") size: %"PRIu64"\n",
-            (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal, self->size);
+    DPRINTF(DEBUG_MSK_EDTSTATS, "Acquiring DB @ 0x%"PRIx64" (GUID: "GUIDF") size %"PRId64" from EDT (GUID: "GUIDF") (runtime acquire: %"PRId32") (mode: %"PRId32") (numUsers: %"PRId32") (dbMode: %"PRId32")\n",
+            (u64)self->ptr, GUIDA(rself->base.guid), self->size, GUIDA(edt.guid), (u32)isInternal, (int)mode, rself->attributes.numUsers, 0);
 
     // Critical section
     hal_lock(&(rself->lock));
