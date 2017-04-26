@@ -210,10 +210,10 @@ def statsPerEdt(edt, timeMap, rtMap, dbSizeMap, nameMap, exeTime, totalBytes, us
 
 #========= Strip necessary records from debug logs with grep =========
 def runShellStrip(dbgLog):
-    os.system("egrep -w \'API\\(EDTSTAT\\)\' " + str(dbgLog) + " | grep \'EXIT ocrDbCreate\' | grep -v INVAL > dbs.txt")
-    os.system("grep FctName " + str(dbgLog) + " > names.txt")
-    os.system("grep \'DB(EDTSTAT)\' " + str(dbgLog) + " | grep Acquiring | grep \'runtime acquire: 0\' > userAcqs.txt")
-    os.system("grep \'DB(EDTSTAT)\' " + str(dbgLog) + " | grep Acquiring | grep \'runtime acquire: 1\' > rtAcqs.txt")
+    os.system("egrep -w \'API\\(EDTSTAT\\)\' " + str(dbgLog) + " | grep \'EXIT ocrDbCreate\' | grep -v INVAL | sed \'s/^.*API/API/\' > dbs.txt")
+    os.system("grep FctName " + str(dbgLog) + " | sed \'s/^.*>>> //\' > names.txt")
+    os.system("grep \'DB(EDTSTAT)\' " + str(dbgLog) + " | grep Acquiring | grep \'runtime acquire: 0\' | sed \'s/^.*DB(EDTSTAT)/DB(EDTSTAT)/\' > userAcqs.txt")
+    os.system("grep \'DB(EDTSTAT)\' " + str(dbgLog) + " | grep Acquiring | grep \'runtime acquire: 1\'  | sed \'s/^.*DB(EDTSTAT)/DB(EDTSTAT)/\' > rtAcqs.txt")
 
 #======== Remove temporarily created files =============
 def cleanup():
