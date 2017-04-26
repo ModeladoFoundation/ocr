@@ -848,7 +848,7 @@ static u8 hcMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
 #endif
     result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, 0);
 #ifdef OCR_MONITOR_ALLOCATOR
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_ALLOCATOR, OCR_ACTION_ALLOCATE, traceAlloc, starttime, (u64)OCR_ALLOC_MEMALLOC, size, (u64)0, result);
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_ALLOCATOR, OCR_ACTION_ALLOCATE, traceAlloc, starttime, (u64)OCR_ALLOC_MEMALLOC, size, (u64)memType, result);
 #endif
     if (result) {
         *ptr = result;

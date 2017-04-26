@@ -1,0 +1,48 @@
+##
+# License
+##
+
+This file is subject to the license agreement located in the file
+LICENSE and cannot be distributed without it.  This notice
+cannot be removed or modified.
+
+##
+# Usage Instructions
+##
+
+This tool produces data detailing time overheads incurred by each EDT
+throughout various stages of thier life cycle, as well as absolute times
+that workers begin seeking work and when they recieve work from the scheduler.
+    -x86
+    -x86-mpi
+    -x86-phi
+
+-In ocr/build/common.mk:
+    -DOCR_MONITOR_ALLOCATOR must be set.
+    -DOCR_TRACE_BINARY must be set.
+
+Script Instructions:
+
+-Navigate to desired application directory
+
+-When building/running the application a configuration option must be prepended
+ to the make command.
+
+    The command would look like: CONFIG_FLAGS=--sysworker make -f Makefile.<platform_type> run
+
+-When properly configured, one trace binary per policy domain will be created
+ in: <application_directory>/install/<platform_type>
+
+
+-Navigate to /ocr/scripts/TraceUtils and run:
+    -make
+    -./traceDecode <path_to_trace_binaries>/trace_* > <filename>
+
+    -<filename> is a an appropriately formatted file expected by the overhead script.
+
+
+-Navigate to /ocr/scripts/Allocator/ and run:
+    ./analyzeiAllocator.py <filename>
+
+    -This will create alloc_out.csv which contains time difference intervals for
+        OCR_ALLOC_PDMALLOC, OCR_ALLOC_PDFREE, OCR_ALLOC_MEMALLOC, and OCR_ALLOC_MEMUNALLOC.
