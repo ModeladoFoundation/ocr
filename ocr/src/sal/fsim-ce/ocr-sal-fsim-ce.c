@@ -15,7 +15,7 @@ void salPdDriver(void* pdVoid) {
     // method will allow you to break on salPdDriver and then set the
     // local stack variable debug_mask which then sets the global.
     volatile u64 debug_mask;
-    debug_mask = DEBUG_MSK_MSGSTATS;
+    debug_mask = 0;
     Debug_Mask = debug_mask;
 
     ocrPolicyDomain_t *pd = (ocrPolicyDomain_t*)pdVoid;
