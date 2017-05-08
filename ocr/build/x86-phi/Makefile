@@ -24,7 +24,16 @@ DEFAULT_CONFIG=jenkins-common-8w-lockableDB.cfg
 # They may have a default value (CC, AR, ARFLAGS, RM).
 # See make doc "Variables Used by Implicit Rules"
 
-CC      ?= icc
+#
+# Tool-chain to be used for the build
+#
+FORCE_CC ?= no
+
+ifeq ($(FORCE_CC), no)
+  ifeq ($(CC), cc)
+    CC = icc
+  endif
+endif # End of ifeq force_cc
 
 # Conserve CFLAGS and LDFLAGS defined in environment
 ifeq (${CC}, icc)
