@@ -18,6 +18,7 @@ default:
 	@echo "   x86-mpi      -- OCR for distributed X86 Linux machines using MPI comms"
 	@echo "   x86-gasnet   -- OCR for distributed X86 Linux machines using GASNet comms"
 	@echo "   x86-phi      -- OCR for X86 Xeon Phi (KNL) Linux machines"
+	@echo "   x86-phi-mpi  -- OCR for X86 Xeon Phi (KNL) Linux machines using MPI comms"
 	@echo "   x86-newlib   -- OCR for X86 with newlib to support legacy codes"
 	@echo "   tg-x86       -- OCR for Traleika Glacier but emulated on X86 (WIP)"
 	@echo "   tg-ce        -- CE parts of OCR for Traleika Glacier"
@@ -85,6 +86,7 @@ squeaky:
 	OCR_TYPE=builder-xe $(MAKE) -C builder-xe squeaky
 	OCR_TYPE=x86-mpi $(MAKE) -C x86-mpi squeaky
 	OCR_TYPE=x86-phi $(MAKE) -C x86-phi squeaky
+	OCR_TYPE=x86-phi-mpi $(MAKE) -C x86-phi-mpi squeaky
 	OCR_TYPE=x86-newlib $(MAKE) -C x86-newlib squeaky
 # Need some more work here so that we can squeaky even when
 # some of the gasnet variables are not set.

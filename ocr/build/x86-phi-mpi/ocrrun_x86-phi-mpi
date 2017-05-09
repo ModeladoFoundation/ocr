@@ -1,0 +1,173 @@
+#!/bin/bash
+
+
+# User-provided or generated
+PROGRAM_BIN=
+
+# Support for different mpi implementation, all overridable from the env
+if [[ ${OCRRUN_OPT_ENVKIND} == "mvapich" ]]; then
+    OCRRUN_OPT_CMD=${OCRRUN_OPT_CMD-"mpirun"}
+    OCRRUN_OPT_NUM_NODES=${OCRRUN_OPT_NUM_NODES-"-np"}
+    OCRRUN_OPT_NODEFILE=${OCRRUN_OPT_NODEFILE-"-f"}
+elif [[ ${OCRRUN_OPT_ENVKIND} == "CLE" ]]; then
+    # Cray Linux Environment (CLE)
+    OCRRUN_OPT_CMD=${OCRRUN_OPT_CMD-"aprun"}
+    # Default forces one mpi process per node
+    OCRRUN_OPT_NUM_NODES=${OCRRUN_OPT_NUM_NODES-"-N 1 -n"}
+    OCRRUN_OPT_NODEFILE=${OCRRUN_OPT_NODEFILE-"-l"}
+elif [[ ${OCRRUN_OPT_ENVKIND} == "SLURM" ]]; then
+    OCRRUN_OPT_CMD=${OCRRUN_OPT_CMD-"srun --mpi=pmi2"}
+    OCRRUN_OPT_NUM_NODES=${OCRRUN_OPT_NUM_NODES-"-N"}
+elif [[ ${OCRRUN_OPT_ENVKIND} == "openmpi" ]]; then
+    OCRRUN_OPT_CMD=${OCRRUN_OPT_CMD-"mpirun"}
+    OCRRUN_OPT_NUM_NODES=${OCRRUN_OPT_NUM_NODES-"-np"}
+    OCRRUN_OPT_NODEFILE=${OCRRUN_OPT_NODEFILE-"-machinefile"}
+else
+    # Default to intel mpi options unless already set in environment
+    OCRRUN_OPT_ENVKIND=${OCRRUN_OPT_ENVKIND-"impi"}
+    OCRRUN_OPT_CMD=${OCRRUN_OPT_CMD-"mpirun"}
+    OCRRUN_OPT_NUM_NODES=${OCRRUN_OPT_NUM_NODES-"-np"}
+    OCRRUN_OPT_NODEFILE=${OCRRUN_OPT_NODEFILE-"-machinefile"}
+    OCRRUN_OPT_GDB=${OCRRUN_OPT_GDB-"--gdb"}
+    OCRRUN_OPT_ITAC=${OCRRUN_OPT_ITAC-"-trace"}
+fi
+
+#
+# Handling options
+#
+
+while [ $# -gt 0 ]; do
+    if [[ "$1" = "-ocr:cfg" && $# -ge 2 ]]; then
+        shift
+        OCR_CONFIG=("$@")
+        shift
+   else
+        # stacking unknown arguments
+        ARGS="${ARGS} $1"
+        shift
+    fi
+done
+
+NB_ARGS=`echo $ARGS | wc -w`
+
+if [ ${NB_ARGS} -eq 0 ]; then
+    echo "error: missing program name argument"
+    exit 1
+elif [ ${NB_ARGS} -lt 1 ]; then
+    echo "error: unexpected number of arguments"
+    exit 2
+else
+    # Get program name and remove trailing whitespaces
+    PROGRAM_BIN=`echo ${ARGS} | sed -e "s/^ .//g"`
+fi
+
+if [ "${OCR_CONFIG}" = "" ]; then
+    #Call the config generator
+    python ${OCR_INSTALL}/share/ocr/scripts/Configs/config-generator.py --output ${PWD}/generated_ocrrun.cfg
+    OCR_CONFIG=${PWD}/generated_ocrrun.cfg
+fi
+
+# Determine what the configuration file is trying to do
+
+#
+# Warning: This is a very rough first implementation round
+#
+
+# Checking for MPI-backed runtime
+RES=`grep "MPI" ${OCR_CONFIG}`
+
+if [[ "$RES" != "" ]]; then
+    PROGPATH=`echo "${PROGRAM_BIN%/*}" | sed 's/^ *//'`
+    PROGNAME=`echo "${PROGRAM_BIN##*/}" | cut -d' ' -f1-1`
+
+    if [[ "${OCR_NODEFILE}" != "" ]]; then
+        # count words since hostnames shouldn't have spaces (-l only counts new lines)
+        NODECOUNT=`cat ${OCR_NODEFILE} | wc -w`
+        if [[ "${OCR_NUM_NODES}" != "${NODECOUNT}" ]]; then
+            OLD_VALUE=${OCR_NUM_NODES}
+            OCR_NUM_NODES=${NODECOUNT}
+            if [[ "${OLD_VALUE}" != "" ]]; then
+                echo "Warning: OCR_NUM_NODES differs from number of nodes declared in OCR_NODEFILE (${OLD_VALUE} and ${NODECOUNT})"
+            fi
+        fi
+        OCR_MPI_OPTS+=" ${OCRRUN_OPT_NODEFILE} ${OCR_NODEFILE}"
+    fi
+
+    #If nothing has provided default to 2 instances on local node
+    #TODO This information should be extracted from the config file
+    if [[ "${OCR_NUM_NODES}" == "" ]]; then
+        OCR_NUM_NODES=2
+    fi
+
+    if [ "${OCRRUN_OPT_ENVKIND}" == "CLE" ] && [ "${OCR_NODEFILE}" == "" ]; then
+        # For CLE need to tweak the args when it's a local run
+        OCR_MPI_OPTS+=" -N ${OCR_NUM_NODES} -n ${OCR_NUM_NODES}"
+    elif [ "${OCRRUN_OPT_ENVKIND}" == "SLURM" ]; then
+        OCR_MPI_OPTS+=" -N ${OCR_NUM_NODES} -n ${OCR_NUM_NODES}"
+    else
+        OCR_MPI_OPTS+=" ${OCRRUN_OPT_NUM_NODES} ${OCR_NUM_NODES}"
+    fi
+
+    if [[ "${OCRRUN_GDB}" == "yes" ]]; then
+        OCR_MPI_OPTS+=" ${OCRRUN_OPT_GDB}"
+    if [[ "${OCR_ASAN}" == "yes" ]]; then
+        export ASAN_OPTIONS=abort_on_error=1
+    fi
+    fi
+
+    if [[ "${OCRRUN_VALGRIND_OPTS}" != "" ]]; then
+        OCRRUN_VALGRIND="yes";
+    fi
+
+    if [[ "${OCRRUN_VALGRIND}" == "yes" ]]; then
+        PROGRAM_BIN="valgrind ${OCRRUN_VALGRIND_OPTS} ${PROGRAM_BIN}"
+    fi
+
+    if [[ "${OCRRUN_ITAC}" == "yes" ]]; then
+        if [[ -z "${VT_MPI}" ]]; then
+            echo "Error: The ITAC environment must be defined."
+            exit 1
+        fi
+        OCR_MPI_OPTS+=" ${OCRRUN_OPT_ITAC}"
+    fi
+
+    OCRRUN_HPCTOOLKIT_MEAS=${OCRRUN_HPCTOOLKIT_MEAS-${PROGPATH}/${PROGNAME}_meas}
+    OCRRUN_HPCTOOLKIT_DB=${OCRRUN_HPCTOOLKIT_DB-${PROGPATH}/${PROGNAME}.db}
+    if [[ "${OCRRUN_HPCTOOLKIT}" == "yes" ]]; then
+        if [[ -z "${OCR_INSTALL}" ]]; then
+            echo "error: ocrrun support for hpctoolkit needs OCR_INSTALL to be defined"
+            exit 1
+        fi
+        rm -Rf ${OCRRUN_HPCTOOLKIT_DB}
+        rm -Rf ${OCRRUN_HPCTOOLKIT_MEAS}
+        rm -Rf ${PROGPATH}/*.hpcstruct
+        hpcstruct ${OCR_INSTALL}/lib/libocr_x86-mpi.so
+        hpcstruct "${PROGPATH}/${PROGNAME}"
+        # The db file should be generated in the folder that contains the executable
+        PROGRAM_BIN="hpcrun -t -o ${OCRRUN_HPCTOOLKIT_MEAS} ${OCRRUN_HPCTOOLKIT_OPTS} ${PROGRAM_BIN}"
+    fi
+
+    if [[ "${OCRRUN_VTUNE}" == "yes" ]]; then
+        OCRRUN_VTUNE_COLLECT=${OCRRUN_VTUNE_COLLECT-"advanced-hotspots"}
+        OCRRUN_VTUNE_RESULTDIR=${OCRRUN_VTUNE_RESULTDIR-"${PROGPATH}/vtune-trace"} #"
+        PROGRAM_BIN="amplxe-cl -collect ${OCRRUN_VTUNE_COLLECT} -trace-mpi -result-dir ${OCRRUN_VTUNE_RESULTDIR} ${PROGRAM_BIN}"
+    fi
+
+    ${OCRRUN_OPT_CMD} ${OCR_MPI_OPTS} ${PROGRAM_BIN} -ocr:cfg ${OCR_CONFIG}
+    RET_CODE=$?
+
+    if [[ ${RET_CODE} -eq 0 ]]; then
+        if [[ "${OCRRUN_HPCTOOLKIT}" == "yes" ]]; then
+            HPCSTRUCT="-S ${PROGPATH}/libocr_x86-mpi.so.hpcstruct -S ${PROGPATH}/${PROGNAME}.hpcstruct"
+            hpcprof-mpi -I . ${HPCSTRUCT} -o ${OCRRUN_HPCTOOLKIT_DB} ${OCRRUN_HPCTOOLKIT_MEAS}
+        fi
+    fi
+
+
+    exit ${RET_CODE}
+fi
+
+# Default is regular X86-backend
+${PROGRAM_BIN} -ocr:cfg ${OCR_CONFIG}
+RET_CODE=$?
+exit ${RET_CODE}
