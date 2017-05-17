@@ -1,0 +1,40 @@
+##
+# License
+##
+
+This file is subject to the license agreement located in the file
+LICENSE and cannot be distributed without it.  This notice
+cannot be removed or modified.
+
+##
+# Usage Instructions
+##
+
+This script postprocesses log data and generates a console summary,
+and .csv readout of message stats observed during app execution.
+    -tg
+
+Instructions:
+
+When building to collect messaging stats, the Debug_Mask need to
+be set DEBUG_MSK_MSGSTATS in the following files
+
+- ocr/src/policy-domain/policy-domain-all.c
+- ocr/src/sal/fsim-ce/ocr-sal-fsim-ce.c
+
+Script Instructions:
+
+-Rebuild ocr if needed.
+
+-Navigate to desired application directory.
+
+-Run the application with desired workload
+
+-Navigate to <ocr_root>/ocr/scripts/MsgStats, and run the shell script
+
+  ./msgstats.sh <log_directory> [out]
+
+  log_directory - the directory containing the log files.
+  out           - the filename to output to.
+		  Default: out.csv
+
