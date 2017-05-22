@@ -100,6 +100,8 @@ static int locationToMpiRank(ocrLocation_t location) {
 static ocrPolicyMsg_t * allocateNewMessage(ocrCommPlatform_t * self, u32 size) {
     ocrPolicyDomain_t * pd = self->pd;
     ocrPolicyMsg_t * message = pd->fcts.pdMalloc(pd, size);
+    ADebug(AllocDebugAllPD, "mpi-probe-comm-platform.c/allocateNewMessage() "
+           "pdMalloc(%ld), addr=%p\n", size, message);
     initializePolicyMessage(message, size);
     return message;
 }
@@ -112,12 +114,16 @@ static mpiCommHandleBase_t * createMpiHandle(ocrCommPlatform_t * self, u64 id, u
     mpiCommHandleBase_t *handleBase = NULL;
     if(newMTMode) {
         handleBase = self->pd->fcts.pdMalloc(self->pd, sizeof(mpiCommHandleMt_t));
+        ADebug(AllocDebugAllPD, "mpi-probe-comm-platform.c/mpiCommHandleBase_t(1) "
+               "pdMalloc(%ld), addr=%p\n", sizeof(mpiCommHandleMt_t), handleBase);
         handleBase->isMtHandle = true;
         mpiCommHandleMt_t *handle = (mpiCommHandleMt_t*)handleBase;
         handle->myStrand = NULL;
         handle->myMsg = NULL;
     } else {
         handleBase = self->pd->fcts.pdMalloc(self->pd, sizeof(mpiCommHandle_t));
+        ADebug(AllocDebugAllPD, "mpi-probe-comm-platform.c/mpiCommHandleBase_t(2) "
+               "pdMalloc(%ld), addr=%p\n", sizeof(mpiCommHandleMt_t), handleBase);
         handleBase->isMtHandle = false;
         mpiCommHandle_t *handle = (mpiCommHandle_t*)handleBase;
         handle->properties = properties;
@@ -1044,6 +1050,9 @@ u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
             MPI_Comm_size(MPI_COMM_WORLD, &nbRanks);
             PD->neighborCount = nbRanks - 1;
             PD->neighbors = PD->fcts.pdMalloc(PD, sizeof(ocrLocation_t) * PD->neighborCount);
+            ADebug(AllocDebugAllPD, "mpi-probe-comm-platform.c/MPICommSwitchRunlevel() "
+                   "pdMalloc(%ld), addr=%p\n",
+                (sizeof(ocrLocation_t) * PD->neighborCount), PD->neighbors);
             int myRank = (int) locationToMpiRank(PD->myLocation);
             int i = 0;
             while(i < (nbRanks-1)) {

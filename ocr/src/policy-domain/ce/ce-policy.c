@@ -51,6 +51,19 @@
 extern void __ceWaitForGdb();
 #endif
 
+
+#ifdef DheAllocDebug
+// Values defined in debug.h
+u64  allocDebugCurMask =
+//        AllocDebugFile   |
+        AllocDebugAllPD  |
+        AllocDebugPDFunc |
+        AllocDebugPDFree |
+        AllocDebugTgMem  |
+        AllocDebugAllMem |
+        AllocDebugCeMsg;
+#endif // DheAllocDebug
+
 extern void ocrShutdown(void);
 
 // Helper routines for RL barriers with other PDs
@@ -727,7 +740,13 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             COMPILE_ASSERT(PDSTT_COMM <= 2);
             DPRINTF(DEBUG_LVL_VVERB, "Policy is at %p and pdMalloc @ %p\n", policy, &(policy->fcts.pdMalloc));
             policy->strandTables[PDSTT_EVT - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
+            ADebug(AllocDebugAllPD,
+                   "cePdSwitchRunlevel()/RL_GUID_OK/strandTables[EVT] pdMalloc(%ld), addr=%p\n",
+                   sizeof(pdStrandTable_t), policy->strandTables[PDSTT_EVT - 1]);
             policy->strandTables[PDSTT_COMM - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
+            ADebug(AllocDebugAllPD,
+                   "cePdSwitchRunlevel()/RL_GUID_OK/strandTables[COMM] pdMalloc(%ld), addr=%p\n",
+                   sizeof(pdStrandTable_t), policy->strandTables[PDSTT_COMM - 1]);
 
             // We need to make sure we have our micro tables up and running
             toReturn = (policy->strandTables[PDSTT_EVT-1] == NULL) ||
@@ -3126,15 +3145,19 @@ void* cePdMalloc(ocrPolicyDomain_t *self, u64 size) {
             (self->allocators[allocatorIndex] == NULL)) continue;  // Skip this allocator if it doesn't exist.
         result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, allocatorHints | OCR_ALLOC_HINT_PDMALLOC);
         if (result) {
+            ADebug(AllocDebugPDFunc, "cePdMalloc() size=%ld, returns %p\n",
+                   size, result);
             return result;
         }
     } while (prescription != 0);
 
     DPRINTF(DEBUG_LVL_WARN, "cePdMalloc returning NULL for size %"PRId64"\n", (u64) size);
+    ADebug(AllocDebugPDFunc, "cePdMalloc() size=%ld, returns NULL\n", size);
     return NULL;
 }
 
 void cePdFree(ocrPolicyDomain_t *self, void* addr) {
+    ADebug(AllocDebugPDFree, "cePdFree() addr=%p\n", addr);
     allocatorFreeFunction(addr);
 }
 

@@ -29,6 +29,10 @@ static void newArrayChunkSingle(arrayList_t *list) {
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     arrayChunkNode_t *chunkNode = (arrayChunkNode_t*) pd->fcts.pdMalloc(pd, sizeof(arrayChunkNode_t) + ((sizeof(slistNode_t) + list->elSize) * list->arrayChunkSize));
+    ADebug(AllocDebugAllPD, "array-list/newArrayChunkSingle() "
+           "pdMalloc(%ld), addr=%p\n",
+           (sizeof(arrayChunkNode_t) + ((sizeof(slistNode_t) + list->elSize) * list->arrayChunkSize)), chunkNode);
+
     chunkNode->next = list->poolHead;
     list->poolHead = chunkNode;
 
@@ -50,6 +54,9 @@ static void newArrayChunkDouble(arrayList_t *list) {
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     arrayChunkNode_t *chunkNode = (arrayChunkNode_t*) pd->fcts.pdMalloc(pd, sizeof(arrayChunkNode_t) + ((sizeof(dlistNode_t) + list->elSize) * list->arrayChunkSize));
+    ADebug(AllocDebugAllPD, "array-list/newArrayChunkDouble() "
+           "pdMalloc(%ld), addr=%p\n",
+           (sizeof(arrayChunkNode_t) + ((sizeof(dlistNode_t) + list->elSize) * list->arrayChunkSize)), chunkNode);
     chunkNode->next = list->poolHead;
     list->poolHead = chunkNode;
 
@@ -436,6 +443,8 @@ arrayList_t* newArrayList(u32 elSize, u32 arrayChunkSize, ocrListType type) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     if (arrayChunkSize == 0) arrayChunkSize = ARRAY_CHUNK;
     arrayList_t* list = (arrayList_t*) pd->fcts.pdMalloc(pd, sizeof(arrayList_t));
+    ADebug(AllocDebugAllPD, "array-list/newArrayList() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(arrayList_t), list);
     list->type = type;
     list->elSize = elSize;
     list->arrayChunkSize = arrayChunkSize;

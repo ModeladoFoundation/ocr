@@ -200,6 +200,8 @@ static void enqueueLocalAcquire(ocrPolicyDomain_t * pd, ocrFatGuid_t dstGuid, oc
                                 u32 dstSlot, bool isInternal, u32 properties, dbWaiter_t ** queue) {
     ASSERT(queue != NULL);
     dbWaiter_t * waiterEntry = (dbWaiter_t *) pd->fcts.pdMalloc(pd, sizeof(dbWaiter_t));
+    ADebug(AllocDebugAllPD, "lockable-datablock.c/enqueueLocalAcquire() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(dbWaiter_t), waiterEntry);
     waiterEntry->fguid = dstGuid;
     waiterEntry->dstLoc = dstLoc;
     waiterEntry->slot = dstSlot;
@@ -972,6 +974,8 @@ u8 lockableAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocati
             ocrPolicyDomain_t *pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             dbWaiter_t * dbWaiter = (dbWaiter_t *) pd->fcts.pdMalloc(pd, sizeof(dbWaiter_t));
+            ADebug(AllocDebugAllPD, "lockable-datablock.c/lockableAcquire() "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(dbWaiter_t), dbWaiter);
             dbWaiter->fguid = edt;
             dbWaiter->dstLoc = dstLoc;
             dbWaiter->slot = edtSlot;
@@ -1808,6 +1812,8 @@ u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
     u64 len = sizeof(ocrDataBlockLockable_t) +
               (srcDb->hint.hintVal ? OCR_HINT_COUNT_DB_LOCKABLE*sizeof(u64) : 0);
     ocrDataBlock_t * dstDbBase = (ocrDataBlock_t*)pd->fcts.pdMalloc(pd, len);
+    ADebug(AllocDebugAllPD, "lockable-datablock.c/deserializeDataBlockLockable(1) "
+           "pdMalloc(%ld), addr=%p\n", len, dstDbBase);
     ocrDataBlockLockable_t * dstDb = (ocrDataBlockLockable_t*)dstDbBase;
 
     u64 offset = 0;
@@ -1833,6 +1839,8 @@ u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
         RESULT_ASSERT(ocrPolicyMsgGetMsgSize((ocrPolicyMsg_t*) buffer, &baseSize, &marshalledSize, MARSHALL_FULL_COPY), ==, 0);
         len = baseSize+marshalledSize;
         ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)pd->fcts.pdMalloc(pd, len);
+        ADebug(AllocDebugAllPD, "lockable-datablock.c/deserializeDataBlockLockable(2) "
+               "pdMalloc(%ld), addr=%p\n", len, msg);
         RESULT_ASSERT(ocrPolicyMsgUnMarshallMsg(buffer, NULL, msg, MARSHALL_FULL_COPY), ==, 0);
         buffer += len;
         dstDb->backingPtrMsg = msg;
@@ -1841,10 +1849,14 @@ u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
         if (dstDbBase->ptr != NULL) {
             len = dstDbBase->size;
             dstDbBase->ptr = pd->fcts.pdMalloc(pd, len);
+            ADebug(AllocDebugAllPD, "lockable-datablock.c/deserializeDataBlockLockable(3) "
+                   "pdMalloc(%ld), addr=%p\n", len, dstDbBase->ptr);
             hal_memCopy(dstDbBase->ptr, buffer, len, false);
             if (dstDbBase->bkPtr != NULL) {
                 // Default the backup pointer to the deserialized version
                 dstDbBase->bkPtr = pd->fcts.pdMalloc(pd, len);
+                ADebug(AllocDebugAllPD, "lockable-datablock.c/deserializeDataBlockLockable(4) "
+                       "pdMalloc(%ld), addr=%p\n", len, dstDbBase->bkPtr);
                 hal_memCopy(dstDbBase->bkPtr, buffer, len, false);
             }
             buffer += len;
@@ -1860,6 +1872,8 @@ u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
             u32 count = dstDb->waiterQueueCounters[i];
             for (j = 0, waiterPrev = NULL; j < count; j++, buffer += len) {
                 dbWaiter_t * waiter = (dbWaiter_t*) pd->fcts.pdMalloc(pd, len);
+                ADebug(AllocDebugAllPD, "lockable-datablock.c/deserializeDataBlockLockable(5) "
+                       "pdMalloc(%ld), addr=%p\n", len, waiter);
                 hal_memCopy(waiter, buffer, len, false);
                 //TODO-resilience: Is it guaranteed anywher that the actual fguid
                 //pointer in the dbWaiter_t is valid on deserialize ?
@@ -1893,6 +1907,8 @@ u8 deserializeDataBlockLockable(u8* buffer, ocrDataBlock_t** self) {
                 RESULT_ASSERT(ocrPolicyMsgGetMsgSize((ocrPolicyMsg_t*) buffer, &baseSize, &marshalledSize, MARSHALL_FULL_COPY), ==, 0);
                 len = baseSize+marshalledSize;
                 ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)pd->fcts.pdMalloc(pd, len);
+                ADebug(AllocDebugAllPD, "lockable-datablock.c/deserializeDataBlockLockable(6) "
+                       "pdMalloc(%ld), addr=%p\n", len, msg);
                 RESULT_ASSERT(ocrPolicyMsgUnMarshallMsg(buffer, NULL, msg, MARSHALL_FULL_COPY), ==, 0);
                 buffer += len;
                 queueAddLast(dstQueue, msg);

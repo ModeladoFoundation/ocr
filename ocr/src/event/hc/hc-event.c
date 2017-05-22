@@ -380,6 +380,8 @@ static u8 commonSatisfyRegNodeEager(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg
                     if (msgSize > sizeof(ocrPolicyMsg_t)) {
                         //TODO-MD-SLAB
                         msgClone = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSize);
+                        ADebug(AllocDebugAllPD, "hc-event.c/commonSatisfyRegNodeEager() "
+                               "pdMalloc(%ld), addr=%p\n", msgSize, msgClone);
                         initializePolicyMessage(msgClone, msgSize);
                     } else {
                         msgClone = &msgStack;
@@ -1469,7 +1471,11 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
             getCurrentEnv(&pd, NULL, NULL, NULL);
             // Setup backing data-structure pointers
             devt->satBuffer = (ocrGuid_t *) pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t) * devt->satBufSz);
+            ADebug(AllocDebugAllPD, "hc-event.c/initNewEventHc(satBuffer) "
+                   "pdMalloc(%ld), addr=%p\n", (sizeof(ocrGuid_t) * devt->satBufSz), devt->satBuffer);
             devt->waiters = (regNode_t *) pd->fcts.pdMalloc(pd, sizeof(regNode_t) * devt->waitBufSz);
+            ADebug(AllocDebugAllPD, "hc-event.c/initNewEventHc(waiters) "
+                   "pdMalloc(%ld), addr=%p\n", (sizeof(regNode_t) * devt->waitBufSz), devt->waiters);
         } else {
             // Setup backing data-structure pointers
             u32 baseSize = sizeof(ocrEventHcChannel_t);
@@ -1618,6 +1624,8 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
         event->mdClass.peers = NULL;
     } else { // automatically register the master location as a peer
         locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
+        ADebug(AllocDebugAllPD, "hc-event.c/newEventHcDist() "
+               "pdMalloc(%ld), addr=%p\n", sizeof(locNode_t), locNode);
         locNode->loc = guidLoc;
         locNode->next = NULL;
         event->mdClass.peers = locNode;
@@ -1689,6 +1697,8 @@ u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObje
             ASSERT(*destSize >= sizeof(ocrGuid_t));
             // Note: this is concurrent with the event being satisfied so it's best effort.
             locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
+            ADebug(AllocDebugAllPD, "hc-event.c/serializeEventFactoryHc() "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(locNode_t), locNode);
             hal_lock(&(devt->waitersLock));
             ocrGuid_t data = ((ocrEventHcPersist_t *)evt)->data;
             locNode->loc = destLocation;
@@ -1766,6 +1776,8 @@ u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, o
             DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_REG "GUIDF"\n", GUIDA(evtGuid));
             ocrEventHc_t * devt = (ocrEventHc_t *) (*dest);
             locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
+            ADebug(AllocDebugAllPD, "hc-event.c/deserializeEventFactoryHc() "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(locNode_t), locNode);
             ocrLocation_t loc = GET_PAYLOAD_DATA(srcBuffer, M_REG, ocrLocation_t, location);
             locNode->loc = loc;
             hal_lock(&(devt->waitersLock));
@@ -1862,6 +1874,9 @@ static ocrGuid_t popSatisfy(ocrEventHcChannel_t * devt) {
     u32 newMaxNbElems = nbElems * 2; \
     type * oldData = devt->bufName; \
     devt->bufName = (type *) pd->fcts.pdMalloc(pd, sizeof(type)*newMaxNbElems); \
+    ADebug(AllocDebugAllPD, "hc-event.c/CHANNEL_BUFFER_RESIZE/line=%d: "  \
+           "pdMalloc(%ld), addr=%p\n",                                         \
+           __LINE__, (sizeof(type)*newMaxNbElems), devt->bufName);        \
     s32 headOffset = devt->headName%nbElems; \
     s32 tailOffset = devt->tailName%nbElems; \
     if ((headOffset > tailOffset) || ((headOffset == tailOffset) && (headOffset != 0))) { \
@@ -2191,6 +2206,8 @@ u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
     ASSERT(len > 0);
     u64 extra = (evtHcBuf->hint.hintVal ? OCR_HINT_COUNT_EVT_HC * sizeof(u64) : 0);
     ocrEvent_t *evt = (ocrEvent_t*)pd->fcts.pdMalloc(pd, (len + extra));
+    ADebug(AllocDebugAllPD, "hc-event.c/deserializeEventHc(evt) "
+           "pdMalloc(%ld), addr=%p\n", (len + extra), evt);
 
     u64 offset = 0;
     hal_memCopy(evt, buffer, len, false);
@@ -2212,6 +2229,8 @@ u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
         bool doContinue = true;
         while (doContinue) {
             locNode_t * curNode = (locNode_t*)pd->fcts.pdMalloc(pd, len);
+            ADebug(AllocDebugAllPD, "hc-event.c/deserializeEventHc(curNode) "
+                   "pdMalloc(%ld), addr=%p\n", len, curNode);
             hal_memCopy(curNode, buffer, len, false);
             curNode->next = NULL;
             if (prevNode == NULL) {
@@ -2242,12 +2261,16 @@ u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
             if (evtHcChannel->satBuffer) {
                 len = sizeof(ocrGuid_t) * evtHcChannel->satBufSz;
                 evtHcChannel->satBuffer = (ocrGuid_t*)pd->fcts.pdMalloc(pd, len);
+                ADebug(AllocDebugAllPD, "hc-event.c/deserializeEventHc(satBuffer) "
+                       "pdMalloc(%ld), addr=%p\n", len, evtHcChannel->satBuffer);
                 hal_memCopy(evtHcChannel->satBuffer, buffer, len, false);
                 buffer += len;
             }
             if (evtHcChannel->waiters) {
                 len = sizeof(regNode_t) * evtHcChannel->waitBufSz;
                 evtHcChannel->waiters = (regNode_t*)pd->fcts.pdMalloc(pd, len);
+                ADebug(AllocDebugAllPD, "hc-event.c/deserializeEventHc(waiters) "
+                       "pdMalloc(%ld), addr=%p\n", len, evtHcChannel->waiters);
                 hal_memCopy(evtHcChannel->waiters, buffer, len, false);
                 buffer += len;
             }

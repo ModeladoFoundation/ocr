@@ -49,10 +49,14 @@ u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
 
 ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
     ocrPlatformModelAffinity_t * model = pd->fcts.pdMalloc(pd, sizeof(ocrPlatformModelAffinity_t));
+    ADebug(AllocDebugAllPD, "ocr-platform-model.c/createPlatformModelAffinity(model) "
+       "pdMalloc(%ld), addr=%p\n", sizeof(ocrPlatformModelAffinity_t), model);
     u64 countAff = pd->neighborCount + 1;
     model->pdLocAffinities = NULL;
     model->pdLocAffinitiesSize = countAff;
     model->pdLocAffinities = pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t)*countAff);
+    ADebug(AllocDebugAllPD, "ocr-platform-model.c/createPlatformModelAffinity(pdLocAff) "
+       "pdMalloc(%ld), addr=%p\n", (sizeof(ocrGuid_t)*countAff), model->pdLocAffinities);
     // Returns an array of affinity where each affinity maps to a PD.
     // The array is ordered by PD's location (rank in mpi/gasnet)
     u64 i=0;
@@ -109,10 +113,14 @@ void destroyPlatformModelAffinity(ocrPolicyDomain_t *pd) {
 
 ocrPlatformModel_t * createPlatformModelAffinityXE(ocrPolicyDomain_t *pd) {
     ocrPlatformModelAffinity_t * model = pd->fcts.pdMalloc(pd, sizeof(ocrPlatformModelAffinity_t));
+    ADebug(AllocDebugAllPD, "ocr-platform-model.c/createPlatformModelAffinityXE(model) "
+       "pdMalloc(%ld), addr=%p\n", sizeof(ocrPlatformModelAffinity_t), model);
     u64 countAff = pd->neighborCount + 1;
     model->pdLocAffinities = NULL;
     model->pdLocAffinitiesSize = countAff;
     model->pdLocAffinities = pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t)*countAff);
+    ADebug(AllocDebugAllPD, "ocr-platform-model.c/createPlatformModelAffinityXE(pdLocAff) "
+       "pdMalloc(%ld), addr=%p\n", (sizeof(ocrGuid_t)*countAff), model->pdLocAffinities);
     // Returns an array of affinity where each affinity maps to a PD.
     // The array is ordered by PD's location (locationToIdx in TG)
     u64 i=0;

@@ -82,7 +82,14 @@ u8 hcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_MEMORY_OK, phase)) {
             u32 i;
             self->contexts = (ocrSchedulerHeuristicContext_t **)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/hcSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contexts] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*)), self->contexts);
             ocrSchedulerHeuristicContextHc_t *contextAlloc = (ocrSchedulerHeuristicContextHc_t *)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContextHc_t));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/hcSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contextAlloc] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContextHc_t)), contextAlloc);
+
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t *)&(contextAlloc[i]);
                 initializeContextHc(context, i);

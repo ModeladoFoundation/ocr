@@ -88,7 +88,14 @@ static u8 hcCommDelegateSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_MEMORY_OK, phase)) {
             u32 i;
             self->contexts = (ocrSchedulerHeuristicContext_t **)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/hcCommDelegateSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contexts] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*)), self->contexts);
             ocrSchedulerHeuristicContextHcCommDelegate_t *contextAlloc = (ocrSchedulerHeuristicContextHcCommDelegate_t *)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContextHcCommDelegate_t));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/hcCommDelegateSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contextAlloc] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContextHcCommDelegate_t)), contextAlloc);
+
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t *)&(contextAlloc[i]);
                 initializeContextHcCommDelegate(context, i);
@@ -107,12 +114,18 @@ static u8 hcCommDelegateSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t
             u64 boxCount = PD->workerCount;
             dself->outboxesCount = boxCount;
             dself->outboxes = PD->fcts.pdMalloc(PD, sizeof(deque_t *) * boxCount);
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/hcCommDelegateSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[outboxes] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(deque_t *) * boxCount), dself->outboxes);
             for(i = 0; i < boxCount; ++i) {
                 dself->outboxes[i] = newDeque(PD, NULL, WORK_STEALING_DEQUE);
             }
             //Create inbox queues for each worker
             dself->inboxesCount = boxCount;
             dself->inboxes = PD->fcts.pdMalloc(PD, sizeof(deque_t *) * boxCount);
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/hcCommDelegateSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[inboxes] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(deque_t *) * boxCount),dself->inboxes);
             for(i = 0; i < boxCount; ++i) {
                 dself->inboxes[i] = newDeque(PD, NULL, SEMI_CONCURRENT_DEQUE);
             }

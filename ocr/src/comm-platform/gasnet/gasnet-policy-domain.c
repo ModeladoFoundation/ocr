@@ -86,6 +86,8 @@ void addCommPlatform(ocrCommPlatform_t * self) {
 
     // store into the tree
     PDQueue_t * item = (PDQueue_t *) pd->fcts.pdMalloc(pd, sizeof(PDQueue_t));
+    ADebug(AllocDebugAllPD, "gasnet-policy-domain.c/addCommPlatform() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(PDQueue_t), item);
     item->platform = (ocrCommPlatformGasnet_t*)self;
     item->counter  = 0;
 

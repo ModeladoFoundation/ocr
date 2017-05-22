@@ -118,6 +118,9 @@ void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
         if(k==queueGetSize(pd->taskPerfs)) {
             u32 j;
             ocrPerfCounters_t *cumulativeStats = (ocrPerfCounters_t *)pd->fcts.pdMalloc(pd, sizeof(ocrPerfCounters_t));
+            ADebug(AllocDebugAllPD, "hc-task.c/addPerfEntry() "
+                   "pdMalloc(%ld), addr=%p\n",
+                   sizeof(ocrPerfCounters_t), cumulativeStats);
             for(j = 0; j<PERF_MAX; j++){
                 cumulativeStats->stats[j].average = 0;
                 cumulativeStats->stats[j].current = 0;
@@ -269,6 +272,8 @@ u8 deserializeTaskTemplateHc(u8* buffer, ocrTaskTemplate_t** self) {
 
     u64 len = sizeof(ocrTaskTemplateHc_t) + (OCR_HINT_COUNT_EDT_HC*sizeof(u64));
     ocrTaskTemplateHc_t *tmplHc = (ocrTaskTemplateHc_t*)pd->fcts.pdMalloc(pd, len);
+    ADebug(AllocDebugAllPD, "hc-task.c/deserializeTaskTemplateHc() "
+           "pdMalloc(%ld), addr=%p\n", len, tmplHc);
 
     u64 offset = 0;
     len = sizeof(ocrTaskTemplateHc_t);
@@ -607,6 +612,9 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
         // Initialize the dependence list to be transmitted to the EDT's user code.
         u32 depc = self->depc;
         ocrEdtDep_t * resolvedDeps = pd->fcts.pdMalloc(pd, sizeof(ocrEdtDep_t)* depc);
+        ADebug(AllocDebugAllPD, "hc-task.c/taskAllDepvSatisfied() "
+               "pdMalloc(%ld), addr=%p\n",
+               (sizeof(ocrEdtDep_t)* depc), resolvedDeps);
         rself->resolvedDeps = resolvedDeps;
         regNode_t * signalers = rself->signalers;
         u32 i = 0;
@@ -1377,11 +1385,16 @@ u8 notifyDbAcquireTaskHc(ocrTask_t *base, ocrFatGuid_t db) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     if(derived->maxUnkDbs == 0) {
         derived->unkDbs = (ocrGuid_t*)pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t)*8);
+        ADebug(AllocDebugAllPD, "hc-task.c/notifyDbAcquireTaskHc(unkDbs1) "
+               "pdMalloc(%ld), addr=%p\n", (sizeof(ocrGuid_t)*8), derived->unkDbs);
         derived->maxUnkDbs = 8;
     } else {
         if(derived->maxUnkDbs == derived->countUnkDbs) {
             ocrGuid_t *oldPtr = derived->unkDbs;
             derived->unkDbs = (ocrGuid_t*)pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t)*derived->maxUnkDbs*2);
+            ADebug(AllocDebugAllPD, "hc-task.c/notifyDbAcquireTaskHc(unkDbs2) "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(ocrGuid_t)*derived->maxUnkDbs*2), derived->unkDbs);
             ASSERT(derived->unkDbs);
             hal_memCopy(derived->unkDbs, oldPtr, sizeof(ocrGuid_t)*derived->maxUnkDbs, false);
             pd->fcts.pdFree(pd, oldPtr);
@@ -1981,6 +1994,8 @@ u8 taskExecute(ocrTask_t* base) {
     //TODO missing the DEEP_GC
     if (!ocrGuidIsNull(retGuid)) {
         ocrGuid_t * ptrRetGuid = pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t));
+        ADebug(AllocDebugAllPD, "hc-task.c/taskExecute() "
+               "pdMalloc(%ld), addr=%p\n", sizeof(ocrGuid_t), ptrRetGuid);
         *ptrRetGuid = retGuid;
         devt->args = ptrRetGuid;
     } else {
@@ -2142,10 +2157,14 @@ u8 deserializeTaskFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t edtGuid, oc
     ASSERT(((SZ_UNKDBS(src) == 0) && (dst->unkDbs == NULL)) || 1);
     if (SZ_UNKDBS(src)) {
         dst->unkDbs = pd->fcts.pdMalloc(pd, SZ_UNKDBS(src));
+        ADebug(AllocDebugAllPD, "hc-task.c/deserializeTaskFactoryHc(unkDbs) "
+               "pdMalloc(%ld), addr=%p\n", SZ_UNKDBS(src), dst->unkDbs);
         hal_memCopy(dst->unkDbs, OFF_UNKDBS(src), SZ_UNKDBS(src), false);
     }
     ASSERT(((SZ_RESOLVEDDEPS(src) == 0) && (dst->resolvedDeps == NULL)) || 1);
     dst->resolvedDeps = pd->fcts.pdMalloc(pd, SZ_RESOLVEDDEPS(src));
+    ADebug(AllocDebugAllPD, "hc-task.c/deserializeTaskFactoryHc(resolvedDeps) "
+           "pdMalloc(%ld), addr=%p\n", SZ_RESOLVEDDEPS(src), dst->resolvedDeps);
     hal_memCopy(dst->resolvedDeps, OFF_RESOLVEDDEPS(src), SZ_RESOLVEDDEPS(src), false);
     *dest = (ocrObject_t *) dst;
     return 0;
@@ -2177,6 +2196,8 @@ u8 cloneTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t 
     if (msgSize > sizeof(ocrPolicyMsg_t)) {
         //TODO-MD-SLAB
         msg = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSize);
+        ADebug(AllocDebugAllPD, "hc-task.c/cloneTaskFactoryHc() "
+               "pdMalloc(%ld), addr=%p\n", msgSize, msg);
         initializePolicyMessage(msg, msgSize);
         getCurrentEnv(NULL, NULL, NULL, msg);
         msgProp = PERSIST_MSG_PROP;
@@ -2304,6 +2325,8 @@ u8 deserializeTaskHc(u8* buffer, ocrTask_t** self) {
               (taskHcBuf->signalers ? taskBuf->depc*sizeof(regNode_t) : 0) +
               (taskHcBuf->hint.hintVal ? OCR_HINT_COUNT_EDT_HC*sizeof(u64) : 0);
     ocrTask_t *task = (ocrTask_t*)pd->fcts.pdMalloc(pd, len);
+    ADebug(AllocDebugAllPD, "hc-task.c/deserializeTaskHc(task) "
+           "pdMalloc(%ld), addr=%p\n", len, task);
     ocrTaskHc_t *taskHc = (ocrTaskHc_t*)task;
 
     u64 offset = 0;
@@ -2339,6 +2362,8 @@ u8 deserializeTaskHc(u8* buffer, ocrTask_t** self) {
     if (taskHc->resolvedDeps) {
         len = task->depc*sizeof(ocrEdtDep_t);
         taskHc->resolvedDeps = (ocrEdtDep_t*)pd->fcts.pdMalloc(pd, len);
+        ADebug(AllocDebugAllPD, "hc-task.c/deserializeTaskHc(resolvedDeps) "
+               "pdMalloc(%ld), addr=%p\n", len, taskHc->resolvedDeps);
         hal_memCopy(taskHc->resolvedDeps, buffer, len, false);
         buffer += len;
     }
@@ -2346,6 +2371,8 @@ u8 deserializeTaskHc(u8* buffer, ocrTask_t** self) {
     if (taskHc->unkDbs) {
         len = taskHc->countUnkDbs*sizeof(ocrGuid_t);
         taskHc->unkDbs = (ocrGuid_t*)pd->fcts.pdMalloc(pd, len);
+        ADebug(AllocDebugAllPD, "hc-task.c/deserializeTaskHc(unkDbs) "
+               "pdMalloc(%ld), addr=%p\n", len, taskHc->unkDbs);
         hal_memCopy(taskHc->unkDbs, buffer, len, false);
         buffer += len;
     }

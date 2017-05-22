@@ -59,6 +59,9 @@ u8 hcCommSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
             u64 boxCount = PD->workerCount;
             commSched->outboxesCount = boxCount;
             commSched->outboxes = PD->fcts.pdMalloc(PD, sizeof(deque_t *) * boxCount);
+            ADebug(AllocDebugAllPD, "hc-comm-delegate-scheduler.c/hcCommSchedulerSwitchRunlevel()/RL_GUID_OK[outboxes] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(deque_t *) * boxCount), commSched->outboxes);
             u64 i;
             for(i = 0; i < boxCount; ++i) {
                 commSched->outboxes[i] = newDeque(PD, NULL, WORK_STEALING_DEQUE);
@@ -66,6 +69,9 @@ u8 hcCommSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
             //Create inbox queues for each worker
             commSched->inboxesCount = boxCount;
             commSched->inboxes = PD->fcts.pdMalloc(PD, sizeof(deque_t *) * boxCount);
+            ADebug(AllocDebugAllPD, "hc-comm-delegate-scheduler.c/hcCommSchedulerSwitchRunlevel()/RL_GUID_OK[inboxes] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(deque_t *) * boxCount), commSched->inboxes);
             for(i = 0; i < boxCount; ++i) {
                 commSched->inboxes[i] = newDeque(PD, NULL, SEMI_CONCURRENT_DEQUE);
             }

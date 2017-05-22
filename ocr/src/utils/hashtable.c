@@ -102,6 +102,8 @@ static ocr_hashtable_entry* hashtableFindEntry(hashtable_t * hashtable, void * k
 static void hashtableInit(ocrPolicyDomain_t * pd, hashtable_t * hashtable, u32 nbBuckets, hashFct hashing) {
     hashtable->pd = pd;
     ocr_hashtable_entry ** table = pd->fcts.pdMalloc(pd, nbBuckets*sizeof(ocr_hashtable_entry*));
+    ADebug(AllocDebugAllPD, "hashtable.c/hashtableInit() pdMalloc(%ld), addr=%p\n",
+           (nbBuckets*sizeof(ocr_hashtable_entry*)), table);
     u32 i;
     for (i=0; i < nbBuckets; i++) {
         table[i] = NULL;
@@ -116,6 +118,8 @@ static void hashtableInit(ocrPolicyDomain_t * pd, hashtable_t * hashtable, u32 n
  */
 hashtable_t * newHashtable(ocrPolicyDomain_t * pd, u32 nbBuckets, hashFct hashing) {
     hashtable_t * hashtable = pd->fcts.pdMalloc(pd, sizeof(hashtable_t));
+    ADebug(AllocDebugAllPD, "hashtable.c/newHashtable() pdMalloc(%ld), addr=%p\n",
+           sizeof(hashtable_t), hashtable);
     hashtableInit(pd, hashtable, nbBuckets, hashing);
     return hashtable;
 }
@@ -161,6 +165,8 @@ void iterateHashtable(hashtable_t * hashtable, hashtableIterateFct iterate, void
  */
 hashtable_t * newHashtableBucketLocked(ocrPolicyDomain_t * pd, u32 nbBuckets, hashFct hashing) {
     hashtable_t * hashtable = pd->fcts.pdMalloc(pd, sizeof(hashtableBucketLocked_t));
+    ADebug(AllocDebugAllPD, "hashtable.c/newHashtableBucketLocked(hashtable) "
+           "pdMalloc(%ld), addr=%p\n", sizeof(hashtableBucketLocked_t), hashtable);
     hashtableInit(pd, hashtable, nbBuckets, hashing);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
     u32 i;
@@ -171,8 +177,13 @@ hashtable_t * newHashtableBucketLocked(ocrPolicyDomain_t * pd, u32 nbBuckets, ha
     u64 bucketLockSz = nbBuckets*sizeof(lock_t);
 #endif
     lock_t * bucketLock = pd->fcts.pdMalloc(pd, bucketLockSz);
+    ADebug(AllocDebugAllPD, "hashtable.c/newHashtableBucketLocked(bucketLock) "
+           "pdMalloc(%ld), addr=%p\n", bucketLockSz, bucketLock);
 #ifdef STATS_HASHTABLE
     hashtableBucketLockedStats_t * stats = pd->fcts.pdMalloc(pd, nbBuckets*sizeof(hashtableBucketLockedStats_t));
+    ADebug(AllocDebugAllPD, "hashtable.c/newHashtableBucketLocked(stats) "
+           "pdMalloc(%ld), addr=%p\n",
+           (nbBuckets*sizeof(hashtableBucketLockedStats_t)), stats);
 #endif
     for (i=0; i < nbBuckets; i++) {
         bucketLock[GET_LOCK_IDX(i)] = INIT_LOCK;
@@ -302,6 +313,8 @@ bool hashtableNonConcPut(hashtable_t * hashtable, void * key, void * value) {
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
     ocrPolicyDomain_t * pd = hashtable->pd;
     ocr_hashtable_entry * newHead = pd->fcts.pdMalloc(pd, sizeof(ocr_hashtable_entry));
+    ADebug(AllocDebugAllPD, "hashtable.c/hashtableNonConcPut() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocr_hashtable_entry), newHead);
     newHead->key = key;
     newHead->value = value;
     ocr_hashtable_entry * oldHead = hashtable->table[bucket];
@@ -399,6 +412,8 @@ void * hashtableConcTryPut(hashtable_t * hashtable, void * key, void * value) {
             // key is not there, try to CAS the head to insert it
             if (newHead == NULL) {
                 newHead = pd->fcts.pdMalloc(pd, sizeof(ocr_hashtable_entry));
+                ADebug(AllocDebugAllPD, "hashtable.c/hashtableConcTryPut() "
+                       "pdMalloc(%ld), addr=%p\n", sizeof(ocr_hashtable_entry), newHead);
                 newHead->key = key;
                 newHead->value = value;
             }
@@ -430,6 +445,8 @@ bool hashtableConcPut(hashtable_t * hashtable, void * key, void * value) {
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
     ocrPolicyDomain_t * pd = hashtable->pd;
     ocr_hashtable_entry * newHead = pd->fcts.pdMalloc(pd, sizeof(ocr_hashtable_entry));
+    ADebug(AllocDebugAllPD, "hashtable.c/hashtableConcPut() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocr_hashtable_entry), newHead);
     newHead->key = key;
     newHead->value = value;
     bool success;
@@ -481,6 +498,8 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
     ocr_hashtable_entry * newHead = hashtable->pd->fcts.pdMalloc(hashtable->pd, sizeof(ocr_hashtable_entry));
+    ADebug(AllocDebugAllPD, "hashtable.c/hashtableConcBucketLockedPut() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocr_hashtable_entry), newHead);
     newHead->key = key;
     newHead->value = value;
     //DPRINTF(DEBUG_LVL_WARN, "ht=%p For put key=%p: bucket=%"PRIu32" found entry=%p value=%p\n", hashtable, key, bucket, newHead, newHead->value);

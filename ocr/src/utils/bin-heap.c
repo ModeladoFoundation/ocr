@@ -38,6 +38,9 @@ static void _baseBinHeapInit(binHeap_t* heap, ocrPolicyDomain_t *pd) {
     heap->count = 0;
     heap->data = NULL;
     heap->data = pd->fcts.pdMalloc(pd, sizeof(ocrBinHeapEntry_t)*INIT_BIN_HEAP_CAPACITY);
+    ADebug(AllocDebugAllPD, "bin-heap.c/_baseBinHeapInit() "
+           "pdMalloc(%ld), addr=%p\n",
+           (sizeof(ocrBinHeapEntry_t)*INIT_BIN_HEAP_CAPACITY), heap->data);
     ASSERT(heap->data != NULL);
     heap->destruct = binHeapDestroy;
     // Set by derived implementation
@@ -55,11 +58,15 @@ static binHeap_t * _newBaseBinHeap(ocrPolicyDomain_t *pd, ocrBinHeapType_t type)
     switch(type) {
         case NO_LOCK_BASE_BIN_HEAP:
             heap = (binHeap_t*) pd->fcts.pdMalloc(pd, sizeof(binHeap_t));
+            ADebug(AllocDebugAllPD, "bin-heap.c/_newBaseBinHeap()/NO_LOCK_BASE_BIN_HEAP "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(binHeap_t), heap);
             _baseBinHeapInit(heap, pd);
             // Warning: function pointers must be specialized in caller
             break;
         case LOCK_BASE_BIN_HEAP:
             heap = (binHeap_t*) pd->fcts.pdMalloc(pd, sizeof(binHeapLocked_t));
+            ADebug(AllocDebugAllPD, "bin-heap.c/_newBaseBinHeap()/LOCK_BASE_BIN_HEAP "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(binHeapLocked_t), heap);
             _lockedBinHeapInit((binHeapLocked_t*)heap, pd);
             // Warning: function pointers must be specialized in caller
             break;

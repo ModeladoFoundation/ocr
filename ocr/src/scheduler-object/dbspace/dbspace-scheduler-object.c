@@ -84,6 +84,8 @@ ocrSchedulerObject_t* dbspaceSchedulerObjectCreate(ocrSchedulerObjectFactory_t *
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectDbspace_t));
+    ADebug(AllocDebugAllPD, "dbspace-scheduler-object/dbspaceSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectDbspace_t), schedObj);
     dbspaceSchedulerObjectInitialize(factory, schedObj);
     paramListSchedulerObjectDbspace_t *paramsDbspace = (paramListSchedulerObjectDbspace_t*)perInstance;
     dbspaceSchedulerObjectStart(schedObj, pd, paramsDbspace->dbGuid);

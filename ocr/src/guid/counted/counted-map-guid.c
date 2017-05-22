@@ -278,6 +278,8 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
         if (!isLocalGuidCheck(self, tempGuid)) {
             ocrPolicyDomain_t * pd = self->pd;
             MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+            ADebug(AllocDebugAllPD, "labeledGuidGetGuid(1) size = %ld, addr=%p\n",
+                   sizeof(MdProxy_t), mdProxy);
 #ifdef ENABLE_RESILIENCY
             mdProxy->base.kind = OCR_GUID_MD_PROXY;
             mdProxy->base.size = sizeof(MdProxy_t);
@@ -343,6 +345,9 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
             if (!isLocalGuidCheck(self, fguid->guid)) {
                 ocrPolicyDomain_t * pd = self->pd;
                 MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+                ADebug(AllocDebugAllPD,
+                       "labeledGuidGetGuid(2) size = %ld, addr=%p\n",
+                       sizeof(MdProxy_t), mdProxy);
 #ifdef ENABLE_RESILIENCY
                 mdProxy->base.kind = OCR_GUID_MD_PROXY;
                 mdProxy->base.size = sizeof(MdProxy_t);
@@ -474,6 +479,8 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             // Optimistically try to enqueue.
             ocrPolicyDomain_t * pd = self->pd;
             mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+            ADebug(AllocDebugAllPD, "labeledGuidGetGuid(3) size = %ld, addr=%p\n",
+                   sizeof(MdProxy_t), mdProxy);
 #ifdef ENABLE_RESILIENCY
             mdProxy->base.kind = OCR_GUID_MD_PROXY;
             mdProxy->base.size = sizeof(MdProxy_t);
@@ -703,6 +710,8 @@ u64 deserializeMdProxy(u8* buffer, MdProxy_t **proxy) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     u64 len = sizeof(MdProxy_t);
     MdProxy_t *mdProxy = (MdProxy_t*)pd->fcts.pdMalloc(pd, len);
+    ADebug(AllocDebugAllPD, "deserializeMdProxy(1) size = %ld, addr=%p\n",
+           len, mdProxy);
     hal_memCopy(mdProxy, buffer, len, false);
     ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
     mdProxy->ptr = 0; //this will be setup after the ocr object is deserialized
@@ -715,6 +724,8 @@ u64 deserializeMdProxy(u8* buffer, MdProxy_t **proxy) {
         for (i = 0; i < mdProxy->numNodes; i++) {
             len = sizeof(MdProxyNode_t);
             MdProxyNode_t *mdProxyNode = (MdProxyNode_t*)pd->fcts.pdMalloc(pd, len);
+            ADebug(AllocDebugAllPD, "deserializeMdProxy(2) size = %ld, addr=%p\n",
+                   len, mdProxyNode);
             hal_memCopy(mdProxyNode, buffer, len, false);
             mdProxyNode->next = ((void*) REG_OPEN);
             if (mdProxy->queueHead == NULL) {
@@ -729,6 +740,8 @@ u64 deserializeMdProxy(u8* buffer, MdProxy_t **proxy) {
             ocrPolicyMsg_t *msgBuf = (ocrPolicyMsg_t*)buffer;
             len = msgBuf->bufferSize;
             ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)pd->fcts.pdMalloc(pd, len);
+            ADebug(AllocDebugAllPD, "deserializeMdProxy(3) size = %ld, addr=%p\n",
+                   len, msg);
             initializePolicyMessage(msg, len);
             ocrPolicyMsgUnMarshallMsg(buffer, NULL, msg, MARSHALL_FULL_COPY | MARSHALL_NSADDR);
             mdProxyNode->msg = msg;
@@ -1076,6 +1089,9 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
         } else if (kind == OCR_GUID_AFFINITY) {
             size = sizeof(ocrAffinity_t);
             ocrAffinity_t *aff = pd->fcts.pdMalloc(pd, size);
+            ADebug(AllocDebugAllPD,
+                   "deserializeGuidProviderCounted(1) size = %ld, addr=%p\n",
+                   size, aff);
             hal_memCopy(aff, buffer, size, false);
             val = aff;
         } else {

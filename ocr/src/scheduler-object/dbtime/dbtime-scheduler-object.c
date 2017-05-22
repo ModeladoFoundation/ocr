@@ -80,6 +80,8 @@ ocrSchedulerObject_t* dbtimeSchedulerObjectCreate(ocrSchedulerObjectFactory_t *f
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t *schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectDbtime_t));
+    ADebug(AllocDebugAllPD, "dbtime-scheduler-object.c/dbtimeSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectDbtime_t), schedObj);
     dbtimeSchedulerObjectInitialize(factory, schedObj);
     paramListSchedulerObjectDbtime_t *paramsDbtime = (paramListSchedulerObjectDbtime_t*)perInstance;
     dbtimeSchedulerObjectStart(schedObj, pd, paramsDbtime->space, paramsDbtime->time);

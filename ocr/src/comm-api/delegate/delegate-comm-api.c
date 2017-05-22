@@ -81,6 +81,8 @@ u8 delegateCommSwitchRunlevel(ocrCommApi_t *self, ocrPolicyDomain_t *PD, ocrRunl
 static ocrPolicyMsg_t * allocateNewMessage(ocrCommApi_t * self, u32 size) {
     ocrPolicyDomain_t * pd = self->pd;
     ocrPolicyMsg_t * message = pd->fcts.pdMalloc(pd, size);
+    ADebug(AllocDebugAllPD, "delegate-comm-api.c/allocateNewMessage() "
+           "pdMalloc(%ld), addr=%p\n", size, message);
     initializePolicyMessage(message, size);
     return message;
 }
@@ -99,6 +101,8 @@ void destructMsgHandlerDelegate(ocrMsgHandle_t * handler) {
  */
 ocrMsgHandle_t * createMsgHandlerDelegate(ocrCommApi_t *self, ocrPolicyMsg_t * message, u32 properties) {
     ocrMsgHandle_t * handle = (ocrMsgHandle_t *) self->pd->fcts.pdMalloc(self->pd, sizeof(delegateMsgHandle_t));
+    ADebug(AllocDebugAllPD, "delegate-comm-api.c/createMsgHandlerDelegate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(delegateMsgHandle_t), handle);
     ASSERT(handle != NULL);
     handle->msg = message;
     handle->response = NULL;

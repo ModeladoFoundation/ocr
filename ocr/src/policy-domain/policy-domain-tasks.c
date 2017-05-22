@@ -447,6 +447,8 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
     }
     /* BUG #899: replace with proper slab allocator */
     CHECK_MALLOC(*event = (pdEvent_t*)pd->fcts.pdMalloc(pd, sizeToAllocate), );
+    ADebug(AllocDebugAllPD, "policy-domain-tasks.c/pdCreateEvent() "
+           "pdMalloc(%ld), addr=%p\n", sizeToAllocate, event);
     DPRINTF(DEBUG_LVL_VERB, "Allocated event of size %"PRIu64" -> ptr: %p\n",
             sizeToAllocate, *event);
 
@@ -1150,6 +1152,8 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
             // First allocate a non-leaf head node
             CHECK_MALLOC(tempHead = (pdStrandTableNode_t*)pd->fcts.pdMalloc
                         (pd, sizeof(pdStrandTableNode_t)), {hal_unlock(&(table->lock));});
+            ADebug(AllocDebugAllPD, "policy-domain-tasks.c/pdGetNewStrand(1) "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTableNode_t), tempHead);
 
             // We don't initialize any sub nodes. This is also always a non-leaf node
             CHECK_RESULT(
@@ -1160,6 +1164,8 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
             CHECK_MALLOC(
                 leafToUse = (pdStrandTableNode_t*)pd->fcts.pdMalloc(pd, sizeof(pdStrandTableNode_t)),
                 {pd->fcts.pdFree(pd, tempHead); hal_unlock(&(table->lock))});
+            ADebug(AllocDebugAllPD, "policy-domain-tasks.c/pdGetNewStrand(2) "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTableNode_t), tempHead);
 
             // Set the table statistics
             table->levelCount = 2;
@@ -1187,6 +1193,8 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
             // See BUG #899: this should be slab allocated
             CHECK_MALLOC(tempHead = (pdStrandTableNode_t*)pd->fcts.pdMalloc
                          (pd, sizeof(pdStrandTableNode_t)), hal_unlock(&(table->lock)));
+            ADebug(AllocDebugAllPD, "policy-domain-tasks.c/pdGetNewStrand(3) "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTableNode_t), tempHead);
             CHECK_RESULT(
                 toReturn |= _pdInitializeStrandTableNode(pd, table, tempHead, NULL, 0, 0, PDST_NODE_SIZE, IS_LEAF),
                          {hal_unlock(&(table->lock)); pd->fcts.pdFree(pd, tempHead);},);
@@ -1227,6 +1235,8 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                 // See BUG #899: this should be slab allocated
                 CHECK_MALLOC(newNode = (pdStrandTableNode_t*)pd->fcts.pdMalloc
                              (pd, sizeof(pdStrandTableNode_t)), );
+                ADebug(AllocDebugAllPD, "policy-domain-tasks.c/pdGetNewStrand(4) "
+                       "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTableNode_t), newNode);
 
                 // We don't initialize any sub nodes. This is also always a non-leaf node
                 CHECK_RESULT(
@@ -1317,6 +1327,8 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                     CHECK_MALLOC(
                         t = (pdStrandTableNode_t*)pd->fcts.pdMalloc(pd, sizeof(pdStrandTableNode_t)),
                                                                     hal_unlock(&(curNode->lock)));
+                    ADebug(AllocDebugAllPD, "policy-domain-tasks.c/pdGetNewStrand(5) "
+                           "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTableNode_t), t);
                     // If we are at the penultimate level, create a leaf node, otherwise
                     // create a regular one
                     if (curLevel == cachedLevelCount - 1) {
@@ -1557,6 +1569,8 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
     if(strand->actions == NULL) {
         // Create and initialize the actions strand
         CHECK_MALLOC(strand->actions = (arrayDeque_t*)pd->fcts.pdMalloc(pd, sizeof(arrayDeque_t)), );
+        ADebug(AllocDebugAllPD, "policy-domain-tasks.c/pdEnqueueActions() "
+               "pdMalloc(%ld), addr=%p\n", sizeof(arrayDeque_t), strand->actions);
         CHECK_RESULT(arrayDequeInit(strand->actions, PDST_ACTION_COUNT),
                      pd->fcts.pdFree(pd, strand->actions), toReturn = OCR_EFAULT);
         DPRINTF(DEBUG_LVL_VERB, "Created actions structure @ %p\n", strand->actions);
@@ -2831,6 +2845,9 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTable_t *t
             // BUG #899: should be slab allocated
             // We allocate once so that if it fails, the cleanup is easy :)
             CHECK_MALLOC(slab = (pdStrand_t*)pd->fcts.pdMalloc(pd, sizeof(pdStrand_t)*numChildrenToInit),);
+            ADebug(AllocDebugAllPD, "policy-domain-tasks.c/_pdInitializeStrandTableNode() "
+                   "pdMalloc(%ld), addr=%p\n",
+                    (sizeof(pdStrand_t)*numChildrenToInit), (void *)slab);
             DPRINTF(DEBUG_LVL_VERB, "Allocated %"PRIu32" strands for node %p\n",
                     numChildrenToInit, node);
         }

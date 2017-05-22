@@ -82,7 +82,14 @@ u8 staticSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPoli
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_MEMORY_OK, phase)) {
             u32 i;
             self->contexts = (ocrSchedulerHeuristicContext_t **)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*));
+            ADebug(AllocDebugAllPD, "static-scheduler-heuristic.c/staticSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contexts] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*)), self->contexts);
             ocrSchedulerHeuristicContextStatic_t *contextAlloc = (ocrSchedulerHeuristicContextStatic_t *)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContextStatic_t));
+            ADebug(AllocDebugAllPD, "static-scheduler-heuristic.c/staticSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contextAlloc] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContextStatic_t)), contextAlloc);
+
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t *)&(contextAlloc[i]);
                 initializeContextStatic(context, i);
@@ -342,6 +349,8 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                 } else {
                     workerId = worker->id;
                     edtHint = pd->fcts.pdMalloc(pd, sizeof(ocrHint_t));
+                    ADebug(AllocDebugAllPD, "static-scheduler-heuristic.c/staticSchedulerHeuristicNotifyPreProcessMsgInvoke() "
+                           "pdMalloc(%ld), addr=%p\n", sizeof(ocrHint_t), edtHint);
                     ocrHintInit(edtHint, OCR_HINT_EDT_T);
                     PD_MSG_FIELD_I(hint) = edtHint;
                     PD_MSG_FIELD_I(properties) |= EDT_PROP_RT_HINT_ALLOC;

@@ -80,6 +80,8 @@ ocrSchedulerObject_t* mapSchedulerObjectCreate(ocrSchedulerObjectFactory_t *fact
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t *schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectMap_t));
+    ADebug(AllocDebugAllPD, "map-scheduler-object.c/mapSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectMap_t), schedObj);
     mapSchedulerObjectInitialize(factory, schedObj);
     paramListSchedulerObjectMap_t *paramsMap = (paramListSchedulerObjectMap_t*)perInstance;
     mapSchedulerObjectStart(schedObj, pd, paramsMap->type, paramsMap->nbBuckets);
@@ -184,6 +186,8 @@ u64 mapSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
 ocrSchedulerObjectIterator_t* mapSchedulerObjectCreateIterator(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
     ocrPolicyDomain_t *pd = fact->pd;
     ocrSchedulerObjectIterator_t* iterator = (ocrSchedulerObjectIterator_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectMapIterator_t));
+    ADebug(AllocDebugAllPD, "map-scheduler-object.c/mapSchedulerObjectCreateIterator() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectMapIterator_t), iterator);
     iterator->schedObj = self;
     iterator->data = NULL;
     iterator->fctId = fact->factoryId;

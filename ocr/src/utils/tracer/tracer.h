@@ -42,6 +42,8 @@ extern __thread bool inside_trace;
     inside_trace = true;                                                    \
     ocrTraceObj_t *tr = pd->fcts.pdMalloc(pd, sizeof(ocrTraceObj_t));       \
     inside_trace = false;                                                   \
+    ADebug(AllocDebugAllPD, "tracer.h/INIT_TRACE_OBJECT: pdMalloc(%ld), "   \
+           "addr=%p\n", sizeof(ocrTraceObj_t), tr);                         \
                                                                             \
     tr->typeSwitch = objType;                                               \
     tr->actionSwitch = actionType;                                          \

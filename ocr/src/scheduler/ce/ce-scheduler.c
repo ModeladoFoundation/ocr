@@ -147,6 +147,9 @@ u8 ceSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
             // local to the policy domain and that will never be shared
             ceWorkpileIterator_t * stealIteratorsCache = self->pd->fcts.pdMalloc(
                 self->pd, sizeof(ceWorkpileIterator_t)*self->workpileCount);
+                ADebug(AllocDebugAllPD, "ce-scheduler.c/ceSchedulerSwitchRunlevel() "
+                       "pdMalloc(%ld), addr=%p\n",
+                       (sizeof(ceWorkpileIterator_t)*self->workpileCount), stealIteratorsCache);
 
             // Initialize steal iterator cache
             for(i = 0; i < self->workpileCount; ++i) {

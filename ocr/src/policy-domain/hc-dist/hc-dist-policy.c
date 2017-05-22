@@ -541,6 +541,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                         if (msgSize > sizeof(ocrPolicyMsg_t)) {
                             //TODO-MD-SLAB
                             msgClone = (ocrPolicyMsg_t *) self->fcts.pdMalloc(self, msgSize);
+                            ADebug(AllocDebugAllPD, "hc-dist-policy.c/hcDistProcessMessage()/PD_MSG_DEP_SATISFY "
+                                   "pdMalloc(%ld), addr=%p\n", msgSize, msgClone);
                             initializePolicyMessage(msgClone, msgSize);
                         } else {
                             msgClone = &msgStack;
@@ -740,6 +742,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 // Incoming response to an asynchronous metadata clone
                 u64 metaDataSize = sizeof(ocrTaskTemplateHc_t) + (sizeof(u64) * OCR_HINT_COUNT_EDT_HC);
                 void * metaDataPtr = self->fcts.pdMalloc(self, metaDataSize);
+                ADebug(AllocDebugAllPD, "hc-dist-policy.c/hcDistProcessMessage()/PD_MSG_GUID_METADATA_CLONE[1] "
+                       "pdMalloc(%ld), addr=%p\n", metaDataSize, metaDataPtr);
                 ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL); // Currently points to message's payload
                 ASSERT(PD_MSG_FIELD_O(size) == metaDataSize);
                 hal_memCopy(metaDataPtr, PD_MSG_FIELD_IO(guid.metaDataPtr), metaDataSize, false);
@@ -768,6 +772,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 ocrGuidMap_t * mapOrg = (ocrGuidMap_t *) PD_MSG_FIELD_IO(guid.metaDataPtr);
                 u64 metaDataSize = ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)) + mapOrg->numParams*sizeof(s64);
                 void * metaDataPtr = self->fcts.pdMalloc(self, metaDataSize);
+                ADebug(AllocDebugAllPD, "hc-dist-policy.c/hcDistProcessMessage()/PD_MSG_GUID_METADATA_CLONE[2] "
+                       "pdMalloc(%ld), addr=%p\n", metaDataSize, metaDataPtr);
                 ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
                 hal_memCopy(metaDataPtr, mapOrg, metaDataSize, false);
                 ocrGuidMap_t * map = (ocrGuidMap_t *) metaDataPtr;
@@ -785,6 +791,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 // Intercept that and make a copy of the affinity
                 u64 metaDataSize = sizeof(ocrAffinity_t);
                 void * metaDataPtr = self->fcts.pdMalloc(self, metaDataSize);
+                ADebug(AllocDebugAllPD, "hc-dist-policy.c/hcDistProcessMessage()/PD_MSG_GUID_METADATA_CLONE[3] "
+                       "pdMalloc(%ld), addr=%p\n", metaDataSize, metaDataPtr);
                 hal_memCopy(metaDataPtr, PD_MSG_FIELD_IO(guid.metaDataPtr), metaDataSize, false);
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = metaDataPtr;
                 self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), (u64) metaDataPtr);
@@ -1252,6 +1260,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             u64 fullSize = baseSize + marshalledSize;
 
             ocrPolicyMsg_t * msgCpy = self->fcts.pdMalloc(self, fullSize);
+            ADebug(AllocDebugAllPD, "hc-dist-policy.c/hcDistProcessMessage(msgCpy) "
+                   "pdMalloc(%ld), addr=%p\n", fullSize, msgCpy);
             initializePolicyMessage(msgCpy, fullSize);
             ocrPolicyMsgMarshallMsg(msg, baseSize, (u8*)msgCpy, marshallMode);
 
@@ -1311,6 +1321,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 DPRINTF(DEBUG_LVL_VVERB,"Buffer resize for response of message type 0x%"PRIx64"\n",
                                         (msgInCopy->type & PD_MSG_TYPE_ONLY));
                 msg = self->fcts.pdMalloc(self, baseSizeOut);
+                ADebug(AllocDebugAllPD, "hc-dist-policy.c/hcDistProcessMessage(msg) "
+                       "pdMalloc(%ld), addr=%p\n", baseSizeOut, msg);
                 initializePolicyMessage(msg, baseSizeOut);
                 ocrPolicyMsgMarshallMsg(msgInCopy, baseSizeIn, (u8*)msg, MARSHALL_DUPLICATE);
             }

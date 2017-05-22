@@ -205,6 +205,8 @@ static const char* salGetExecutableName() {
             return NULL;
         }
         char *filename = pd->fcts.pdMalloc(pd, filenameBufSize + 1);
+        ADebug(AllocDebugAllPD, "salGetExecutableName() pdMalloc(%ld), addr=%p\n",
+               filenameBufSize + 1), filename);
         strncpy(filename, filenameBuf, filenameBufSize);
         filename[filenameBufSize] = '\0';
         execName = filename;
@@ -221,6 +223,8 @@ static const char* salGetCheckpointSummaryFileName() {
         char appendStr[] = ".chkpt\0";
         u32 filenamesize = strlen(execName) + strlen(appendStr) + 1;
         char *filename = pd->fcts.pdMalloc(pd, filenamesize + 1);
+        ADebug(AllocDebugAllPD, "salGetCheckpointSummaryFileName() pdMalloc(%ld), addr=%p\n",
+               filenameBufSize + 1), filename);
         int rc = snprintf(filename, filenamesize, "%s%s", execName, appendStr);
         if (rc < 0 || rc >= filenamesize) {
             fprintf(stderr, "snprintf failed: (filename: %s)\n", filename);
@@ -241,6 +245,8 @@ static const char* salConstructPdCheckpointFileName(u64 calTime, u64 phase, u64 
     sprintf(filenameBuf, "%s.%lu.%lu.%lu.chkpt", execName, calTime, phase, loc);
     u64 filenameBufSize = strlen(filenameBuf);
     char *filename = pd->fcts.pdMalloc(pd, filenameBufSize + 1);
+    ADebug(AllocDebugAllPD, "salConstructPdCheckpointFileName() pdMalloc(%ld), addr=%p\n",
+           filenameBufSize + 1), filename);
     strncpy(filename, filenameBuf, filenameBufSize);
     filename[filenameBufSize] = '\0';
     return (const char*)filename;

@@ -179,6 +179,8 @@ static u32 height(avlBinaryNode_t *node) {
 
 static avlBinaryNode_t *newTree(u64 startChunk) {
     avlBinaryNode_t *tree = (avlBinaryNode_t*)MALLOC(startChunk, sizeof(avlBinaryNode_t));
+    ADebug(AllocDebugAllMem, "MEM:rangeTracker.c/newTree() "
+               "chunkMalloc(%ld), addr=%p\n", sizeof(avlBinaryNode_t), tree);
     DPRINTF(DEBUG_LVL_INFO, "Created AVL tree/node @ 0x%"PRIx64"\n", (u64)tree);
     ASSERT(tree);
     tree->key = 0;
@@ -386,6 +388,8 @@ static void unlinkTag(rangeTracker_t *range, u64 idx) {
     } else {
         ASSERT(deleted->key = keyToRemove);
     }
+    ADebug(AllocDebugAllMem, "rangeTracker.c:unlinkTag() "
+           "chunkFree(%p)\n", deleted);
     FREE(range->startBKHeap, deleted);
 }
 
@@ -545,6 +549,8 @@ static void avlDestroy(u64 startChunk, avlBinaryNode_t *root) {
     if(root) {
         if(root->left) avlDestroy(startChunk, root->left); // Check just avoids one recursion
         if(root->right) avlDestroy(startChunk, root->right);
+        ADebug(AllocDebugAllMem, "rangeTracker.c:avlDestroy() "
+               "chunkFree(%p)\n", root);
         FREE(startChunk, root);
     }
 }

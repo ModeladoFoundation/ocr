@@ -93,6 +93,9 @@ u8 arrayDequePushAtTail(arrayDeque_t* deque, void* entry) {
         ocrPolicyDomain_t *pd = NULL;
         getCurrentEnv(&pd, NULL, NULL, NULL);
         deque->tail = (arrayDequeChunk_t*)pd->fcts.pdMalloc(pd, sizeof(arrayDequeChunk_t) + sizeof(void*)*deque->chunkSize);
+        ADebug(AllocDebugAllPD, "arrayDeque.c/arrayDequePushAtTail() "
+               "pdMalloc(%ld), addr=%p\n",
+               (sizeof(arrayDequeChunk_t) + sizeof(void*)*deque->chunkSize), deque->tail);
         if(deque->tail == NULL) {
             DPRINTF(DEBUG_LVL_WARN, "Not enough memory to allocate new chunk in array-deque\n");
             RETURN_PROFILE(OCR_ENOMEM);
@@ -236,6 +239,9 @@ u8 arrayDequePushAtHead(arrayDeque_t* deque, void* entry) {
         ocrPolicyDomain_t *pd = NULL;
         getCurrentEnv(&pd, NULL, NULL, NULL);
         deque->head = (arrayDequeChunk_t*)pd->fcts.pdMalloc(pd, sizeof(arrayDequeChunk_t) + sizeof(void*)*deque->chunkSize);
+        ADebug(AllocDebugAllPD, "arrayDeque.c/arrayDequePushAtHead() "
+               "pdMalloc(%ld), addr=%p\n",
+               (sizeof(arrayDequeChunk_t) + sizeof(void*)*deque->chunkSize), deque->head);
         if(deque->head == NULL) {
             DPRINTF(DEBUG_LVL_WARN, "Not enough memory to allocate new chunk in array-deque\n");
             RETURN_PROFILE(OCR_ENOMEM);
@@ -452,6 +458,8 @@ static void* adWpopFromHead(struct _ocrDeque_t *self, u8 doTry) {
 deque_t* newArrayQueue(ocrPolicyDomain_t *pd, void * initValue) {
     arrayDequeWrapper_t * self = pd->fcts.pdMalloc(
         pd, sizeof(arrayDequeWrapper_t));
+    ADebug(AllocDebugAllPD, "arrayDeque.c/newArrayQueue() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(arrayDequeWrapper_t), self);
 
     arrayDequeInit(&(self->derived), 4);
     self->base.lock = INIT_LOCK;

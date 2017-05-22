@@ -105,6 +105,8 @@ ocrSchedulerObject_t* pdspaceSchedulerObjectCreate(ocrSchedulerObjectFactory_t *
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t *schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectPdspace_t));
+    ADebug(AllocDebugAllPD, "pdspace-scheduler.object.c/pdspaceSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectPdspace_t), schedObj);
     pdspaceSchedulerObjectInitialize(factory, schedObj);
     pdspaceSchedulerObjectStart(schedObj, pd);
     schedObj->kind |= OCR_SCHEDULER_OBJECT_ALLOC_PD;
@@ -372,7 +374,13 @@ static u8 ocrPolicyMsgUnMarshallMsgTransactEdt(ocrTask_t *task, u32 mode) {
         u64 t = (u64)(hcTask->resolvedDeps);
         hcTask->resolvedDeps = (ocrEdtDep_t*)(localPtr + (t>>1));
         ocrEdtDep_t *resolvedDepsNew = pd->fcts.pdMalloc(pd, sizeof(ocrEdtDep_t) * task->depc);
+        ADebug(AllocDebugAllPD, "pdspace-scheduler.object.c/ocrPolicyMsgUnMarshallMsgTransactEdt(resolvedDepsNew) "
+               "pdMalloc(%ld), addr=%p\n",
+               (sizeof(ocrEdtDep_t) * task->depc), resolvedDepsNew);
         hcTask->signalers = pd->fcts.pdMalloc(pd, sizeof(regNode_t) * task->depc);
+        ADebug(AllocDebugAllPD, "pdspace-scheduler.object.c/ocrPolicyMsgUnMarshallMsgTransactEdt(signalers) "
+               "pdMalloc(%ld), addr=%p\n",
+               (sizeof(regNode_t) * task->depc), hcTask->signalers);
         for (i = 0; i < task->depc; i++) {
             ASSERT(hcTask->resolvedDeps[i].ptr == NULL);
             resolvedDepsNew[i] = hcTask->resolvedDeps[i];
@@ -465,6 +473,8 @@ u8 pdspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *
             ASSERT(task && ocrGuidIsEq(schedObj->guid.guid, task->guid));
             fact->fcts.ocrPolicyMsgGetMsgSize(fact, msg, &marshalledSize, 0);
             ocrTask_t *taskBuffer = pd->fcts.pdMalloc(pd, marshalledSize);
+            ADebug(AllocDebugAllPD, "pdspace-scheduler.object.c/pdspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg() "
+                   "pdMalloc(%ld), addr=%p\n", marshalledSize, taskBuffer);
             hal_memCopy(taskBuffer, task, marshalledSize, false);
             schedObj->guid.metaDataPtr = (void*)taskBuffer;
             return ocrPolicyMsgUnMarshallMsgTransactEdt(taskBuffer, properties);

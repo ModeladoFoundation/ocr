@@ -289,6 +289,9 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
         if (!isLocalGuidCheck(self, tempGuid)) {
             ocrPolicyDomain_t * pd = self->pd;
             MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+            ADebug(AllocDebugAllPD,
+                   "labeledGuidGetGuid(1) size = %ld, addr=%p\n",
+                   sizeof(MdProxy_t), (void *)mdProxy);
             mdProxy->ptr = val;
             DPRINTF(DEBUG_LVL_VVERB,"LabeledGUID: record "GUIDF"\n", GUIDA(*guid));
             mdProxy->queueHead=REG_CLOSED;
@@ -461,6 +464,9 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
                     // handle races here. We just setup the proxy and insert it in the map
                     ocrPolicyDomain_t * pd = self->pd;
                     MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+                    ADebug(AllocDebugAllPD,
+                           "labeledGuidGetGuid(2) size = %ld, addr=%p\n",
+                           sizeof(MdProxy_t), (void *)mdProxy);
                     mdProxy->ptr = (u64) ptr;
                     mdProxy->queueHead = REG_CLOSED;
                     toPut = (void *) mdProxy;
@@ -611,6 +617,9 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             // Optimistically try to enqueue.
             ocrPolicyDomain_t * pd = self->pd;
             mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+            ADebug(AllocDebugAllPD,
+                   "labeledGuidGetGuid(3) size = %ld, addr=%p\n",
+                   sizeof(MdProxy_t), (void *)mdProxy);
             // This is where failed attempts would register for callback
             mdProxy->queueHead = (void *) REG_OPEN; // sentinel value
             mdProxy->ptr = 0;

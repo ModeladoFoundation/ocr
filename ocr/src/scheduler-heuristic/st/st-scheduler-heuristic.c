@@ -111,7 +111,13 @@ u8 stSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_MEMORY_OK, phase)) {
             u32 i;
             self->contexts = (ocrSchedulerHeuristicContext_t **)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*));
+            ADebug(AllocDebugAllPD, "st-scheduler-heuristic.c/stSchedulerHeuristicSwitchRunlevel()/RL_MEMORY_OK[contexts] "
+                   "pdMalloc(%ld), addr=%p\n",
+                    (self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*)), self->contexts);
             ocrSchedulerHeuristicContextSt_t *contextAlloc = (ocrSchedulerHeuristicContextSt_t *)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContextSt_t));
+            ADebug(AllocDebugAllPD, "st-scheduler-heuristic.c/stSchedulerHeuristicSwitchRunlevel()RL_MEMORY_OK[contextAlloc] "
+                   "pdMalloc(%ld), addr=%p\n",
+                    (self->contextCount * sizeof(ocrSchedulerHeuristicContextSt_t)), contextAlloc);
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t *)&(contextAlloc[i]);
                 initializeContextSt(context, i);
@@ -1136,10 +1142,16 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
                     if (dbspaceObj->state == DB_STATE_PROXY) { //Double check to ensure
                         if (edtProxy == NULL) {
                             edtProxy = (ocrEdtProxy_t*)pd->fcts.pdMalloc(pd, sizeof(ocrEdtProxy_t));
+                            ADebug(AllocDebugAllPD, "st-scheduler-heuristic.c/analyzeEdtSpaceTime(edtProxy) "
+                                   "pdMalloc(%ld), addr=%p\n",
+                                    sizeof(ocrEdtProxy_t), edtProxy);
                             edtProxy->edtGuid = edtGuid;
                             edtProxy->edtLocation = edtLocation;
                             edtProxy->depc = depc;
                             edtProxy->depv = (ocrEdtDep_t*)pd->fcts.pdMalloc(pd, sizeof(ocrEdtDep_t)*depc);
+                            ADebug(AllocDebugAllPD, "st-scheduler-heuristic.c/analyzeEdtSpaceTime(edtProxy->depv) "
+                                   "pdMalloc(%ld), addr=%p\n",
+                                    (sizeof(ocrEdtDep_t)*depc), edtProxy->depv);
                             for (k = 0; k < depc; k++) edtProxy->depv[k] = depv[k];
                         }
                         edtProxy->frontierIdx = i;

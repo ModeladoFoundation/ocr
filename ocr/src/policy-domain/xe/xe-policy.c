@@ -31,6 +31,19 @@
 
 #include "utils/profiler/profiler.h"
 
+
+#ifdef DheAllocDebug
+// Values defined in debug.h
+u64  allocDebugCurMask =
+//        AllocDebugFile   |
+        AllocDebugAllPD  |
+        AllocDebugPDFunc |
+//        AllocDebugPDFree |
+//        AllocDebugTgMem  |
+        AllocDebugAllMem |
+        AllocDebugCeMsg;
+#endif // DheAllocDebug
+
 #define DEBUG_TYPE POLICY
 
 #define RL_BARRIER_STATE_INVALID          0x0  // Barrier should never happen (used for checking)
@@ -339,7 +352,11 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             // Before we switch any of the inert components, set up the tables
             COMPILE_ASSERT(PDSTT_COMM <= 2);
             policy->strandTables[PDSTT_EVT - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
+            ADebug(AllocDebugAllPD, "xe-policy.c/xePdSwitchRunlevel()/RL_GUID_OK/strandTables[EVT] "
+               "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTable_t), policy->strandTables[PDSTT_EVT - 1]);
             policy->strandTables[PDSTT_COMM - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
+            ADebug(AllocDebugAllPD, "xe-policy.c/xePdSwitchRunlevel()/RL_GUID_OK/strandTables[COMM] "
+               "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTable_t), policy->strandTables[PDSTT_COMM - 1]);
 
             // We need to make sure we have our micro tables up and running
             toReturn = (policy->strandTables[PDSTT_EVT-1] == NULL) ||

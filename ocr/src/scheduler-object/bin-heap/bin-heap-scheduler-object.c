@@ -64,6 +64,8 @@ ocrSchedulerObject_t* binHeapSchedulerObjectCreate(ocrSchedulerObjectFactory_t *
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectBinHeap_t));
+    ADebug(AllocDebugAllPD, "bin-heap-scheduler-object.c/binHeapSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectBinHeap_t), schedObj);
     binHeapSchedulerObjectInitialize(factory, schedObj);
     paramListSchedulerObjectBinHeap_t *paramBinHeap = (paramListSchedulerObjectBinHeap_t*)perInstance;
     binHeapSchedulerObjectStart(schedObj, pd, paramBinHeap->type);

@@ -37,6 +37,8 @@
 static ocrPolicyMsg_t * allocateNewMessage(ocrCommPlatform_t * self, u32 size) {
     ocrPolicyDomain_t * pd = self->pd;
     ocrPolicyMsg_t * message = pd->fcts.pdMalloc(pd, size);
+    ADebug(AllocDebugAllPD, "gasnet-comm-platform.c/allocateNewMessage() "
+           "pdMalloc(%ld), addr=%p\n", size, message);
     initializePolicyMessage(message, size);
     return message;
 }
@@ -98,6 +100,8 @@ static void gasnetMessageIncoming(ocrCommPlatformGasnet_t *platform , ocrPolicyM
     if (addr != NULL) {
         ocrPolicyDomain_t * pd = self->pd;
         gasnetCommBlock_t *block = (gasnetCommBlock_t*) pd->fcts.pdMalloc(pd, sizeof(gasnetCommBlock_t));
+        ADebug(AllocDebugAllPD, "gasnet-comm-platform.c/gasnetMessageIncoming() "
+               "pdMalloc(%ld), addr=%p\n", sizeof(gasnetCommBlock_t), block);
         block->addr = addr;
         block->size = seg_size;
         int src = locationToGasnetRank( msg->srcLocation );
@@ -461,6 +465,9 @@ u8 GasnetCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrR
             int nbRanks = gasnet_nodes();
             PD->neighborCount = nbRanks - 1;
             PD->neighbors = PD->fcts.pdMalloc(PD, sizeof(ocrLocation_t) * PD->neighborCount);
+            ADebug(AllocDebugAllPD, "gasnet-comm-platform.c/GasnetCommSwitchRunlevel() "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(ocrLocation_t) * PD->neighborCount), PD->neighbors);
             int myRank = (int) locationToGasnetRank(PD->myLocation);
             int i = 0;
             while(i < (nbRanks-1)) {

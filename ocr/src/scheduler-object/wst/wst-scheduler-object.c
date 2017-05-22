@@ -37,6 +37,9 @@ static void wstSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDomain_
     ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)self;
     wstSchedObj->numDeques = numDeques;
     wstSchedObj->deques = (ocrSchedulerObject_t**)pd->fcts.pdMalloc(pd, numDeques * sizeof(ocrSchedulerObject_t*));
+    ADebug(AllocDebugAllPD, "wst-scheduler-object.c/wstSchedulerObjectStart() "
+           "pdMalloc(%ld), addr=%p\n",
+           (numDeques * sizeof(ocrSchedulerObject_t*)), wstSchedObj->deques);
 #ifdef ENABLE_SCHEDULER_OBJECT_DEQ
     //Instantiate the deque schedulerObjects
     paramListSchedulerObjectDeq_t params;
@@ -132,6 +135,8 @@ ocrSchedulerObject_t* wstSchedulerObjectCreate(ocrSchedulerObjectFactory_t *fact
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectWst_t));
+    ADebug(AllocDebugAllPD, "wst-scheduler-object.c/wstSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectWst_t), schedObj);
     wstSchedulerObjectInitialize(factory, schedObj, perInstance);
     paramListSchedulerObjectWst_t *paramsWst = (paramListSchedulerObjectWst_t*)perInstance;
     wstSchedulerObjectStart(schedObj, pd, paramsWst->numDeques);

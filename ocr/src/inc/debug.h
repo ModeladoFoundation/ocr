@@ -727,5 +727,39 @@ extern __thread bool inside_trace;
 #include "ocr-policy-domain.h"
 #endif
 
-#endif /* __DEBUG_H__ */
+// Allocator Debug
 
+#define DheAllocDebug
+
+/** Enable debug pdMalloc()/pdFree() messages */
+#ifdef DheAllocDebug
+# define AllocDebugFile    0x00000001
+# define AllocDebugAllPD   0x00000010
+# define AllocDebugPDFunc  0x00000020
+# define AllocDebugPDFree  0x00000040
+# define AllocDebugTgMem   0x00000080
+# define AllocDebugAllMem  0x00000100
+# define AllocDebugCeMsg   0x00000200
+  /** Mask used to control what actually gets output. */
+  extern u64 allocDebugCurMask;
+
+  /** A macro to do the debugging...
+   */
+# define ADebug(mask, fmt, ...) do {                                    \
+    if (((mask) & allocDebugCurMask) != 0) {                            \
+      if(((mask) & AllocDebugFile) != 0)                                 \
+        PRINTF("ALLOC: '%s:%"PRId32"' " fmt, __FILE__, __LINE__, ## __VA_ARGS__); \
+      else                                                              \
+        PRINTF("ALLOC: " fmt,  ## __VA_ARGS__);                           \
+    }                                                                   \
+  } while(0)
+#else  // DheAllocDebug
+  ADebug(mask, fmt, ...)
+#endif // DheAllocDebug
+
+/* Template for how to use:
+        ADebug(AllocDebugAllPD, "FILE/FUNC() "
+               "pdMalloc(%ld), addr=%p\n", size, addr);
+*/
+
+#endif /* __DEBUG_H__ */

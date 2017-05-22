@@ -221,6 +221,8 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
             DPRINTF(DEBUG_LVL_WARN, "POSSIBLE DEADLOCK: Message @ %p is too small -- creating additional buffer of size 0x%"PRIu64"\n",
                 message, baseSize + marshalledSize);
             tmsg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, baseSize + marshalledSize);
+            ADebug(AllocDebugAllPD, "xe-comm-platform.c/xeCommSendMessage() "
+                   "pdMalloc(%ld), addr=%p\n", (baseSize + marshalledSize), tmsg);
             tmsg->bufferSize = baseSize + marshalledSize;
             DPRINTF(DEBUG_LVL_WARN, "Created message @ %p\n", tmsg);
             needTmsgFree = true;
@@ -280,6 +282,8 @@ u8 xeCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     }
     if(doAlloc) {
         *msg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, totalSize);
+        ADebug(AllocDebugAllPD, "xe-comm-platform.c/xeCommPollMessage() "
+               "pdMalloc(%ld), addr=%p\n", totalSize, msg);
         DPRINTF(DEBUG_LVL_VERB, "Poll: Created local receive buffer of size %"PRIu64" [msg size: %"PRIu64"] @ %p to receive %p\n",
             totalSize, lq->size, *msg, lq->addr);
     } else {
@@ -334,6 +338,8 @@ u8 xeCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
     }
     if(doAlloc) {
         *msg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, totalSize);
+        ADebug(AllocDebugAllPD, "xe-comm-platform.c/xeCommWaitMessage() "
+               "pdMalloc(%ld), addr=%p\n", totalSize, msg);
         DPRINTF(DEBUG_LVL_VERB, "Poll: Created local receive buffer of size %"PRIu64" [msg size: %"PRIu64"] @ %p to receive %p\n",
             totalSize, lq->size, *msg, lq->addr);
     } else {

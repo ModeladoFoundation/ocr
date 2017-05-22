@@ -270,6 +270,9 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             ocrWorkerXe_t *xeWorker = (ocrWorkerXe_t *)self;
             if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_GUID_OK, phase)) {
                 xeWorker->perfCtrs = PD->fcts.pdMalloc(PD, PERF_HW_MAX*sizeof(salPerfCounter));
+                ADebug(AllocDebugAllPD, "xe-worker.c/xeWorkerSwitchRunlevel()/RL_GUID_OK[perfCtrs] "
+                       "pdMalloc(%ld), addr=%p\n",
+                       (PERF_HW_MAX*sizeof(salPerfCounter)), xeWorker->perfCtrs);
             } else if((properties & RL_TEAR_DOWN) && RL_IS_LAST_PHASE_DOWN(PD, RL_GUID_OK, phase)) {
                 PD->fcts.pdFree(PD, xeWorker->perfCtrs);
             }

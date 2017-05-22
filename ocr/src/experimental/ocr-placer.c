@@ -36,6 +36,8 @@
 
 ocrPlacer_t * createLocationPlacer(ocrPolicyDomain_t *pd) {
     ocrLocationPlacer_t * placer = pd->fcts.pdMalloc(pd, sizeof(ocrLocationPlacer_t));
+    ADebug(AllocDebugAllPD, "ocr-placer.c/createLocationPlacer() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrLocationPlacer_t), placer);
     placer->lock = INIT_LOCK;
     placer->edtLastPlacementIndex = 0;
     return (ocrPlacer_t *) placer;

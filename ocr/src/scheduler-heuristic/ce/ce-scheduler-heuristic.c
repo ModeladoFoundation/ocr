@@ -98,7 +98,13 @@ u8 ceSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
             u32 myBlock = BLOCK_FROM_ID(PD->myLocation);
             u32 xeCount = ((ocrPolicyDomainCe_t*)PD)->xeCount;
             self->contexts = (ocrSchedulerHeuristicContext_t **)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/ceSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contexts] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*)), self->contexts);
             ocrSchedulerHeuristicContextCe_t *contextAlloc = (ocrSchedulerHeuristicContextCe_t *)PD->fcts.pdMalloc(PD, self->contextCount * sizeof(ocrSchedulerHeuristicContextCe_t));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/ceSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contextAlloc] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContextCe_t)), (void *)contextAlloc);
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t *)&(contextAlloc[i]);
                 self->contexts[i] = context;

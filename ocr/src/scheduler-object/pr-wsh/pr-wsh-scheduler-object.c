@@ -77,6 +77,8 @@ ocrSchedulerObject_t* prWshSchedulerObjectCreate(ocrSchedulerObjectFactory_t *fa
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectPrWsh_t));
+    ADebug(AllocDebugAllPD, "pr-wsh-scheduler-object.c/prWshSchedulerObjectCreate() "
+       "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectPrWsh_t), schedObj);
     prWshSchedulerObjectInitialize(factory, schedObj);
     prWshSchedulerObjectStart(schedObj, pd);
     schedObj->kind |= OCR_SCHEDULER_OBJECT_ALLOC_PD;

@@ -89,7 +89,14 @@ u8 pcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
 
             self->contextCount = scheduler->contextCount;
             self->contexts = (ocrSchedulerHeuristicContext_t **)pd->fcts.pdMalloc(pd, self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/pcSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contexts] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*)), self->contexts);
             ocrSchedulerHeuristicContextPc_t *contextAlloc = (ocrSchedulerHeuristicContextPc_t *)pd->fcts.pdMalloc(pd, self->contextCount * sizeof(ocrSchedulerHeuristicContextPc_t));
+            ADebug(AllocDebugAllPD, "ce-scheduler-heuristic.c/pcSchedulerHeuristicSwitchRunlevel()/RL_GUID_OK[contextAlloc] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (self->contextCount * sizeof(ocrSchedulerHeuristicContextPc_t)), contextAlloc);
+
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t *)&(contextAlloc[i]);
                 initializeContext(context, i);

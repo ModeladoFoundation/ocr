@@ -18,6 +18,8 @@
 
 Queue_t * newBoundedQueue(ocrPolicyDomain_t * pd, u32 size) {
     Queue_t * queue = (Queue_t *) pd->fcts.pdMalloc(pd, sizeof(Queue_t)+(size * sizeof(void*)));
+    ADebug(AllocDebugAllPD, "queue.c/newBoundedQueue() pdMalloc(%ld), addr=%p\n",
+           (sizeof(Queue_t)+(size * sizeof(void*))), queue);
     queue->pd = pd;
     queue->size = size;
     queue->tail = 0;

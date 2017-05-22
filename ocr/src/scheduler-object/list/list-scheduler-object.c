@@ -85,6 +85,8 @@ ocrSchedulerObject_t* listSchedulerObjectCreate(ocrSchedulerObjectFactory_t *fac
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t *schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectList_t));
+    ADebug(AllocDebugAllPD, "list-scheduler-object.c/listSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectList_t), schedObj);
     listSchedulerObjectInitialize(factory, schedObj);
     paramListSchedulerObjectList_t *paramsList = (paramListSchedulerObjectList_t*)perInstance;
     listSchedulerObjectStart(schedObj, pd, paramsList->type, paramsList->elSize, paramsList->arrayChunkSize);
@@ -251,6 +253,8 @@ u64 listSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
 ocrSchedulerObjectIterator_t* listSchedulerObjectCreateIterator(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
     ocrPolicyDomain_t *pd = fact->pd;
     ocrSchedulerObjectIterator_t* iterator = (ocrSchedulerObjectIterator_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectListIterator_t));
+    ADebug(AllocDebugAllPD, "list-scheduler-object.c/listSchedulerObjectCreateIterator() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectListIterator_t), iterator);
     iterator->schedObj = self;
     iterator->data = NULL;
     iterator->fctId = fact->factoryId;

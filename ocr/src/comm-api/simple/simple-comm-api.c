@@ -37,6 +37,9 @@ static void destructMsgHandler(ocrMsgHandle_t * handler) {
 static ocrMsgHandle_t * createMsgHandler(ocrCommApi_t * self, ocrPolicyMsg_t * message) {
     ocrPolicyDomain_t * pd = self->pd;
     ocrMsgHandle_t * handler = pd->fcts.pdMalloc(pd, sizeof(ocrMsgHandle_t));
+    ADebug(AllocDebugAllPD, "simple-comm-api.c/createMsgHandler() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrMsgHandle_t), handler);
+
     handler->msg = message;
     handler->response = NULL;
     handler->status = HDL_NORMAL;
@@ -47,6 +50,8 @@ static ocrMsgHandle_t * createMsgHandler(ocrCommApi_t * self, ocrPolicyMsg_t * m
 static ocrPolicyMsg_t * allocateNewMessage(ocrCommApi_t * self, u32 size) {
     ocrPolicyDomain_t * pd = self->pd;
     ocrPolicyMsg_t * message = pd->fcts.pdMalloc(pd, size);
+    ADebug(AllocDebugAllPD, "simple-comm-api.c/allocateNewMessage() "
+           "pdMalloc(%ld), addr=%p\n", size, message);
     initializePolicyMessage(message, size);
     return message;
 }

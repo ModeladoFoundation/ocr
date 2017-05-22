@@ -483,6 +483,9 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             }
 #ifdef ENABLE_EXTENSION_PERF
             hcWorker->perfCtrs = PD->fcts.pdMalloc(PD, PERF_HW_MAX*sizeof(salPerfCounter));
+            ADebug(AllocDebugAllPD, "hc-worker.c/hcWorkerSwitchRunlevel()/RL_GUID_OK[perfCtrs] "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (PERF_HW_MAX*sizeof(salPerfCounter)), hcWorker->perfCtrs);
 #endif
         } else if((properties & RL_TEAR_DOWN) && (RL_IS_LAST_PHASE_DOWN(PD, RL_GUID_OK, phase))) {
 #ifdef ENABLE_EXTENSION_PERF

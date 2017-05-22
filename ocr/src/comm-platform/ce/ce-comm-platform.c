@@ -410,6 +410,8 @@ u8 ceCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
         ocrPolicyMsgGetMsgSize(message, &baseSize, &marshalledSize, 0);
         DPRINTF(DEBUG_LVL_VVERB, "Got sizes base: %"PRIu64" and marshalled: %"PRIu64"\n", baseSize, marshalledSize);
         ocrPolicyMsg_t *tmsg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, baseSize + marshalledSize);
+        ADebug(AllocDebugAllPD, "ceCommSendMessage() size = %ld, addr=%p\n",
+               baseSize + marshalledSize, tmsg);
         DPRINTF(DEBUG_LVL_VVERB, "Got message allocated @ %p\n", tmsg);
         getCurrentEnv(NULL, NULL, NULL, tmsg);
         tmsg->bufferSize = baseSize + marshalledSize;
@@ -450,6 +452,8 @@ static u8 extractXEMessage(ocrCommPlatformCe_t *cp, ocrPolicyMsg_t **msg, u32 qu
     if(allocSize < sizeof(ocrPolicyMsg_t))
         allocSize = sizeof(ocrPolicyMsg_t);
     *msg = cp->base.pd->fcts.pdMalloc(cp->base.pd, allocSize);
+    ADebug(AllocDebugAllPD, "extractXEMessage() size = %ld, addr=%p\n",
+            allocSize, msg);
     DPRINTF(DEBUG_LVL_VERB, "Created local buffer @ %p of size %"PRIu64" [msg Size: %"PRIu64"] to copy from %p\n",
         *msg, allocSize, cp->lq[queueIdx]->size, remoteMsg);
     hal_memCopy(*msg, remoteMsg, cp->lq[queueIdx]->size, false);

@@ -128,6 +128,8 @@ SPLAY_GENERATE(SegmentBlockHead_s, SegmentBlock_s, link, block_compare);
  */
 void gasnetSegmentBlockPush(ocrPolicyDomain_t * pd, u32 node, gasnetCommBlock_t *block) {
     SegmentBlock_t *item = (SegmentBlock_t *) pd->fcts.pdMalloc(pd, sizeof(SegmentBlock_t));
+    ADebug(AllocDebugAllPD, "gasnet-share-segment.c/gasnetSegmentBlockPush() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(SegmentBlock_t), item);
     ASSERT(item != NULL);
     item->provider = node;
     item->block = block;

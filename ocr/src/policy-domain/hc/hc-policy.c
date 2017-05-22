@@ -54,13 +54,17 @@ extern ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidK
 // Impl will most likely move to runtime events
 static u64 enqueueMdProxyWaiter(ocrPolicyDomain_t * pd, MdProxy_t * mdProxy, ocrPolicyMsg_t * msg) {
     ASSERT(msg->type & PD_MSG_REQUEST);
-        MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
+    MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
+    ADebug(AllocDebugAllPD, "hc-policy.c/enqueueMdProxyWaiter(node) "
+           "pdMalloc(%ld), addr=%p\n", sizeof(MdProxyNode_t), node);
     // This is fugly. acquire we know are on the stack so require copies. Others should be incoming
     if ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
         // MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
         u64 msgSz = ocrPolicyMsgGetMsgBaseSize(msg, /*isIn=*/true);
         // Make a copy of the message since this is an asynchronous context
         ocrPolicyMsg_t * msgCpy = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSz);
+        ADebug(AllocDebugAllPD, "hc-policy.c/enqueueMdProxyWaiter(msgCpy) "
+               "pdMalloc(%ld), addr=%p\n", msgSz, msgCpy);
         msgCpy->bufferSize = msgSz;
         msgCpy->usefulSize = msgSz;
         ocrPolicyMsgMarshallMsg(msg, msgSz, (u8*) msgCpy, MARSHALL_DUPLICATE);
@@ -417,7 +421,11 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             COMPILE_ASSERT(PDSTT_COMM <= 2);
 
             policy->strandTables[PDSTT_EVT - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
+            ADebug(AllocDebugAllPD, "hc-policy.c/hcPdSwitchRunlevel()/RL_GUID_OK/strandTables[EVT] "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTable_t), policy->strandTables[PDSTT_EVT - 1]);
             policy->strandTables[PDSTT_COMM - 1] = policy->fcts.pdMalloc(policy, sizeof(pdStrandTable_t));
+            ADebug(AllocDebugAllPD, "hc-policy.c/hcPdSwitchRunlevel()/RL_GUID_OK/strandTables[COMM] "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(pdStrandTable_t), policy->strandTables[PDSTT_COMM - 1]);
 
             // We need to make sure we have our micro tables up and running
             toReturn = (policy->strandTables[PDSTT_EVT-1] == NULL) ||
@@ -1585,6 +1593,8 @@ static ocrPolicyMsg_t * hcPdDeferredMarshall(ocrPolicyDomain_t *pd, ocrPolicyMsg
     ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, 0);
     u64 fullMsgSize = baseSize + marshalledSize;
     ocrPolicyMsg_t * msgCopy = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, fullMsgSize);
+    ADebug(AllocDebugAllPD, "hc-policy.c/hcPdDeferredMarshall() "
+           "pdMalloc(%ld), addr=%p\n", fullMsgSize, msgCpy);
     initializePolicyMessage(msgCopy, fullMsgSize);
     ocrPolicyMsgMarshallMsg(msg, baseSize, (u8*)msgCopy, MARSHALL_DUPLICATE);
     return msgCopy;

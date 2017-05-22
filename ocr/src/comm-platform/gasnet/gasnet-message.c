@@ -73,6 +73,8 @@ void * gasnet_message_push(ocrPolicyDomain_t* pd, int messageID, void *message, 
         // message doesn't exist, create a new one
         uint32_t alloc_size = sizeof(struct MessageType_s) + tot_msg_size;
         struct MessageType_s *entry = (struct MessageType_s*) pd->fcts.pdMalloc(pd, alloc_size);
+        ADebug(AllocDebugAllPD, "gasnet-message.c/gasnet_message_push() "
+               "pdMalloc(%ld), addr=%p\n", alloc_size, entry);
         entry->count = tot_parts-1;
         entry->messageID = messageID;
         memcpy(&entry->buffer[position], message, size);

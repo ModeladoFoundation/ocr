@@ -122,7 +122,10 @@ ocrPolicyMsg_t * allocPolicyMsg(ocrPolicyDomain_t * pd, u64 * size) {
         msgSize = (msgSize + MAX_ALIGN -1)&(~(MAX_ALIGN-1));
     }
     *size = msgSize;
-    return pd->fcts.pdMalloc(pd, msgSize);
+    ocrPolicyMsg_t *ret = pd->fcts.pdMalloc(pd, msgSize);
+    ADebug(AllocDebugAllPD, "policy-domain-all.c/allocPolicyMsg() "
+           "pdMalloc(%ld), addr=%p\n", msgSize, ret);
+    return ret;
 }
 
 u64 ocrPolicyMsgGetMsgBaseSize(ocrPolicyMsg_t *msg, bool isIn) {
@@ -1014,6 +1017,8 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             ocrPolicyDomain_t *pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             localAddlPtr = (u8*)pd->fcts.pdMalloc(pd, marshalledSize);
+            ADebug(AllocDebugAllPD, "policy-domain-all.c/ocrPolicyMsgUnMarshallMsg() "
+                   "pdMalloc(%ld), addr=%p\n", marshalledSize, localAddlPtr);
             ASSERT(localAddlPtr);
 
             // Check if the marshalled information was appended to

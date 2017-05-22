@@ -113,9 +113,15 @@ void fsimGetRange(ocrMemPlatform_t *self, u64* startAddr,
 u8 fsimChunkAndTag(ocrMemPlatform_t *self, u64 *startAddr, u64 size,
                    ocrMemoryTag_t oldTag, ocrMemoryTag_t newTag) {
 
+        ADebug(AllocDebugTgMem, "fsim-mem-platform.c/fsimChunkAndTag() "
+               "PD=%p, startAddr=0x%lx, size=%lu\n", self, (u64)startAddr, size);
+
     if(oldTag >= MAX_TAG || newTag >= MAX_TAG) {
         DPRINTF(DEBUG_LVL_WARN, "Cannot chunk and tag because oldTag (%"PRId32") or newTag (%"PRId32") are bigger than %"PRId32"\n",
                 (u32)oldTag, (u32)newTag, (u32)MAX_TAG);
+        ADebug(AllocDebugTgMem, "fsim-mem-platform.c/fsimChunkAndTag() "
+               "returns 3 (oldTag=%d, newTag=%d, MAX_TAG=%d)\n",
+               (int)oldTag, (int)newTag, (int)MAX_TAG);
         return 3;
     }
 
@@ -165,6 +171,9 @@ u8 fsimChunkAndTag(ocrMemPlatform_t *self, u64 *startAddr, u64 size,
                     *startAddr, size, size, newTag);
             // exit.
             UNLOCK(&(rself->pRangeTracker->lockChunkAndTag));
+            ADebug(AllocDebugTgMem, "fsim-mem-platform.c/fsimChunkAndTag() "
+                   "returns old result: startAddr=%ld, size=%lu\n",
+                   *startAddr, size);
             return result;
         }
     } while(result == 0);
@@ -190,6 +199,9 @@ u8 fsimChunkAndTag(ocrMemPlatform_t *self, u64 *startAddr, u64 size,
         }
     } while(result == 0);
     UNLOCK(&(rself->pRangeTracker->lockChunkAndTag));
+            ADebug(AllocDebugTgMem, "fsim-mem-platform.c/fsimChunkAndTag() "
+                   "returns new result: startAddr=%ld, size=%lu\n",
+                   *startAddr, size);
     return result;
 }
 

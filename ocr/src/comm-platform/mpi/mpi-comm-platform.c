@@ -119,6 +119,9 @@ static int locationToMpiRank(ocrLocation_t location) {
 static ocrPolicyMsg_t * allocateNewMessage(ocrCommPlatform_t * self, u32 size) {
     ocrPolicyDomain_t * pd = self->pd;
     ocrPolicyMsg_t * message = pd->fcts.pdMalloc(pd, size);
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/allocateNewMessage() "
+       "pdMalloc(%ld), addr=%p\n", size, message);
+
     initializePolicyMessage(message, size);
     return message;
 }
@@ -128,7 +131,13 @@ static ocrPolicyMsg_t * allocateNewMessage(ocrCommPlatform_t * self, u32 size) {
     ocrCommPlatform_t * self = (ocrCommPlatform_t *) mpiComm; \
     u32 curSize = SZ; \
     MPI_Request * newPool = self->pd->fcts.pdMalloc(self->pd, sizeof(MPI_Request) * curSize * 2); \
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPI_ALLOC_REQ/line %d " \
+           "pdMalloc(%ld), addr=%p\n",                                          \
+            __LINE__, (sizeof(MPI_Request) * curSize * 2), newPool);       \
     mpiCommHandle_t * newHdlPool = self->pd->fcts.pdMalloc(self->pd, sizeof(mpiCommHandle_t) * curSize * 2); \
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPI_ALLOC_REQ/line %d " \
+           "pdMalloc(%ld), addr=%p\n",                                          \
+            __LINE__, (sizeof(mpiCommHandle_t) * curSize * 2), newHdlPool);\
     hal_memCopy(newPool, POOL, sizeof(MPI_Request) * curSize, false); \
     hal_memCopy(newHdlPool, HDL, sizeof(mpiCommHandle_t) * curSize, false); \
     self->pd->fcts.pdFree(self->pd, POOL); \
@@ -141,7 +150,13 @@ static ocrPolicyMsg_t * allocateNewMessage(ocrCommPlatform_t * self, u32 size) {
     ocrCommPlatform_t * self = (ocrCommPlatform_t *) mpiComm; \
     u32 curSize = SZ; \
     MPI_Request * newPool = self->pd->fcts.pdMalloc(self->pd, sizeof(MPI_Request) * curSize * 2); \
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/CODE_RESIZE_POOL/line %d "\
+           "pdMalloc(%ld), addr=%p\n",                                          \
+            __LINE__, (sizeof(MPI_Request) * curSize * 2), newHdlPool);\
     mpiCommHandle_t * newHdlPool = self->pd->fcts.pdMalloc(self->pd, sizeof(mpiCommHandle_t) * curSize * 2); \
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/CODE_RESIZE_POOL/line %d "\
+           "pdMalloc(%ld), addr=%p\n",                                          \
+            __LINE__, (self->pd, sizeof(mpiCommHandle_t) * curSize * 2), newHdlPool);\
     hal_memCopy(newPool, POOL, sizeof(MPI_Request) * curSize, false); \
     hal_memCopy(newHdlPool, HDL, sizeof(mpiCommHandle_t) * curSize, false); \
     u32 i; \
@@ -227,6 +242,9 @@ static inline u32 resolveHandleIdx(ocrCommPlatformMPI_t * mpiComm, mpiCommHandle
     HDL[idx] = *hdl; \
     ocrPolicyDomain_t *pd = mpiComm->base.pd;\
     HDL[idx].base.status = pd->fcts.pdMalloc(pd, sizeof(MPI_Request)); \
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/CODE_MV_HDL/line %d "    \
+           "pdMalloc(%ld), addr=%p\n",                                         \
+            __LINE__, sizeof(MPI_Request), HDL[idx].base.status);         \
     SZ++; \
     DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRId32"] Moved send msgId=%"PRIu64" " TYPE " @idx=%"PRIu32" checked as=%"PRIu32" \n", \
         locationToMpiRank(((ocrCommPlatform_t *)mpiComm)->pd->myLocation), hdl->base.msgId, idx, resolveHandleIdx(mpiComm, &HDL[idx], HDL)); \
@@ -295,6 +313,9 @@ static mpiCommHandle_t * createMpiSendHandle(ocrCommPlatform_t * self, u64 id, u
     mpiCommHandle_t * hdl = &dself->sendHdlPool[dself->sendPoolSz];
 #ifdef MPI_ALLOC_REQ
     hdl->base.status = self->pd->fcts.pdMalloc(self->pd, sizeof(MPI_Request));
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/createMpiSendHandle() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(MPI_Request), hdl->base.status);
+
 #else
     hdl->base.status = &dself->sendPool[dself->sendPoolSz];
 #endif
@@ -312,6 +333,8 @@ static mpiCommHandle_t * createMpiRecvFxdHandle(ocrCommPlatform_t * self, u64 id
     mpiCommHandle_t * hdl = &dself->recvFxdHdlPool[dself->recvFxdPoolSz];
 #ifdef MPI_ALLOC_REQ
     hdl->base.status = self->pd->fcts.pdMalloc(self->pd, sizeof(MPI_Request));
+    ADebug(AllocDebugAllPD, "mpi-comm-platform.c/createMpiRecvFxdHandle() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(MPI_Request), hdl->base.status);
 #else
     hdl->base.status = &dself->recvFxdPool[dself->recvFxdPoolSz];
 #endif
@@ -1390,11 +1413,29 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             //BUG #602 multi-comm-worker: multi-initialization if multiple comm-worker
             //Initialize mpi comm internal queues
             mpiComm->sendPool = (MPI_Request *) self->pd->fcts.pdMalloc(self->pd, MPI_COMM_REQUEST_POOL_SZ * sizeof(MPI_Request));
+            ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPICommSwitchRunlevel()/RL_GUID_OK[sendPool]: "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (MPI_COMM_REQUEST_POOL_SZ * sizeof(MPI_Request)), mpiComm->sendPool);
             mpiComm->recvPool = (MPI_Request *) self->pd->fcts.pdMalloc(self->pd, MPI_COMM_REQUEST_POOL_SZ * sizeof(MPI_Request));
+            ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPICommSwitchRunlevel()/RL_GUID_OK[recvPool]: "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (MPI_COMM_REQUEST_POOL_SZ * sizeof(MPI_Request)), mpiComm->recvFxdPool);
             mpiComm->recvFxdPool = (MPI_Request *) self->pd->fcts.pdMalloc(self->pd, MPI_COMM_REQUEST_POOL_SZ * sizeof(MPI_Request));
+            ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPICommSwitchRunlevel()/RL_GUID_OK[recvPool]: "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (MPI_COMM_REQUEST_POOL_SZ * sizeof(MPI_Request)), mpiComm->recvFxdPool);
             mpiComm->sendHdlPool = (mpiCommHandle_t *) self->pd->fcts.pdMalloc(self->pd, MPI_COMM_REQUEST_POOL_SZ * sizeof(mpiCommHandle_t));
+            ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPICommSwitchRunlevel()/RL_GUID_OK[sendHdlPool]: "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (MPI_COMM_REQUEST_POOL_SZ * sizeof(mpiCommHandle_t)), mpiComm->sendHdlPool);
             mpiComm->recvHdlPool = (mpiCommHandle_t *) self->pd->fcts.pdMalloc(self->pd, MPI_COMM_REQUEST_POOL_SZ * sizeof(mpiCommHandle_t));
+            ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPICommSwitchRunlevel()/RL_GUID_OK[recvHdlPool]: "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (MPI_COMM_REQUEST_POOL_SZ * sizeof(mpiCommHandle_t)), mpiComm->recvHdlPool);
             mpiComm->recvFxdHdlPool = (mpiCommHandle_t *) self->pd->fcts.pdMalloc(self->pd, MPI_COMM_REQUEST_POOL_SZ * sizeof(mpiCommHandle_t));
+            ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPICommSwitchRunlevel()/RL_GUID_OK[recvFxdHdlPool]: "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (MPI_COMM_REQUEST_POOL_SZ * sizeof(mpiCommHandle_t)), mpiComm->recvFxdHdlPool);
             // No need to init pools, it is done whenever an element is grabbed from it
             mpiComm->sendPoolSz = 0;
             mpiComm->recvPoolSz = 0;
@@ -1416,6 +1457,9 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             MPI_Comm_size(MPI_COMM_WORLD, &nbRanks);
             PD->neighborCount = nbRanks - 1;
             PD->neighbors = PD->fcts.pdMalloc(PD, sizeof(ocrLocation_t) * PD->neighborCount);
+            ADebug(AllocDebugAllPD, "mpi-comm-platform.c/MPICommSwitchRunlevel()/RL_GUID_OK[neighbors]: "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(ocrLocation_t) * PD->neighborCount), PD->neighbors);
             int myRank = (int) locationToMpiRank(PD->myLocation);
             int k = 0;
             while(k < (nbRanks-1)) {

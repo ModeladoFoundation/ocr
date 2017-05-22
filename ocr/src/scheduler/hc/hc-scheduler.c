@@ -126,6 +126,9 @@ u8 hcSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
             // local to the policy domain and that will never be shared
             hcWorkpileIterator_t * stealIteratorsCache = self->pd->fcts.pdMalloc(
                 self->pd, sizeof(hcWorkpileIterator_t)*self->workpileCount);
+            ADebug(AllocDebugAllPD, "hc-scheduler.c/hcSchedulerSwitchRunlevel()/RL_MEMORY_OK "
+                   "pdMalloc(%ld), addr=%p\n",
+                   (sizeof(hcWorkpileIterator_t)*self->workpileCount), stealIteratorsCache);
 
             // Initialize steal iterator cache
             for(i = 0; i < self->workpileCount; ++i) {

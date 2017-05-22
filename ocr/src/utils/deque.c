@@ -71,6 +71,8 @@ static void baseDequeInit(deque_t* self, ocrPolicyDomain_t *pd, void * initValue
     self->head = 0;
     self->tail = 0;
     self->data = (volatile void **)pd->fcts.pdMalloc(pd, sizeof(void*)*INIT_DEQUE_CAPACITY);
+    ADebug(AllocDebugAllPD, "deque.c/baseDequeInit() pdMalloc(%ld), addr=%p\n",
+           (sizeof(void*)*INIT_DEQUE_CAPACITY), self->data);
     ASSERT(self->data != NULL);
 
     // This may not be necessary depending on the intented use
@@ -104,16 +106,22 @@ static deque_t * newBaseDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeT
     switch(type) {
         case NO_LOCK_BASE_DEQUE:
             self = (deque_t*) pd->fcts.pdMalloc(pd, sizeof(deque_t));
+            ADebug(AllocDebugAllPD, "deque.c/newBaseDeque()/NO_LOCK_BASE_DEQUE "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(deque_t), self);
             baseDequeInit(self, pd, initValue);
             // Warning: function pointers must be specialized in caller
             break;
         case SINGLE_LOCK_BASE_DEQUE:
             self = (deque_t*) pd->fcts.pdMalloc(pd, sizeof(dequeSingleLocked_t));
+            ADebug(AllocDebugAllPD, "deque.c/newBaseDeque()/SINGLE_LOCK_BASE_DEQUE "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(dequeSingleLocked_t), self);
             singleLockedDequeInit((dequeSingleLocked_t*)self, pd, initValue);
             // Warning: function pointers must be specialized in caller
             break;
         case DUAL_LOCK_BASE_DEQUE:
             self = (deque_t*) pd->fcts.pdMalloc(pd, sizeof(dequeDualLocked_t));
+            ADebug(AllocDebugAllPD, "deque.c/newBaseDeque()/DUAL_LOCK_BASE_DEQUE "
+                   "pdMalloc(%ld), addr=%p\n", sizeof(dequeDualLocked_t), self);
             dualLockedDequeInit((dequeDualLocked_t*)self, pd, initValue);
             // Warning: function pointers must be specialized in caller
             break;

@@ -30,6 +30,8 @@ bool linkedListEmpty(linkedlist_t * list) {
 void linkedListPushFront(linkedlist_t * list, void * elt) {
     ocrPolicyDomain_t * pd = list->pd;
     listnode_t * node = pd->fcts.pdMalloc(pd, sizeof(listnode_t));
+    ADebug(AllocDebugAllPD, "list.c/linkedListPushFront() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(listnode_t), node);
     node->elt = elt;
     node->next = list->head;
     list->head = node;
@@ -41,6 +43,8 @@ void linkedListPushFront(linkedlist_t * list, void * elt) {
 void linkedListPushTail(linkedlist_t * list, void * elt) {
     ocrPolicyDomain_t * pd = list->pd;
     listnode_t * node = pd->fcts.pdMalloc(pd, sizeof(listnode_t));
+    ADebug(AllocDebugAllPD, "list.c/linkedListPushTail() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(listnode_t), node);
     ASSERT((list->tail == NULL) || (list->tail->next == NULL));
     node->elt = elt;
     node->next = NULL;
@@ -68,6 +72,8 @@ void linkedListDestruct(linkedlist_t *self) {
 
 linkedlist_t * newLinkedList(ocrPolicyDomain_t *pd) {
     linkedlist_t * list = (linkedlist_t *) pd->fcts.pdMalloc(pd, sizeof(linkedlist_t));
+    ADebug(AllocDebugAllPD, "list.c/newLinkedList() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(linkedlist_t), list);
     list->pd = pd;
     list->head = NULL;
     list->tail = NULL;
@@ -145,6 +151,8 @@ iterator_t * newLinkedListIterator(linkedlist_t *self) {
     ocrPolicyDomain_t * pd = self->pd;
     linkedlist_iterator_t * iterator = (linkedlist_iterator_t *)
         pd->fcts.pdMalloc(pd, sizeof(linkedlist_iterator_t));
+    ADebug(AllocDebugAllPD, "list.c/newLinkedListIterator() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(linkedlist_iterator_t), iterator);
     iterator->base.pd = pd;
     iterator->base.reset = linkedListIteratorReset;
     iterator->base.hasNext = linkedListIteratorHasNext;

@@ -73,6 +73,8 @@ ocrSchedulerObject_t* deqSchedulerObjectCreate(ocrSchedulerObjectFactory_t *fact
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectDeq_t));
+    ADebug(AllocDebugAllPD, "deq-scheduler-object/deqSchedulerObjectCreate() "
+           "pdMalloc(%ld), addr=%p\n", sizeof(ocrSchedulerObjectDeq_t), schedObj);
     deqSchedulerObjectInitialize(factory, schedObj);
     paramListSchedulerObjectDeq_t *paramDeq = (paramListSchedulerObjectDeq_t*)perInstance;
     deqSchedulerObjectStart(schedObj, pd, paramDeq->type);
