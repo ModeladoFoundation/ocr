@@ -92,13 +92,25 @@ u8 binHeapSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerO
     ocrGuid_t edtGuid = element->guid.guid;
     // FIXME: should default to ZERO, but that doesn't play well with OCR_TASK_FLAG_RUNTIME_EDT,
     // since none of the runtime EDTs execute when you expect...
-    s64 priority = INT64_MAX;
+    s64 priority = 0;
+    ocrTask_t* task = element->guid.metaDataPtr;
+    ASSERT(task);
+    if(task->flags & OCR_TASK_FLAG_RUNTIME_EDT){
+        //give runtime EDTs maximum priority
+        priority = INT64_MAX;
+    }
+
     { // read EDT hint
         ASSERT(element->kind == OCR_SCHEDULER_OBJECT_EDT);
         ocrHint_t edtHints;
         ocrHintInit(&edtHints, OCR_HINT_EDT_T);
         ocrGetHint(edtGuid, &edtHints);
         ocrGetHintValue(&edtHints, OCR_HINT_EDT_PRIORITY, (u64*)&priority);
+#ifdef ENABLE_SCHEDULER_OBJECT_SPAWN_QUEUE //really don't care about queue itself, re-using define
+        //NOTE: this overrides the OCR_HINT_EDT_PRIORITY value if present:
+        ocrGetHintValue(&edtHints, OCR_HINT_EDT_SPAWNING, (u64*)&priority);
+#endif
+
     }
 
     // See BUG #928 on GUID issues
