@@ -6,12 +6,17 @@ import subprocess
 
 parser = argparse.ArgumentParser(description='Generate a hints header file.')
 parser.add_argument("-e","--exe", dest="executable", help="executable file to run", metavar="FILE")
+parser.add_argument("-o","--out", dest="header_file",help="output header file", metavar="FILE")
 parser.add_argument('args', nargs="*")
 
+header_file = "priority.h"
 args = parser.parse_args()
 if not args.executable:
     print "must specify executable via -e!"
     exit()
+if args.header_file:
+    out_header = args.header_file
+
 
 class PerfStats(object):
     fields="\t".join(["EDT(addr)",
@@ -44,7 +49,7 @@ class PerfStats(object):
         self.l1_hits        = l1_hits
         self.l1_miss        = l1_miss
         self.float_ops      = float_ops
-        self.edt_creates    = edt_creates
+        self.edt_creates    = int(edt_creates)
         self.db_total       = db_total
         self.db_creates     = db_creates
         self.db_destroys    = db_destroys
@@ -103,6 +108,7 @@ def process_output(results,addr_funcs):
                 func_name = addr_funcs[int(fields[0],16)]
                 ##replace the addres with the function name
                 #fields.pop(0)
+                print "func_name is: "+ func_name
                 fields = [func_name]+fields
                 stats.append(PerfStats(*fields))
                 #print(addr_funcs[int(fields[0],16)] + "\t " + line)
@@ -115,11 +121,18 @@ def process_output(results,addr_funcs):
     return stats
 
 
+hf = open(header_file, 'w')
 stats = process_output(run_exe(),run_nm())
 #print PerfStats.fields
 for stat in stats:
    #print stat.edt_name + " instantiated " + stat.count + " times"
    print stat
+   if stat.edt_creates > 0:
+      print stat.edt_creates
+      hf.write("#define "+stat.edt_name[0].upper()+stat.edt_name[1:]+"_PRIORITY "+str(stat.edt_creates)+"\n")
+
+hf.close()
+
 
 
 
