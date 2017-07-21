@@ -10,6 +10,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_SCHEDULER_HEURISTIC_HC
 
+#include "ocr-hal.h"
 #include "ocr-scheduler-heuristic.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
@@ -33,6 +34,9 @@ typedef struct _ocrSchedulerHeuristicContextHc_t {
 
 typedef struct _ocrSchedulerHeuristicHc_t {
     ocrSchedulerHeuristic_t base;
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    lock_t lock;
+#endif
 } ocrSchedulerHeuristicHc_t;
 
 /****************************************************/

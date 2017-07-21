@@ -84,10 +84,6 @@ static void wstSchedulerObjectFinish(ocrSchedulerObject_t *self, ocrPolicyDomain
         ocrSchedulerObjectFactory_t *dequeFactory = PD->schedulerObjectFactories[deque->fctId];
         dequeFactory->fcts.destroy(dequeFactory, wstSchedObj->deques[i]);
     }
-#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
-    //TODO: Do we need to do something like this? if so dequeFactory should be... ?
-    //dequeFactory->fcts.destroy(dequeFactory, wstSchedObj->spawn_queue);
-#endif
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     pd->fcts.pdFree(pd, wstSchedObj->deques);

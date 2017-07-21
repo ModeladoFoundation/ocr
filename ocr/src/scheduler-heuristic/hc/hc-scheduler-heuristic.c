@@ -164,12 +164,15 @@ static u8 hcSchedulerHeuristicGetEdt(ocrSchedulerHeuristic_t *self, ocrScheduler
     edtObj.kind = kind;
     u8 retVal;
 #ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    ocrSchedulerHeuristicHc_t* derived = (ocrSchedulerHeuristicHc_t*)self;
     // first look in spawn_queue
     DPRINTF(DEBUG_LVL_INFO, ">>> Look in spawn_queue\n");
     //TODO: you should check here to see if request is from another block/PD!!
     ocrSchedulerObjectWst_t* wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
     stealSchedulerObject = wstSchedObj->spawn_queue;
+    hal_lock(&derived->lock);
     retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+    hal_unlock(&derived->lock);
     if (!ocrGuidIsNull(edtObj.guid.guid) ) {
        DPRINTF(DEBUG_LVL_INFO, ">>> Found guid in spawn_queue\n");
     }
@@ -310,19 +313,25 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
 #endif
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
 #ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    ocrSchedulerHeuristicHc_t* derived = (ocrSchedulerHeuristicHc_t*)self;
     DPRINTF(DEBUG_LVL_INFO, ">>> should we put guid: "GUIDF" in the spawn_queue?\n",GUIDA(edtObj.guid.guid));
     ocrHint_t spawnHint;
     ocrHintInit(&spawnHint, OCR_HINT_EDT_T);
     u64 hintVal = 0ULL;
     RESULT_ASSERT(ocrGetHint(edtObj.guid.guid, &spawnHint), ==, 0);
-    if (ocrGetHintValue(&spawnHint, OCR_HINT_EDT_SPAWNING, &hintVal) == 0) {
+    if (ocrGetHintValue(&spawnHint, OCR_HINT_EDT_SPAWNING, &hintVal) > 0) {
         DPRINTF(DEBUG_LVL_INFO, ">>> put it into spawn_queue guid: "GUIDF"\n",GUIDA(edtObj.guid.guid));
         ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
         ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
         schedObj = wstSchedObj->spawn_queue;
     }
+    hal_lock(&derived->lock);
 #endif
-    return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
+    u8 retVal = fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    hal_unlock(&derived->lock);
+#endif
+    return retVal;
 }
 
 u8 hcSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
