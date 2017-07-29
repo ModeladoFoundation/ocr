@@ -322,6 +322,16 @@ struct slab_header {
 #define CACHE_LINE_MASK         ((1UL<<(CACHE_LINE_SHIFT))-1)
 #endif
 
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+ocrAllocatorQuick_CacheLineHints_t ocrQuickCacheLineHints = {
+    0,          // offset
+    4096,       // largeSize
+    4096,       // cacheSize
+    0           // curOffset (atomic)
+};
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
+
 // VALGRIND SUPPORT
 // ( blocks are sometimes called chunks. i.e. chunk == block )
 // VALGRIND_MEMPOOL_ALLOC: If the pool was created with the is_zeroed argument set, Memcheck will mark the chunk as DEFINED, otherwise Memcheck will mark the chunk as UNDEFINED.
@@ -1401,6 +1411,15 @@ static void quickFreeInternal(blkPayload_t *p)
 {
     if (p == NULL)
         return;
+
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    // Address may be offset to avoid cache line conflicts
+    ocrAllocatorQuick_offsetHeader_t *clcHdr =
+        ((ocrAllocatorQuick_offsetHeader_t *)p);
+    if (clcHdr->negativeOne == ((u64)-1))
+        p = (blkPayload_t *)clcHdr->realAddr;
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
     u64 *q = USER_TO_HEAD(p);
     VALGRIND_CHUNK_OPEN(q);
     poolHdr_t *pool = (poolHdr_t *)INFO1(q);
@@ -1731,6 +1750,15 @@ static void quickFree(blkPayload_t *p)
 {
     if (p == NULL)
         return;
+
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    // Address may be offset to avoid cache line conflicts
+    ocrAllocatorQuick_offsetHeader_t *clcHdr =
+        ((ocrAllocatorQuick_offsetHeader_t *)p);
+    if (clcHdr->negativeOne == ((u64)-1))
+        p = (blkPayload_t *)clcHdr->realAddr;
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
     u64 *q = USER_TO_HEAD(p);
 
     // in case of cached objects, the head holds negative offset to slab header
@@ -1950,6 +1978,29 @@ void* quickAllocate(
     u64 hints) {            // Allocator-dependent hints
 
     ocrAllocatorQuick_t * rself = (ocrAllocatorQuick_t *) self;
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    u64 delta = ocrQuickCacheLineHints.offset;    // Guarantee hints used for this call
+    u64 large = ocrQuickCacheLineHints.largeSize; // Guarantee hints used for this call
+    u64 offset = 0;
+
+    if (size >= large) {
+        // Figure out offset for this allocation
+        u64 origVal, retVal, newVal;
+        retVal = ocrQuickCacheLineHints.curOffset;
+        do {
+            // Increment current offset by offset delta, but wrap at cache size boundary
+            origVal = retVal;
+            newVal = origVal + delta;
+            if (newVal >= ocrQuickCacheLineHints.cacheSize)
+                // Note that delta > cacheSize means no offset every applied..
+                newVal = 0;
+            retVal = hal_cmpswap64(&(ocrQuickCacheLineHints.curOffset), origVal, newVal);
+        } while(retVal != origVal);
+        offset = newVal;
+
+        size += newVal;
+    }
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
 
     void *ret;
 #ifdef PER_AGENT_CACHE
@@ -1976,6 +2027,20 @@ void* quickAllocate(
 #endif
     DPRINTF(DEBUG_LVL_VERB, "quickAllocate called, ret %p from PoolAddr %"PRIx64"\n", ret, rself->poolAddr);
     quickSetUserbits(ret, hints);
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    if (size > large) {
+        // Hand user an offset value so they are more likely to
+        // avoid cache line conflicts.
+        u8 *orig = (u8 *)ret;
+        u8 *tmp = orig + offset;
+        ret = (void *)tmp;
+        // Set flag and header with address of real value to free
+        tmp -= sizeof(ocrAllocatorQuick_offsetHeader_t);
+        ocrAllocatorQuick_offsetHeader_t *hdr = (ocrAllocatorQuick_offsetHeader_t *)tmp;
+        hdr->negativeOne = (u64)(-1);
+        hdr->realAddr = (void *)orig;
+    }
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
     return ret;
 }
 void quickDeallocate(void* address) {

@@ -329,6 +329,9 @@ endif
 # Enable EDT spawning hint & handling
 # CFLAGS += -DOCR_ENABLE_SCHEDULER_SPAWN_QUEUE
 
+# Flag to enable Cache Line Offset Allocation handling
+# CFLAGS += -DOCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
 ifneq (,$(findstring OCR_ENABLE_XE_L2_ALLOC, $(CFLAGS)))
   ifeq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN, $(CFLAGS)))
     $(error if OCR_ENABLE_XE_L2_ALLOC, then OCR_SHARED_XE_POLICY_DOMAIN must be defined)
