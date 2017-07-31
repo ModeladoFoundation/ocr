@@ -125,6 +125,8 @@ typedef struct _ocrWorker_t {
     u64 computeCount;           /**< Number of compute node(s) associated */
     //TODO-DEFERRED, I don't want this to be volatile
     struct _ocrTask_t * volatile curTask; /**< Currently executing task */
+    void *orig_ctx;   /**< Original fcontext struct for this worker thread */
+    void *curr_fiber; /**< Current fcontext state struct for this worker thread */
 
     ocrWorkerFcts_t fcts;
 
