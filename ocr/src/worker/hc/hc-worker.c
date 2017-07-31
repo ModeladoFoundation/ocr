@@ -132,6 +132,13 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #undef PD_MSG
 #undef PD_TYPE
                 RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
+
+#ifdef ENABLE_EXTENSION_LEGACY_FIBERS
+                // fiber-swapping may have caused the worker to change
+                getCurrentEnv(NULL, &worker, NULL, NULL);
+                hcWorker = (ocrWorkerHc_t *) worker;
+#endif
+
                 //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
                 // Not sure we thought about that and implications
 #ifdef ENABLE_EXTENSION_PERF
@@ -351,6 +358,14 @@ static void workerLoop(ocrWorker_t * worker) {
 
 #ifdef ENABLE_EXTENSION_PERF
     salPerfInit(hcWorker->perfCtrs);
+#endif
+
+#ifdef ENABLE_EXTENSION_LEGACY_FIBERS
+    // switch from main pthread stack to an expendable fiber
+    // before starting the primary worker loop
+    START_PROFILE(wo_hc_workerLoop);
+    ocrFiberWorkerLoop(worker);
+    EXIT_PROFILE;
 #endif
 
     // Actual loop
