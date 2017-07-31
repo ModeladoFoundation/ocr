@@ -1,0 +1,12 @@
+adapt-hints.py takes an OCR executable built with -DENABLE_EXTENSTION_PERF and extracts EDT
+spawning information to create a header file with priority numbers for each spawning EDT.
+
+1. Add to ocr/build/common.mk:
+   CFLAGS+=-DENABLE_EXTENSTION_PERF
+2. rebuild OCR
+3. build application/example OCR program.
+4. Run adapt-hints.py on the OCR executable:
+   $  ocr/ocr/scripts/AdaptHints/adapt-hint.py -e <OCR executable>
+
+a priority.h header file with spawning priorities for each of the spawning EDTs is generated.
+
