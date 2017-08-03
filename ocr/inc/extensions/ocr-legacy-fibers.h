@@ -31,14 +31,6 @@ extern "C" {
  **/
 
 /**
- * @brief Starts a disposable worker fiber on the current worker thread,
- * which is a prerequisite for running suspendable tasks with fibers.
- *
- * @param[in] worker           The current OCR worker thread
- */
-void ocrLegacyFiberStart(ocrWorker_t *worker);
-
-/**
  * @brief Suspends the current worker fiber until a given event is satisfied,
  * then acquires and returns the event's playload data block.
  *

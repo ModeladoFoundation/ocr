@@ -21,7 +21,7 @@
 #include "experimental/ocr-platform-model.h"
 #include "extensions/ocr-affinity.h"
 #include "extensions/ocr-hints.h"
-#include "extensions/ocr-legacy-fibers.h"
+
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -40,6 +40,16 @@
 
 #ifdef ENABLE_EXTENSION_PERF
 #include "ocr-sal.h"
+#endif
+
+#ifdef ENABLE_EXTENSION_LEGACY_FIBERS
+/**
+ * @brief Starts a disposable worker fiber on the current worker thread,
+ * which is a prerequisite for running suspendable tasks with fibers.
+ *
+ * @param[in] worker           The current OCR worker thread
+ */
+void ocrLegacyFiberStart(ocrWorker_t *worker);
 #endif
 
 /******************************************************/
