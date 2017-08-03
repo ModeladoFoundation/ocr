@@ -141,7 +141,9 @@ static void _fiberStartEntry(fcontext_transfer_t fiber_data) {
 }
 
 void ocrLegacyFiberStart(ocrWorker_t *worker) {
+    if (worker->amBlessed) DPRINTF(DEBUG_LVL_VVERB, "ENTERING FIBER WORK LOOP %d\n", 1);
     _fiber_suspend(NULL, _fiberStartEntry, worker);
+    if (worker->amBlessed) DPRINTF(DEBUG_LVL_VVERB, "EXITING FIBER WORK LOOP %d\n", 1);
 }
 
 typedef struct {
@@ -159,7 +161,7 @@ typedef union {
     ResumeData *params_ptr;
 } FiberResumeParamPtr;
 
-static ocrGuid_t fiberResumeEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+static ocrGuid_t _fiberResumeEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     FiberResumeParamPtr params;
     params.u64_ptr = paramv;
 
@@ -187,14 +189,18 @@ static void _fiberReplaceEntry(fcontext_transfer_t fiber_data) {
     // FIXME - this should be a "runtime" task
     // and must stay within the current policy domain
     ocrGuid_t resumeTemplate, resumeEdt;
-    ocrEdtTemplateCreate(&resumeTemplate, fiberResumeEdt, param_size, 1);
+    ocrEdtTemplateCreate(&resumeTemplate, _fiberResumeEdt, param_size, 1);
     ocrEdtCreate(&resumeEdt, resumeTemplate,
             param_size, params.u64_ptr, 1, NULL,
             EDT_PROP_NONE, NULL_HINT, NULL);
-    ocrAddDependence(resume_data.guids->event_guid, resumeEdt, 0, DB_MODE_RO);
+    // FIXME - tried to do DB_MODE_RO to avoid conflicts, but it didn't work...
+    ocrAddDependence(resume_data.guids->event_guid, resumeEdt, 0, DB_DEFAULT_MODE);
+    DPRINTF(DEBUG_LVL_VVERB, "FIBER AWAITING guid="GUIDF"\n", GUIDA(resume_data.guids->event_guid));
 
     // do other work until we can resume something (or we shut down)
-    _fiberWorkerLoop(fiber_data.data);
+    ocrWorker_t *worker;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    _fiberWorkerLoop(worker);
     UNREACHABLE;
 }
 
@@ -203,15 +209,17 @@ ocrEdtDep_t ocrLegacyFiberSuspendOnEvent(ocrGuid_t event, ocrDbAccessMode_t mode
 
     // suspend this fiber until the target event is satisfied
     guids.event_guid = event;
+    DPRINTF(DEBUG_LVL_VVERB, "FIBER REQUEST AWAITING guid="GUIDF"\n", GUIDA(event));
     _fiber_suspend(_get_curr_fiber(), _fiberReplaceEntry, &guids);
     // FIXME - need to destroy the killed fiber's EDT (leak)
+    DPRINTF(DEBUG_LVL_VVERB, "FIBER REQUEST ACQUIRING db="GUIDF"\n", GUIDA(guids.db_guid));
 
     ocrEdtDep_t db_result;
     // acquire the target event's playload data block
     // (code copied from ocrLegacyBlockProgress in ocr-legacy.c)
     {
         ocrPolicyDomain_t *pd = NULL;
-        ocrFatGuid_t dbResult = {.guid = ERROR_GUID, .metaDataPtr = NULL};
+        ocrFatGuid_t dbResult = {.guid = guids.db_guid, .metaDataPtr = NULL};
         ocrFatGuid_t currentEdt;
         ocrTask_t *curTask = NULL;
         PD_MSG_STACK(msg);
