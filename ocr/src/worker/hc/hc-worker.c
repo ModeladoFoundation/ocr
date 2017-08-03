@@ -21,6 +21,7 @@
 #include "experimental/ocr-platform-model.h"
 #include "extensions/ocr-affinity.h"
 #include "extensions/ocr-hints.h"
+#include "extensions/ocr-legacy-fibers.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -364,7 +365,7 @@ static void workerLoop(ocrWorker_t * worker) {
     // switch from main pthread stack to an expendable fiber
     // before starting the primary worker loop
     START_PROFILE(wo_hc_workerLoop);
-    ocrFiberWorkerLoop(worker);
+    ocrLegacyFiberStart(worker);
     EXIT_PROFILE;
 #endif
 

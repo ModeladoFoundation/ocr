@@ -9,8 +9,11 @@
 
 #include "fcontext.h"
 
-//#include "debug.h"
+#include "debug.h"
+#include "ocr-db.h"
 #include "ocr-worker.h"
+
+#define DEBUG_TYPE WORKER
 
 #define UNREACHABLE ASSERT(!"UNREACHABLE")
 
@@ -48,6 +51,7 @@ static inline void _fiber_suspend(fcontext_state_t *current,
     fcontext_destroy(prev_fiber);
 }
 
+#if 0
 static ocrTask_t *_saveCurrentEdt(void) {
     ocrWorker_t *worker;
     ocrTask_t *edt;
@@ -62,10 +66,12 @@ static void _restoreCurrentEdt(ocrTask_t *edt) {
     ASSERT(worker->curTask == NULL);
     worker->curTask = edt;
 }
+#endif
 
 // this static function is copied from hc-comm-worker.c
 // (and then slightly modified)
 // FIXME - unused
+#if 0
 static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid,
         u64 * paramv, ocrGuid_t * depv) {
 
@@ -111,6 +117,7 @@ static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid
 #undef PD_MSG
 #undef PD_TYPE
 }
+#endif
 
 static void _fiberWorkerLoop(ocrWorker_t *worker) {
     while (worker->curState == worker->desiredState) {
@@ -122,7 +129,7 @@ static void _fiberWorkerLoop(ocrWorker_t *worker) {
     // so we shoudl swap back to original stack for this worker.
     // (worker may have changed if the fiber swapped threads)
     getCurrentEnv(NULL, &worker, NULL, NULL);
-    _fiber_exit(_worker->curr_fiber, _worker->orig_ctx);
+    _fiber_exit(worker->curr_fiber, worker->orig_ctx);
     UNREACHABLE;
 }
 
@@ -184,7 +191,7 @@ static void _fiberReplaceEntry(fcontext_transfer_t fiber_data) {
     ocrEdtCreate(&resumeEdt, resumeTemplate,
             param_size, params.u64_ptr, 1, NULL,
             EDT_PROP_NONE, NULL_HINT, NULL);
-    ocrAddDependence(guids->event_guid, resumeEdt, 0, DB_MODE_RO);
+    ocrAddDependence(resume_data.guids->event_guid, resumeEdt, 0, DB_MODE_RO);
 
     // do other work until we can resume something (or we shut down)
     _fiberWorkerLoop(fiber_data.data);
@@ -223,7 +230,7 @@ ocrEdtDep_t ocrLegacyFiberSuspendOnEvent(ocrGuid_t event, ocrDbAccessMode_t mode
         ASSERT((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0));
         // store the resulting data block's guid and pointer in our return variable
         db_result.ptr = PD_MSG_FIELD_O(ptr);
-        db_result.guid = PD_MSG_FIELD_IO(guid);
+        db_result.guid = PD_MSG_FIELD_IO(guid).guid;
 #undef PD_TYPE
 #undef PD_MSG
     }

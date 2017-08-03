@@ -118,6 +118,9 @@
 // Legacy support
 #define ENABLE_EXTENSION_LEGACY
 
+// Legacy blocking support via fibers
+#define ENABLE_EXTENSION_LEGACY_FIBERS
+
 // Affinity support
 #define ENABLE_EXTENSION_AFFINITY
 
