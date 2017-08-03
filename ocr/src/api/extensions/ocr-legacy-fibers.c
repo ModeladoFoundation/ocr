@@ -51,23 +51,6 @@ static inline void _fiber_suspend(fcontext_state_t *current,
     fcontext_destroy(prev_fiber);
 }
 
-#if 0
-static ocrTask_t *_saveCurrentEdt(void) {
-    ocrWorker_t *worker;
-    ocrTask_t *edt;
-    getCurrentEnv(NULL, &worker, &edt, NULL);
-    worker->curTask = NULL;
-    return edt;
-}
-
-static void _restoreCurrentEdt(ocrTask_t *edt) {
-    ocrWorker_t *worker;
-    getCurrentEnv(NULL, &worker, NULL, NULL);
-    ASSERT(worker->curTask == NULL);
-    worker->curTask = edt;
-}
-#endif
-
 // this static function is copied from hc-comm-worker.c
 // (and then slightly modified)
 // FIXME - unused
@@ -204,8 +187,24 @@ static void _fiberReplaceEntry(fcontext_transfer_t fiber_data) {
     UNREACHABLE;
 }
 
+static ocrTask_t *_saveCurrentEdt(void) {
+    ocrWorker_t *worker;
+    ocrTask_t *edt;
+    getCurrentEnv(NULL, &worker, &edt, NULL);
+    worker->curTask = NULL;
+    return edt;
+}
+
+static void _restoreCurrentEdt(ocrTask_t *edt) {
+    ocrWorker_t *worker;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    worker->curTask = edt;
+}
+
 ocrEdtDep_t ocrLegacyFiberSuspendOnEvent(ocrGuid_t event, ocrDbAccessMode_t mode) {
     AwaitedGuids guids;
+
+    ocrTask_t *edt = _saveCurrentEdt();
 
     // suspend this fiber until the target event is satisfied
     guids.event_guid = event;
@@ -213,6 +212,8 @@ ocrEdtDep_t ocrLegacyFiberSuspendOnEvent(ocrGuid_t event, ocrDbAccessMode_t mode
     _fiber_suspend(_get_curr_fiber(), _fiberReplaceEntry, &guids);
     // FIXME - need to destroy the killed fiber's EDT (leak)
     DPRINTF(DEBUG_LVL_VVERB, "FIBER REQUEST ACQUIRING db="GUIDF"\n", GUIDA(guids.db_guid));
+
+    _restoreCurrentEdt(edt);
 
     ocrEdtDep_t db_result;
     // acquire the target event's playload data block
