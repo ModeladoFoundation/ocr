@@ -216,9 +216,13 @@ ocrEdtDep_t ocrLegacyFiberSuspendOnEvent(ocrGuid_t event, ocrDbAccessMode_t mode
     _restoreCurrentEdt(edt);
 
     ocrEdtDep_t db_result;
-    // acquire the target event's playload data block
+    db_result.guid = guids.db_guid;
+    // acquire the target event's playload data block (non-null)
     // (code copied from ocrLegacyBlockProgress in ocr-legacy.c)
-    {
+    if (ocrGuidIsNull(guids.db_guid)) {
+        db_result.ptr = NULL;
+    }
+    else {
         ocrPolicyDomain_t *pd = NULL;
         ocrFatGuid_t dbResult = {.guid = guids.db_guid, .metaDataPtr = NULL};
         ocrFatGuid_t currentEdt;
@@ -240,6 +244,7 @@ ocrEdtDep_t ocrLegacyFiberSuspendOnEvent(ocrGuid_t event, ocrDbAccessMode_t mode
         // store the resulting data block's guid and pointer in our return variable
         db_result.ptr = PD_MSG_FIELD_O(ptr);
         db_result.guid = PD_MSG_FIELD_IO(guid).guid;
+        ASSERT(ocrGuidIsEq(db_result.guid, guids.db_guid));
 #undef PD_TYPE
 #undef PD_MSG
     }
