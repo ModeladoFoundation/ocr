@@ -1,0 +1,54 @@
+This directory contains the test results of Allocator based on three area of changes
+    1) For PD, there is PDsingleXE or PD8XE.
+    2) For L1, there is ‘no L1’, L1both , L1user , or L1rt; where ‘user’ means
+       user app only usage of L1 and ‘rt’ means runtime only usage of L1.
+    3) For L2, there is only ‘no L2’, ‘L24k/32k’, ‘L264k/32k’or  indicating that the XE PD,
+       not the CE PD, is managing L2.  The ‘4k/32k’ and ‘64k/2048k’ for L2 indicate
+       the AllocXeL1MaxSize and AllocXeL2MaxSize, respectively.  The ‘64k/2048k’ implies
+       there is NO max size limit checked; but the allocator will return no memory if it is too large.
+
+For each scenario MSGSTATS and Energy Stats are collected.  Testing uses CoMD, RSBench, fib, and fft.
+    case 1 – current:  PDsingleXE, L1both, no L2
+    case 2 – SR:       PDsingleXE, no L1, no L2
+    case 3 – SR:       PD8XE, no L1, no L2
+    case 4 – DHE:      PD8XE, L1(both), no L2
+    case 5 – DHE:      PD8XE, L1rt, no L2
+    case 6 – DHE:      PD8XE, L1user, no L2
+    case 7 – DHE:      PD8XE, L1both, L264k/2048k
+    case 8 – DHE:      PD8XE, L1both, L24k/32k
+    case 9 - DHE:      PD8XE, L1user, L264k/2048k
+    case 10- DHE:      PD8XE, L1rt, L264k/2048k
+
+Directory structure:
+
+Under each application directory, there are 16 sub-directories and 8 csv files.
+Directory and file names are long, but contain the configuration information. For example,
+"c7_install_msgstats_pd_1_user_0_rt_0_l2_1_64K_4d" is the install/tg/logs directory of the
+msg stats collected for test case 7 (c7):
+
+    pd_1 :  OCR_SHARED_XE_POLICY_DOMAIN was defined, PD8XE
+    user_0: OCR_DISABLE_USER_L1_ALLOC was NOT defined,
+    rt_0:   OCR_DISABLE_RUNTIME_L1_ALLOC was also NOT defined, thus L1both
+    l2_1:   OCR_ENABLE_XE_L2_ALLOC was defined,
+    64K:    AllocXeL1MaxSize set to 64K, L2 set to 2048K
+
+The post processed result is c7_install_msgstats_pd_1_user_0_rt_0_l2_1_64K_4d.csv for MSGSTATS.
+The post processed results of Energy Stats is under cx_install_energy_xxxxx/tg/results directory.
+
+Results:
+
+tg-results-2017.6.14.tar.gz:
+tg-results-2017.6.15.tar.gz:
+   results from running CoMD, RSBench, fib and fft on wip3-l2alloc branch, testing PD and Allocator changes
+
+tg-results-2017.6.20.tgz:
+tg-results-2017.6.20-c8.tgz:
+   results from running CoMD, RSBench, fib and fft on wip3-l2alloc branch, testing PD and Allocator changes using updated energy stats script
+
+tg-results-2017.7.28.tar.gz:
+   results from running CoMD and RSBench for additional test cases(9 & 10), and re-run test cases 1 & 4 with additional debug output testing contention on allocator introduced with shared PD.
+
+knl-results-2017.8.4.tar.gz:
+   results of running RSBench, hpcg, and CoMD for the cache-line OCR changes.
+
+

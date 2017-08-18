@@ -1,0 +1,34 @@
+This directory contains the test results of MultiGet support
+
+For each scenario MSGSTATS and Energy Stats are collected.  Testing uses CoMD, RSBench, and fft.
+
+    case 1: Shared PD w/L1 & L2 Allocation
+    case 2: XE_MULTIGET & CE_MULTIGET:
+    case 3: SPAWN QUEUE
+
+Directory structure:
+
+Under each application directory, there are 10 sub-directories and 5 csv files.
+Directory and file names are long, but contain the configuration information. For example,
+"install_c4_msgstats_pd_1_xe_1_ce_0_4d" is the install/tg/logs directory of the
+msg stats collected for test case 4 (c4):
+
+    pd_1 :  OCR_SHARED_XE_POLICY_DOMAIN was defined, PD8XE
+    xe_1 :  OCR_ENABLE_XE_GET_MULTI_WORK was defined,
+    ce_0:   OCR_ENABLE_CE_GET_MULTI_WORK was  NOT defined
+
+The post processed result is install_c4_msgstats_pd_1_xe_1_ce_0_4d.csv for MSGSTATS.
+The post processed results of Energy Stats is under install_c4_energy_pd_1_xe_1_ce_0_4d/tg/results directory.
+
+6.23 results: first set of data collected using wip6-multiget branch
+6.25 results: results from running updated energyStats script
+
+6.28 results: data collected using wip8-multiget branch
+
+7.4/5/6 results:  wip-sched
+
+7.24 results:  comd-revisit
+
+7.27 results: sched large tests, comd & rsbench (Chandra workload parameters)
+
+8.11: added knl sched results in knl_sched_results.tar.gz

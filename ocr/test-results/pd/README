@@ -1,0 +1,9 @@
+
+XSTG:
+tg_results.tar.gz: Comparing XE L1 & L2 PD. CoMD & RSBench. Energy & msgstats
+
+KNL:
+2017-07-03.tar.xz: HPCG original workload. time & profile.
+2017-07-06.tar.xz: RSBench
+2017-07-26.tar.xz: HPCG Chandra's two suggested new workloads.
+
