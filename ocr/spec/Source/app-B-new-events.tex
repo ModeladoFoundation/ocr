@@ -210,3 +210,152 @@ The following parameters are available for channel events:
   trigger. Currently must be set to 1.
 \end{itemize}
 \end{itemize}
+
+\section{Collective events}
+\label{sec:collectiveEvents}
+
+Collective operations are a staple of Single Programming Multiple Data (SPMD)
+programming style, most exemplified by MPI. Collective operations in OCR are
+expressed through adding dependences between OCR objects and satisfying OCR events.
+For instance, a broadcast operation is equivalent to satisfying an OCR event with a
+datablock and having dependences established between the OCR event and other consumer
+OCR objects. Similar OCR object assembly can be constructed to represent traditional
+collective operations such as reductions, scatter and gather patterns. However, OCR differs
+from SPMD programming style in that there is no notion of `rank' and notion that all the `ranks'
+would participate in a collective operation.
+Expressing those patterns in terms of OCR object assemblies is a very repetitive chore.
+Additionally, it requires to organize and coordinate the associated DAG construction which
+can be cumbersome to program. Hence, a user-level `reduction' library has been used to perform
+reductions in various OCR applications, improving the productivity of programmers.
+
+We propose an extension to the OCR specification based on extending the concept of events to
+accommodate collective operations. A collective event is defined as having `i' input slots (islots)
+and `o' output slots (oslots). It is reusable, meaning once created and instantiated, its GUID can be
+used to carry out multiple reductions and can trigger multiple times. We propose to support three
+collective operations: broadcast, reduce and all reduce. A number of operators such as min, max,
+add, multiply, and, or, xor, on both four and eight bytes data types are supported. Further API and
+implementation work could easily include support for all gather, scatter and gather types
+of operations.
+A collective event can be configured at its creation time to specify the collective
+operation, types, operators and other parameters. These parameters are immutable,
+meaning a collective event instance cannot be repurposed for other operations or operators.
+
+The collective event is better used in SPMD-like codes, where multiple EDTs
+are created and execute concurrently, representing a sub-domain of an application,
+similarly to MPI ranks. We name such EDTs: `rank EDTs'. In that context, each rank
+EDT contributes to a specific i/o slot of the collective event. Generally speaking,
+a satisfy operation on an islot allows to participate in the collective operation,
+while an ocrAddDependence on an oslot allows to depend on the completion of the
+operation. The result of the operation, if any, is available in a datablock
+passed through the satisfied dependence.
+We define a phase, as being one instance of a collective operation invoked by
+a rank EDT. The phase may include both adding a dependence to the event
+and satisfying it depending on the collective operation invoked.
+Additionally, the phase concept is decoupled from having the collective event trigger.
+
+For an all-reduce operation, each rank EDT is responsible for first adding itself
+as a dependence on the event's corresponding oslot, then contribute its reduction
+value through a satisfy on the event's corresponding islot. The event will
+trigger on all its oslots when it has received all the islot contributions
+and has performed the reduction. For a given rank EDT, a phase is done
+when it has both added a dependence to and satisfied the event.
+
+For a reduce operation, each rank EDT is responsible for contributing its
+reduction value through a satisfy on the event's corresponding islot. Only a
+single EDT per phase may add itself as a dependence on its own oslot. The event
+will fire on that single oslot when it has received all the islot contributions
+and has performed the reduction. If the programmer decides to add a dependence
+to multiple rank EDTs, the behavior is undefined. For the target rank EDT, a phase
+is done when it has both added a dependence to and satisfied the event. For
+other contributors, a phase is done as soon as the event is satisfied.
+
+For a broadcast operation, each rank EDT is responsible for adding itself
+as a dependence on the event's corresponding oslot, while a single EDT is
+responsible for contributing a broadcast value on its own islot. For the
+broadcaster rank EDT, a phase is done when it has satisfied the event.
+For other contributors, a phase is done after a dependence has been added to the event.
+
+\subsection{API}
+
+Collective events require extending the ocrAddDependence API call with a source slot
+in addition to a destination slot. The ocrAddDependenceSlot API call allows to specify which output slot
+to set up a dependence, from a given collective event GUID.
+
+% \hypertarget{func_ocrAddDependenceSlot}{
+%   \index{Dependence management@{Dependence management}!ocr\-Add\-Dependence@{ocr\-Add\-Dependence}}
+%   \subsection[{ocr\-Add\-DependenceSkit}]{\setlength{\rightskip}{0pt plus 5cm}{
+ {\bf u8} ocr\-Add\-DependenceSlot(
+\begin{DoxyParamCaption}
+\item[{{\bf ocr\-Guid\-\_\-t}}]{source, }
+\item[{{\bf u32}}]{sslot, }
+\item[{{\bf ocr\-Guid\-\_\-t}}]{destination, }
+\item[{{\bf u32}}]{dslot, }
+\item[{{\bf ocr\-Db\-Access\-Mode\-\_\-t}}]{mode}
+\end{DoxyParamCaption}
+)
+%}}
+% \label{func_ocrAddDependenceSlot}
+
+Non implementation-specific arguments to the collective event creation are:
+\begin{itemize}
+\item \code{EVENT\_COLLECTIVE}:
+\begin{itemize}
+\item \code{{\bf u16} nbDatum}: Expected number of datum provided by each contributor.
+\item \code{{\bf redOp\_t} op}: The operation to be applied to the collective if any.
+\item \code{{\bf collectiveType\_t} type}: The type of collective to be invoked.
+\end{itemize}
+\end{itemize}
+
+Where the type of collective to be invoked is:
+\begin{itemize}
+\item \code{collectiveType\_t}:
+\begin{itemize}
+\item \code{COL\_REDUCE}: A collective of type reduce.
+\item \code{COL\_ALLREDUCE}: A collective of type all-reduce.
+\item \code{COL\_BROADCAST}: A collective of type broadcast.
+\end{itemize}
+\end{itemize}
+
+Where the reduction operation is:
+\begin{itemize}
+\item \code{redOp\_t}:
+\begin{itemize}
+\item \code{REDOP\_F8\_ADD}
+\item \code{REDOP\_F8\_MULT}
+\item \code{REDOP\_F8\_MIN}
+\item \code{REDOP\_F8\_MAX}
+\item \code{REDOP\_U8\_ADD}
+\item \code{REDOP\_U8\_MULT}
+\item \code{REDOP\_U8\_MIN}
+\item \code{REDOP\_U8\_MAX}
+\item \code{REDOP\_U8\_BITAND}
+\item \code{REDOP\_U8\_BITOR}
+\item \code{REDOP\_U8\_BITXOR}
+\item \code{REDOP\_S8\_MIN}
+\item \code{REDOP\_S8\_MAX}
+\item \code{REDOP\_F4\_ADD}
+\item \code{REDOP\_F4\_MULT}
+\item \code{REDOP\_F4\_MIN}
+\item \code{REDOP\_F4\_MAX}
+\item \code{REDOP\_U4\_ADD}
+\item \code{REDOP\_U4\_MULT}
+\item \code{REDOP\_U4\_MIN}
+\item \code{REDOP\_U4\_MAX}
+\item \code{REDOP\_S4\_MIN}
+\item \code{REDOP\_S4\_MAX}
+\item \code{REDOP\_U4\_BITAND}
+\item \code{REDOP\_U4\_BITOR}
+\item \code{REDOP\_U4\_BITXOR}
+\end{itemize}
+\end{itemize}
+
+The naming convention for the reduction operation is as follows: `REDOP\_'
+followed by the primitive type of the operands, followed by the operation
+to apply when performing the reduction.
+
+The primitive type `F',`U',`S', respectively refer to a floating point,
+an unsigned integer or a signed integer, while `4' and `8' relates to a
+four or eight bytes wide type.
+The operation applied `ADD', `MULT', `MIN', `MAX', `BITAND', `BITOR' and `BITXOR'
+respectively refer to the addition, multiplication, minimum, maximum
+and bitwise and, or and exclusive or.
